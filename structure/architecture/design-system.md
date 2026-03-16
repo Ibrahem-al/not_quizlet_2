@@ -151,5 +151,13 @@ Defined in `src/lib/utils.ts` as `FOLDER_COLORS`:
 - `.ProseMirror`: No outline, min-height 2rem
 - Empty placeholder: First empty paragraph shows `data-placeholder` attribute as gray text
 - Images: `max-width: 100%; height: auto; border-radius: var(--radius-sm)`
-- Study content images: max 280x140px, object-fit contain
-- Editor content images: max 100x64px, object-fit contain
+
+## Image Sizing by Context
+
+| Context | CSS Selector | Max Size | Purpose |
+|---------|-------------|----------|---------|
+| Study modes | `.study-content img` | 280x200px | Full-size in flashcards, questions |
+| Match tiles | `.match-tile .study-content img` | 100% width, 70px height | Contained within tile |
+| Memory cards | `.memory-card-content .study-content img` | 100% width, 80px height | Fits card space |
+| Editor (active) | `.editor-content img`, `.editor-content .ProseMirror img` | 80x56px | Small thumbnails while editing |
+| Card preview (inactive) | `.card-preview img` | 80x56px | Small thumbnails in card list |

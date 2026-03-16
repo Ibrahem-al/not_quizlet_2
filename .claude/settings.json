@@ -9,7 +9,9 @@
       "Bash(rm -rf studyflow-app)",
       "Bash(npx tsc:*)",
       "Bash(node -e \"try { const m = require.resolve\\(''@tiptap/react''\\); console.log\\(''found:'', m\\); } catch\\(e\\) { console.log\\(''not found''\\) }\")",
-      "Bash(grep export.*BubbleMenu c:UsersibrahOneDriveDocumentsnot_quizlet_2node_modules@tiptapreactdistindex.d.ts)"
+      "Bash(grep export.*BubbleMenu c:UsersibrahOneDriveDocumentsnot_quizlet_2node_modules@tiptapreactdistindex.d.ts)",
+      "Bash(rm -rf node_modules package-lock.json)",
+      "Bash(npm install:*)"
     ]
   }
 }

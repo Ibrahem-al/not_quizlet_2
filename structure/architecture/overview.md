@@ -14,7 +14,7 @@
 | Local DB | Dexie | 4.3 | IndexedDB wrapper for offline storage |
 | Cloud DB | Supabase | 2.99 | Optional auth, cloud sync, public sets |
 | Rich Text | TipTap | 3.20 | ProseMirror-based card editor |
-| Drag & Drop | @dnd-kit | core 6.3, sortable 10.0 | Card reordering |
+| Drag & Drop | @dnd-kit | core 6.3, sortable 10.0 | Card reordering, Match mode drag-to-match |
 | Virtualization | @tanstack/react-virtual | 3.13 | Large card list rendering |
 | Search | Fuse.js | 7.1 | Fuzzy search in command palette |
 | Command Palette | cmdk | 1.1 | Ctrl+K modal |
@@ -36,7 +36,7 @@ The app is designed to work entirely offline. All data is stored locally in Inde
 Every page is code-split via `React.lazy()`. Heavy libraries (jsPDF, tesseract.js, TipTap) are dynamically imported only when needed. The TipTap editor is only mounted when a card is in "active" editing state.
 
 ### Spaced Repetition Built-In
-Cards carry SM-2 algorithm state (`efFactor`, `interval`, `repetition`, `nextReviewDate`). Every study interaction updates these fields, enabling intelligent review scheduling.
+Cards carry SM-2 algorithm state (`efFactor`, `interval`, `repetition`, `nextReviewDate`). Learn and Test modes update these fields, enabling intelligent review scheduling. Flashcard mode is a simple review mode without SM-2 integration.
 
 ### Equivalence-Aware Grading
 Answer checking uses Levenshtein distance with adaptive thresholds plus equivalence groups. Cards with identical normalized terms share all valid answers, preventing false negatives in study modes.
@@ -60,10 +60,12 @@ main.tsx
   -> StrictMode + QueryClientProvider + BrowserRouter
     -> App.tsx
       -> useThemeStore (apply theme on mount)
+      -> useAuthStore.initialize() (fetch session on mount)
       -> Suspense (lazy page loading)
         -> Layout (header, nav, theme toggle, auth)
           -> AnimatePresence + Routes
-            -> [Lazy Pages]
+            -> RequireAuth (wraps protected routes like /sets/new)
+              -> [Lazy Pages]
       -> ToastContainer (global notifications)
 ```
 

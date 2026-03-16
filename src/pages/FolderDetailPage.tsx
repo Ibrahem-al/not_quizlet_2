@@ -13,6 +13,8 @@ import {
 import type { FolderColor } from '@/types';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useSetStore } from '@/stores/useSetStore';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import PageTransition from '@/components/layout/PageTransition';
 import SetCard from '@/components/SetCard';
 import { Button } from '@/components/ui/Button';
@@ -93,6 +95,10 @@ function FolderDetailPage() {
 
   const handleNewSet = useCallback(async () => {
     if (!id) return;
+    if (isSupabaseConfigured() && !useAuthStore.getState().user) {
+      navigate('/signin', { state: { returnTo: `/folders/${id}` } });
+      return;
+    }
     const now = Date.now();
     const newSet = {
       id: generateId(),

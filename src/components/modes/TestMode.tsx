@@ -738,7 +738,7 @@ function TestMode({ cards, setId }: TestModeProps) {
                 >
                   Term:
                 </span>
-                <StudyContent html={currentQuestion.tfPair.term} className="text-lg font-semibold mt-1" />
+                <StudyContent html={currentQuestion.tfPair.term} className="text-xl font-semibold mt-1" />
               </div>
               <div>
                 <span
@@ -747,11 +747,11 @@ function TestMode({ cards, setId }: TestModeProps) {
                 >
                   Definition:
                 </span>
-                <StudyContent html={currentQuestion.tfPair.definition} className="text-lg mt-1" />
+                <StudyContent html={currentQuestion.tfPair.definition} className="text-xl mt-1" />
               </div>
             </div>
           ) : (
-            <StudyContent html={currentQuestion.promptHtml} className="text-xl font-semibold mb-6" />
+            <StudyContent html={currentQuestion.promptHtml} className="text-2xl font-semibold mb-6" />
           )}
 
           {/* Written */}

@@ -2,9 +2,11 @@ import { Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { lazy, Suspense, useEffect } from 'react';
 import Layout from '@/components/layout/Layout';
+import RequireAuth from '@/components/RequireAuth';
 import { Spinner } from '@/components/ui/Spinner';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useThemeStore } from '@/stores/useThemeStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 const HomePage = lazy(() => import('@/pages/HomePage'));
 const NewSetPage = lazy(() => import('@/pages/NewSetPage'));
@@ -28,6 +30,7 @@ function App() {
 
   useEffect(() => {
     useThemeStore.getState();
+    useAuthStore.getState().initialize();
   }, []);
 
   return (
@@ -43,7 +46,7 @@ function App() {
           <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>
               <Route path="/" element={<HomePage />} />
-              <Route path="/sets/new" element={<NewSetPage />} />
+              <Route path="/sets/new" element={<RequireAuth><NewSetPage /></RequireAuth>} />
               <Route path="/sets/:id" element={<SetDetailPage />} />
               <Route path="/sets/:id/study/:mode" element={<StudyPage />} />
               <Route path="/stats" element={<StatsPage />} />

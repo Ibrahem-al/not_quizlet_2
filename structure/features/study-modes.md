@@ -18,9 +18,10 @@ type StudyMode = 'flashcards' | 'learn' | 'match' | 'test'
 
 ### Behavior
 - Cards displayed one at a time with 3D flip animation (spring physics)
-- Swipe gestures: right = "Know It" (quality 5), left = "Study Again" (quality 2), down = skip
+- Simple navigation: Prev / Flip / Next controls
 - Progressive word reveal: press Space to reveal definition one word at a time
-- SM-2 spaced repetition updates on every rating
+- "Next" on the last card transitions to session complete screen
+- No difficulty rating or spaced repetition — pure review mode
 
 ### Keyboard Shortcuts
 
@@ -29,13 +30,10 @@ type StudyMode = 'flashcards' | 'learn' | 'match' | 'test'
 | `Space` | Progressive reveal (shows definition word by word) |
 | `Arrow Left` | Previous card |
 | `Arrow Right` | Next card |
-| `1` | Rate "Again" (quality 2) |
-| `2` | Rate "Hard" (quality 3) |
-| `3` | Rate "Easy" (quality 5) |
-| `Escape` | Exit (press twice to confirm) |
+| `Escape` | Exit to set detail page |
 
 ### Session Complete Screen
-Shows breakdown: Know It / Learning / Study Again counts with color-coded cards. Options: Restart or Exit.
+Shows total cards reviewed. Options: Restart or Exit.
 
 ---
 
@@ -64,15 +62,19 @@ Shows breakdown: Know It / Learning / Study Again counts with color-coded cards.
 **Route:** `/sets/:id/study/match`
 
 ### Behavior
-- Takes first 8 cards, creates term + definition tiles (16 total), shuffled
-- Timer starts on first click
-- Select two tiles to match; equivalence-aware matching
-- Matched tiles fade out; mismatched tiles shake (x-axis animation)
+- Takes first 8 cards, creates term + definition tiles (16 total), shuffled in a grid
+- **Drag-and-drop interaction**: each tile is both draggable and droppable — drag one tile onto another to attempt a match
+- Uses `@dnd-kit/core` with `useDraggable` + `useDroppable` on every tile, `PointerSensor` + `TouchSensor`
+- Timer starts on first drag
+- Equivalence-aware matching (different sides required: term must match definition)
+- Matched tiles fade out; mismatches show a "Not a match" toast
+- `DragOverlay` shows the dragged tile with primary highlight
+- Drop targets scale up and highlight when hovered
 - Confetti via `canvas-confetti` on completion
 - Shows completion time
 
 ### Grid Layout
-Responsive: 2 cols (mobile), 3 cols (sm), 4 cols (md+). Each tile is 112px tall.
+Responsive: 2 cols (mobile), 3 cols (sm), 4 cols (md+). Each tile is 112px tall with `.match-tile` class for image containment.
 
 ---
 
@@ -117,6 +119,7 @@ Sets `filteredCardIds` in `useFilterStore` with IDs of incorrectly answered card
 ### Wheel Mechanics
 - Segment angle = 360 / remaining cards
 - Landing calculated to center pointer on random segment
+- SVG wrapped in a rotating `<div>` (CSS transforms on HTML elements for cross-browser reliability)
 - Rotation uses `cubic-bezier(0.17, 0.67, 0.12, 0.99)` for natural deceleration
 
 ---
@@ -160,15 +163,18 @@ Split layout: question panel (left) + tower visualization (right, 48-wide on des
 ### Behavior
 - Classic concentration/memory game
 - Select pair count (2-12), generates term + definition card pairs
+- Cards are vertical rectangles (3:4 aspect ratio) with content filling the card space
 - Cards face-down with "?" symbol, flip on click with 3D CSS animation
 - Match term to definition (equivalence-aware)
+- Completion check uses actual card state (`updated.every(c => c.isMatched)`) rather than counter comparison
 - Matched pairs fade out and shrink
 - Tracks moves and elapsed time
 
-### Grid Columns
-- 2-3 pairs: 2 columns
-- 4-6 pairs: 3 columns
-- 7-12 pairs: 4 columns
+### Grid Layout
+- Viewport-height container (`calc(100vh - 80px)`) so all cards fit without scrolling
+- Grid uses both `gridTemplateColumns` and `gridTemplateRows` with `1fr` for auto-sizing
+- Column calculation: 3 (≤6 cards), 4 (≤12 cards), 5 (≤20 cards), 6 (≤24 cards)
+- Images inside cards constrained via `.memory-card-content .study-content img` CSS
 
 ### Results
 Shows moves, time, pairs, accuracy percentage. Confetti animation using Framer Motion particles.
@@ -231,7 +237,10 @@ All modes use `gradeWrittenAnswer()` from `src/lib/equivalence.ts` which:
 3. Uses Levenshtein distance with adaptive thresholds: exact for <= 4 chars, 1 edit for <= 8 chars, 15% of length for longer
 
 ### SM-2 Integration
-Flashcard and Learn modes call `recordReview(card, quality, mode)` from `src/lib/spaced-repetition.ts`. Quality values: 1 (wrong), 2 (again), 3 (hard), 4 (medium), 5 (easy). Test mode uses 4 (correct) or 1 (wrong).
+Learn and Test modes call `recordReview(card, quality, mode)` from `src/lib/spaced-repetition.ts`. Quality values: 1 (wrong), 2 (again), 3 (hard), 4 (medium), 5 (easy). Test mode uses 4 (correct) or 1 (wrong). Flashcard mode no longer uses SM-2 — it is a simple review mode.
+
+### Text Sizing
+Terms and prompts use `text-2xl font-semibold`, definitions use `text-xl` across all modes. Memory cards use `text-base`, match tiles use `text-base`.
 
 ### Session Complete UI
 All modes show a completion screen with stats, "Play Again"/"Restart" and "Exit" buttons. Exit navigates to `/sets/:id`.

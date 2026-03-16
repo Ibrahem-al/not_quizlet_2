@@ -16,7 +16,7 @@ not_quizlet_2/
 │
 └── src/
     ├── main.tsx                        # React entry: StrictMode, QueryClient, BrowserRouter
-    ├── App.tsx                         # Router setup, lazy page imports, AnimatePresence
+    ├── App.tsx                         # Router setup, lazy page imports, AnimatePresence, auth init
     ├── index.css                       # Design tokens, dark theme, global styles, ProseMirror styles
     ├── vite-env.d.ts                   # Vite type declarations
     │
@@ -84,10 +84,12 @@ not_quizlet_2/
         │   ├── Layout.tsx              # App shell: sticky header, nav, theme toggle, auth, mobile menu
         │   └── PageTransition.tsx      # Framer Motion page enter/exit animations
         │
+        ├── RequireAuth.tsx            # Route guard: redirects to /signin if not authenticated
+        │
         ├── modes/
-        │   ├── FlashcardMode.tsx       # Swipe-based flashcards with progressive reveal
+        │   ├── FlashcardMode.tsx       # Simple flashcards with flip + prev/next navigation
         │   ├── LearnMode.tsx           # Mixed question types (MC, written, T/F) with SR
-        │   ├── MatchMode.tsx           # Timed tile-matching game with confetti
+        │   ├── MatchMode.tsx           # Drag-and-drop tile-matching game with confetti
         │   ├── TestMode.tsx            # Configurable test with results and missed-card review
         │   └── games/
         │       ├── SpinnerMode.tsx     # SVG spinner wheel game

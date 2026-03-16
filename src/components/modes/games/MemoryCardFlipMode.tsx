@@ -143,21 +143,20 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
         if (isMatch) {
           // Match found
           lockTimeoutRef.current = setTimeout(() => {
-            setMemoryCards((curr) =>
-              curr.map((c) =>
+            setMemoryCards((curr) => {
+              const updated = curr.map((c) =>
                 c.id === newFlipped[0].id || c.id === newFlipped[1].id
                   ? { ...c, isMatched: true }
                   : c,
-              ),
-            );
-            setMatchedPairs((mp) => {
-              const newMp = mp + 1;
-              if (newMp >= pairCount) {
+              );
+              // Check if ALL cards are matched (not just a counter)
+              if (updated.every((c) => c.isMatched)) {
                 if (timerRef.current) clearInterval(timerRef.current);
                 setTimeout(() => setPhase('results'), 600);
               }
-              return newMp;
+              return updated;
             });
+            setMatchedPairs((mp) => mp + 1);
             setIsLocked(false);
           }, 600);
         } else {
@@ -325,13 +324,15 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
     );
   }
 
-  // Game grid
-  const columns = pairCount <= 3 ? 2 : pairCount <= 6 ? 3 : 4;
+  // Game grid — pick columns so rows fit on screen
+  const totalCards = pairCount * 2;
+  const columns = totalCards <= 6 ? 3 : totalCards <= 12 ? 4 : totalCards <= 20 ? 5 : 6;
+  const rows = Math.ceil(totalCards / columns);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3 shrink-0">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
           Exit
         </Button>
@@ -351,16 +352,18 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
 
       {/* Card grid */}
       <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
+        className="grid gap-2 flex-1 min-h-0"
+        style={{
+          gridTemplateColumns: `repeat(${columns}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
       >
         {memoryCards.map((card) => (
           <motion.div
             key={card.id}
-            className="relative cursor-pointer select-none"
+            className="relative cursor-pointer select-none min-h-0"
             style={{
               perspective: 800,
-              aspectRatio: '3/4',
             }}
             onClick={() => handleCardClick(card.id)}
             whileTap={card.isMatched || card.isFlipped ? undefined : { scale: 0.95 }}
@@ -388,7 +391,7 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
 
               {/* Face up */}
               <motion.div
-                className="absolute inset-0 flex flex-col items-center justify-center p-3 rounded-xl overflow-hidden"
+                className="absolute inset-0 flex flex-col items-center justify-center p-2 rounded-xl overflow-hidden"
                 style={{
                   background: 'var(--color-surface)',
                   border: '2px solid var(--color-border)',
@@ -399,7 +402,7 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
                 transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
               >
                 <span
-                  className="text-[10px] uppercase tracking-wider font-bold mb-1 px-1.5 py-0.5 rounded"
+                  className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded shrink-0"
                   style={{
                     background: card.type === 'term' ? 'var(--color-primary-light)' : 'var(--color-success-light)',
                     color: card.type === 'term' ? 'var(--color-primary)' : 'var(--color-success)',
@@ -407,8 +410,8 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
                 >
                   {card.type === 'term' ? 'T' : 'D'}
                 </span>
-                <div className="text-xs text-center mt-1 overflow-hidden" style={{ color: 'var(--color-text)' }}>
-                  <StudyContent html={card.content} className="text-xs leading-tight" />
+                <div className="flex-1 flex items-center justify-center w-full overflow-hidden memory-card-content" style={{ color: 'var(--color-text)' }}>
+                  <StudyContent html={card.content} className="text-base leading-snug text-center" />
                 </div>
               </motion.div>
             </motion.div>

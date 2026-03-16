@@ -36,10 +36,28 @@ This file tracks improvements, corrections, and lessons learned during developme
 | 2026-03-16 | cloudSync.ts used camelCase column names, Supabase uses snake_case | Rewrote cloudSync.ts with proper rowToSet/setToRow mapping functions |
 | 2026-03-16 | No RLS policies — any user could read/modify any set | Created full migration SQL with RLS: owner CRUD + share_token SELECT for anonymous access |
 | 2026-03-16 | No share link feature | Added share_token column, /shared/:token route, read-only SharedSetPage with study modes, Share button on SetDetailPage |
+| 2026-03-16 | Users could create sets without being logged in | Added RequireAuth route guard, auth initialization in App.tsx, returnTo redirect after sign-in |
+| 2026-03-16 | Spinner wheel didn't visually spin | Wrapped SVG in rotating div — CSS transforms unreliable on SVG `<g>` elements |
+| 2026-03-16 | Images displayed full-size in card editor | Added `.editor-content` and `.card-preview` classes with thumbnail sizing CSS |
+| 2026-03-16 | Memory game cards too large, required scrolling | Viewport-height grid with auto-sized rows, removed fixed aspect ratio |
+| 2026-03-16 | Memory game ended early (counter mismatch) | Changed completion check from counter comparison to `updated.every(c => c.isMatched)` |
+| 2026-03-16 | No save button in card editor | Added manual Save button alongside Add Card, flushes debounce timer |
+| 2026-03-16 | Text too small across study modes | Bumped terms to text-2xl, definitions to text-xl, memory cards to text-base |
+| 2026-03-16 | Match mode was click-based | Rewrote with @dnd-kit drag-and-drop — tiles are both draggable and droppable in shuffled grid |
+| 2026-03-16 | Flashcard difficulty rating unnecessary | Removed SM-2 integration, rating buttons, swipe-to-rate; simplified to Prev/Flip/Next |
+| 2026-03-16 | Photo import feature unused | Removed Photo Import button and Camera icon from SetDetailPage |
 
 ## Future Improvements
 - [ ] Implement full Live Multiplayer with Supabase Realtime
-- [ ] Add FSRS spaced repetition algorithm option
+- [ ] Add FSRS spaced repetition algorithm option (Learn/Test modes only; Flashcard mode is now simple review)
+- [x] Auth guard on set creation routes
+- [x] Manual Save button in card editor
+- [x] Drag-and-drop matching in Match mode
+- [x] Simplified Flashcard mode (no difficulty rating)
+- [x] Fixed spinner wheel animation
+- [x] Fixed memory game completion logic
+- [x] Image thumbnails in card editor
+- [x] Viewport-fit memory game grid
 - [ ] Supabase Storage for images instead of base64
 - [ ] Recharts integration for richer analytics charts
 - [ ] Keyboard shortcut overlay/help modal

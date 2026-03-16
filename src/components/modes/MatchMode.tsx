@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, stripHtml, normalizeAnswer, formatTime } from '@/lib/utils';
+import { shuffleArray, normalizeAnswer, formatTime } from '@/lib/utils';
 import { buildEquivalenceGroups } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
@@ -20,6 +31,66 @@ interface Tile {
   matched: boolean;
 }
 
+function DraggableDroppableTile({
+  tile,
+  isOver,
+  activeDragId,
+}: {
+  tile: Tile;
+  isOver: boolean;
+  activeDragId: string | null;
+}) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: tile.id });
+  const { setNodeRef: setDropRef } = useDroppable({ id: tile.id });
+
+  // Combine both refs
+  const setRefs = useCallback(
+    (node: HTMLElement | null) => {
+      setDragRef(node);
+      setDropRef(node);
+    },
+    [setDragRef, setDropRef],
+  );
+
+  if (tile.matched) {
+    return (
+      <motion.div
+        exit={{ opacity: 0, scale: 0.8 }}
+        transition={{ duration: 0.3 }}
+        className="match-tile h-28 rounded-xl"
+        style={{ background: 'var(--color-muted)', opacity: 0.3 }}
+      />
+    );
+  }
+
+  const isBeingDragged = isDragging;
+  const isDropTarget = isOver && activeDragId !== tile.id;
+
+  return (
+    <motion.div
+      ref={setRefs}
+      {...listeners}
+      {...attributes}
+      layout
+      whileTap={{ scale: 0.95 }}
+      className="match-tile h-28 flex items-center justify-center p-3 rounded-xl cursor-grab active:cursor-grabbing touch-none overflow-hidden text-base transition-shadow"
+      style={{
+        background: isDropTarget
+          ? 'var(--color-primary-light)'
+          : 'var(--color-surface)',
+        border: `2px solid ${isDropTarget ? 'var(--color-primary)' : 'var(--color-border)'}`,
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: isDropTarget ? 'var(--shadow-md)' : 'var(--shadow-xs)',
+        opacity: isBeingDragged ? 0.3 : 1,
+        color: 'var(--color-text)',
+        transform: isDropTarget ? 'scale(1.03)' : undefined,
+      }}
+    >
+      <StudyContent html={tile.content} />
+    </motion.div>
+  );
+}
+
 function MatchMode({ cards, setId }: MatchModeProps) {
   const navigate = useNavigate();
 
@@ -29,69 +100,47 @@ function MatchMode({ cards, setId }: MatchModeProps) {
   const [tiles, setTiles] = useState<Tile[]>(() => {
     const tilePairs: Tile[] = [];
     for (const card of pairCards) {
-      tilePairs.push({
-        id: `term-${card.id}`,
-        cardId: card.id,
-        content: card.term,
-        side: 'term',
-        matched: false,
-      });
-      tilePairs.push({
-        id: `def-${card.id}`,
-        cardId: card.id,
-        content: card.definition,
-        side: 'definition',
-        matched: false,
-      });
+      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
+      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
     }
     return shuffleArray(tilePairs);
   });
 
-  const [selectedTile, setSelectedTile] = useState<string | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState(0);
-  const [mismatchIds, setMismatchIds] = useState<Set<string>>(new Set());
+  const [mismatchFlash, setMismatchFlash] = useState(false);
   const [timer, setTimer] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [gameComplete, setGameComplete] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Timer
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } });
+  const sensors = useSensors(pointerSensor, touchSensor);
+
   useEffect(() => {
     if (timerRunning && !gameComplete) {
-      intervalRef.current = setInterval(() => {
-        setTimer((t) => t + 0.1);
-      }, 100);
+      intervalRef.current = setInterval(() => setTimer((t) => t + 0.1), 100);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [timerRunning, gameComplete]);
 
-  // Confetti on complete
   useEffect(() => {
     if (gameComplete) {
       import('canvas-confetti').then((mod) => {
-        const confetti = mod.default;
-        confetti({
-          particleCount: 150,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-      }).catch(() => {
-        // canvas-confetti not available, skip
-      });
+        mod.default({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+      }).catch(() => {});
     }
   }, [gameComplete]);
 
   const isMatch = useCallback(
     (tile1: Tile, tile2: Tile) => {
-      // Must be different sides
       if (tile1.side === tile2.side) return false;
-
-      // Direct match
       if (tile1.cardId === tile2.cardId) return true;
 
-      // Equivalence-aware match
       const termTile = tile1.side === 'term' ? tile1 : tile2;
       const defTile = tile1.side === 'definition' ? tile1 : tile2;
 
@@ -101,91 +150,72 @@ function MatchMode({ cards, setId }: MatchModeProps) {
       const normalizedDef = normalizeAnswer(defTile.content);
       const key = normalizeAnswer(termCard.term);
       const group = groups.get(key) ?? [termCard];
-
       return group.some((c) => normalizeAnswer(c.definition) === normalizedDef);
     },
     [pairCards, groups],
   );
 
-  const handleTileClick = useCallback(
-    (tileId: string) => {
-      if (gameComplete) return;
-
-      const tile = tiles.find((t) => t.id === tileId);
-      if (!tile || tile.matched) return;
-
-      // Start timer on first interaction
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      setActiveDragId(event.active.id as string);
       if (!timerRunning) setTimerRunning(true);
+    },
+    [timerRunning],
+  );
 
-      if (!selectedTile) {
-        setSelectedTile(tileId);
-        return;
-      }
+  const handleDragOver = useCallback((event: { over: { id: string } | null }) => {
+    setOverId((event.over?.id as string) ?? null);
+  }, []);
 
-      if (selectedTile === tileId) {
-        setSelectedTile(null);
-        return;
-      }
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      setActiveDragId(null);
+      setOverId(null);
 
-      const firstTile = tiles.find((t) => t.id === selectedTile);
-      if (!firstTile) {
-        setSelectedTile(tileId);
-        return;
-      }
+      if (!over || active.id === over.id) return;
 
-      if (isMatch(firstTile, tile)) {
-        // Match found
+      const draggedTile = tiles.find((t) => t.id === active.id);
+      const droppedOnTile = tiles.find((t) => t.id === over.id);
+      if (!draggedTile || !droppedOnTile || draggedTile.matched || droppedOnTile.matched) return;
+
+      if (isMatch(draggedTile, droppedOnTile)) {
         const newMatched = matchedPairs + 1;
         setMatchedPairs(newMatched);
         setTiles((prev) =>
           prev.map((t) =>
-            t.id === firstTile.id || t.id === tile.id ? { ...t, matched: true } : t,
+            t.id === draggedTile.id || t.id === droppedOnTile.id ? { ...t, matched: true } : t,
           ),
         );
-        setSelectedTile(null);
-
         if (newMatched >= pairCards.length) {
           setGameComplete(true);
           setTimerRunning(false);
         }
       } else {
-        // Mismatch
-        setMismatchIds(new Set([firstTile.id, tile.id]));
-        setTimeout(() => {
-          setMismatchIds(new Set());
-          setSelectedTile(null);
-        }, 600);
+        setMismatchFlash(true);
+        setTimeout(() => setMismatchFlash(false), 600);
       }
     },
-    [gameComplete, tiles, selectedTile, timerRunning, isMatch, matchedPairs, pairCards.length],
+    [tiles, isMatch, matchedPairs, pairCards.length],
   );
 
   const handleRestart = useCallback(() => {
     const tilePairs: Tile[] = [];
     for (const card of pairCards) {
-      tilePairs.push({
-        id: `term-${card.id}`,
-        cardId: card.id,
-        content: card.term,
-        side: 'term',
-        matched: false,
-      });
-      tilePairs.push({
-        id: `def-${card.id}`,
-        cardId: card.id,
-        content: card.definition,
-        side: 'definition',
-        matched: false,
-      });
+      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
+      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
     }
     setTiles(shuffleArray(tilePairs));
-    setSelectedTile(null);
+    setActiveDragId(null);
+    setOverId(null);
     setMatchedPairs(0);
-    setMismatchIds(new Set());
+    setMismatchFlash(false);
     setTimer(0);
     setTimerRunning(false);
     setGameComplete(false);
   }, [pairCards]);
+
+  const activeTile = tiles.find((t) => t.id === activeDragId);
 
   if (gameComplete) {
     return (
@@ -200,22 +230,15 @@ function MatchMode({ cards, setId }: MatchModeProps) {
             borderRadius: 'var(--radius-xl)',
           }}
         >
-          <h2
-            className="text-2xl font-bold mb-2"
-            style={{ color: 'var(--color-text)' }}
-          >
+          <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
             All Matched!
           </h2>
           <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
             Completed in {formatTime(timer)}
           </p>
           <div className="flex gap-3 justify-center">
-            <Button variant="primary" onClick={handleRestart}>
-              Play Again
-            </Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
-              Exit
-            </Button>
+            <Button variant="primary" onClick={handleRestart}>Play Again</Button>
+            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>Exit</Button>
           </div>
         </motion.div>
       </div>
@@ -229,76 +252,63 @@ function MatchMode({ cards, setId }: MatchModeProps) {
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
           Exit
         </Button>
-        <span
-          className="text-sm font-medium font-mono"
-          style={{ color: 'var(--color-text-secondary)' }}
-        >
+        <span className="text-sm font-medium font-mono" style={{ color: 'var(--color-text-secondary)' }}>
           {formatTime(timer)}
         </span>
-        <span
-          className="text-sm font-medium"
-          style={{ color: 'var(--color-text-secondary)' }}
-        >
+        <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
           {matchedPairs} / {pairCards.length} pairs
         </span>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-        <AnimatePresence>
-          {tiles.map((tile) => {
-            if (tile.matched) {
-              return (
-                <motion.div
-                  key={tile.id}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-28 rounded-xl"
-                  style={{ background: 'var(--color-muted)', opacity: 0.3 }}
-                />
-              );
-            }
-
-            const isSelected = selectedTile === tile.id;
-            const isMismatch = mismatchIds.has(tile.id);
-
-            return (
-              <motion.button
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          <AnimatePresence>
+            {tiles.map((tile) => (
+              <DraggableDroppableTile
                 key={tile.id}
-                layout
-                onClick={() => handleTileClick(tile.id)}
-                animate={
-                  isMismatch
-                    ? { x: [0, -6, 6, -6, 6, 0] }
-                    : {}
-                }
-                transition={isMismatch ? { duration: 0.4 } : { type: 'spring', stiffness: 300, damping: 25 }}
-                whileTap={{ scale: 0.95 }}
-                className="h-28 flex items-center justify-center p-3 rounded-xl cursor-pointer transition-shadow overflow-hidden text-sm"
-                style={{
-                  background: isSelected
-                    ? 'var(--color-primary-light)'
-                    : isMismatch
-                      ? 'var(--color-danger-light)'
-                      : 'var(--color-surface)',
-                  border: `2px solid ${
-                    isSelected
-                      ? 'var(--color-primary)'
-                      : isMismatch
-                        ? 'var(--color-danger)'
-                        : 'var(--color-border)'
-                  }`,
-                  borderRadius: 'var(--radius-lg)',
-                  boxShadow: isSelected ? 'var(--shadow-md)' : 'var(--shadow-xs)',
-                  color: 'var(--color-text)',
-                }}
-              >
-                <StudyContent html={tile.content} />
-              </motion.button>
-            );
-          })}
-        </AnimatePresence>
-      </div>
+                tile={tile}
+                isOver={overId === tile.id}
+                activeDragId={activeDragId}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+
+        <DragOverlay>
+          {activeTile ? (
+            <div
+              className="match-tile h-28 flex items-center justify-center p-3 rounded-xl overflow-hidden text-base shadow-xl"
+              style={{
+                background: 'var(--color-primary-light)',
+                border: '2px solid var(--color-primary)',
+                borderRadius: 'var(--radius-lg)',
+                color: 'var(--color-text)',
+              }}
+            >
+              <StudyContent html={activeTile.content} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <AnimatePresence>
+        {mismatchFlash && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ background: 'var(--color-danger)', color: '#ffffff' }}
+          >
+            Not a match — try again!
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,6 +1,37 @@
 # Deployment
 
-## Vercel Configuration
+## Overview
+
+StudyFlow is deployed as a static SPA on **Vercel**, with source code on **GitHub** and the database on **Supabase**.
+
+| Service | Role | Plan |
+|---------|------|------|
+| GitHub | Source code repository | Free |
+| Vercel | Hosting, CDN, automatic deploys | Free (Hobby) |
+| Supabase | PostgreSQL database, auth, realtime | Free |
+
+## GitHub Repository
+
+- **Repo:** `github.com/Ibrahem-al/not_quizlet_2`
+- **Branch:** `master`
+- Pushes to `master` trigger automatic Vercel deployments
+- `.env` and `.env.local` are gitignored — credentials never enter the repo
+- `.env.example` is committed as a template for other developers
+
+## Vercel
+
+### Connection
+Vercel is connected to the GitHub repo. Every push to `master` triggers a build and deploy automatically.
+
+### Build Settings
+| Setting | Value |
+|---------|-------|
+| Framework Preset | Vite |
+| Build Command | `npm run build` (runs `vite build`) |
+| Output Directory | `dist` |
+| Install Command | `npm install` |
+
+### SPA Routing
 
 **File:** `vercel.json`
 
@@ -15,47 +46,108 @@
 }
 ```
 
-This SPA rewrite sends all requests to `index.html` except:
-- `/assets/*` - Built static assets (JS, CSS)
-- `/favicon*` - Favicon files
-- `/manifest*` - PWA manifest
-- `/sw*` - Service worker
-- `/workbox*` - Workbox runtime
-- `/registerSW*` - SW registration script
+All routes (e.g., `/sets/abc-123`, `/shared/token-uuid`) are rewritten to `index.html` so React Router handles them client-side. Static assets are excluded from the rewrite.
 
-## Build Commands
+### Environment Variables
+
+Set these in **Vercel Dashboard → Project → Settings → Environment Variables**:
+
+| Variable | Required | Where to find it |
+|----------|----------|------------------|
+| `VITE_SUPABASE_URL` | Yes (for cloud features) | Supabase Dashboard → Settings → API → Project URL |
+| `VITE_SUPABASE_ANON_KEY` | Yes (for cloud features) | Supabase Dashboard → Settings → API → `anon` `public` key |
+
+These are baked into the JS bundle at build time via Vite's `import.meta.env`. After adding or changing them, you must redeploy.
+
+The app also checks `window.__VITE_SUPABASE_URL__` and `window.__VITE_SUPABASE_ANON_KEY__` at runtime as a fallback, allowing injection via a `<script>` tag if needed.
+
+**Without these variables**, the app still works fully offline — all cloud/auth/sharing features are simply hidden or disabled.
+
+### Commands to set env vars via CLI
+```bash
+npx vercel env add VITE_SUPABASE_URL
+npx vercel env add VITE_SUPABASE_ANON_KEY
+npx vercel --prod   # redeploy with new vars
+```
+
+## Supabase Database
+
+### Project Setup
+1. Create a project at [supabase.com](https://supabase.com)
+2. Go to **SQL Editor**
+3. Paste and run the migration file: `supabase/migrations/001_initial_schema.sql`
+4. Copy the **Project URL** and **anon key** from Settings → API
+
+### What the Migration Creates
+
+**9 tables:**
+
+| Table | Purpose |
+|-------|---------|
+| `study_sets` | Flashcard sets with embedded cards as JSONB |
+| `folders` | Folder hierarchy for organizing sets |
+| `folder_items` | Maps sets to folders |
+| `password_history` | Last 5 password hashes per user |
+| `failed_login_attempts` | Rate limiting (5 attempts / 30 min) |
+| `password_reset_requests` | Rate limiting (5 resets / hour) |
+| `live_game_sessions` | Multiplayer game lobbies |
+| `live_game_participants` | Players in live games |
+| `live_game_answers` | Answers submitted during live games |
+
+**Row Level Security (RLS):**
+- Every table has RLS enabled
+- `study_sets`: owner has full CRUD; anyone can SELECT sets that have a `share_token` (for share links)
+- `folders` / `folder_items`: owner-only access
+- `live_game_*`: open read/insert for guest players (no auth required to join a game)
+- `password_history`: owner can only read their own records
+
+**10 RPC functions** for security operations (lockout checks, password reuse, cleanup, game codes, shared set fetching).
+
+**Indexes** are kept minimal to stay within the free tier — only on the columns used in WHERE clauses (`user_id`, `share_token`, `folder_id`, `game_code`).
+
+### Schema Design Decisions
+- **Cards stored as JSONB inside `study_sets`** — denormalized to avoid extra tables/joins. A set with 100 cards is one row, not 101. This minimizes row counts on the free tier.
+- **`share_token` is a nullable UUID** — when set, anyone with the token can view the set. Tokens are unguessable (128-bit random). Setting it to NULL revokes access instantly.
+- **Timestamps are BIGINT milliseconds** — matches JavaScript's `Date.now()` format directly, avoiding timezone conversion issues.
+
+### Free Tier Limits to Be Aware Of
+| Resource | Free Tier Limit |
+|----------|----------------|
+| Database size | 500 MB |
+| API requests | 500K / month |
+| Realtime connections | 200 concurrent |
+| Auth users | 50K MAU |
+| Storage | 1 GB |
+
+The app is designed to work within these limits:
+- Cards are embedded in sets (fewer rows)
+- Sync is debounced (fewer writes)
+- Public set listings use lightweight queries (card count, not full cards)
+
+## Environment Files
+
+| File | Purpose | In git? |
+|------|---------|---------|
+| `.env.example` | Template with variable names, no secrets | Yes |
+| `.env.local` | Local development credentials | No (`*.local` in gitignore) |
+| `.env` | Alternative local credentials | No (in gitignore) |
+| Vercel env vars | Production credentials | N/A (in Vercel dashboard) |
+
+## Build Scripts
 
 ```json
 {
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  }
+  "dev": "vite",
+  "build": "vite build",
+  "typecheck": "tsc -b",
+  "lint": "eslint .",
+  "preview": "vite preview"
 }
 ```
 
-**Build process:**
-1. `tsc -b` - TypeScript compilation check (does not emit; Vite handles transpilation)
-2. `vite build` - Bundles with Rollup, applies manual chunks, generates PWA assets
-
-**Output:** `dist/` directory
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_SUPABASE_URL` | No | Supabase project URL (e.g., `https://abc.supabase.co`) |
-| `VITE_SUPABASE_ANON_KEY` | No | Supabase anonymous/public key |
-
-### Setting on Vercel
-1. Go to Project Settings > Environment Variables
-2. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
-3. Deploy (variables are baked in at build time via Vite's `import.meta.env`)
-
-### Runtime Injection Alternative
-The Supabase client also checks `window` globals, allowing runtime injection via a `<script>` tag in `index.html` if needed.
+- `npm run build` — production build (used by Vercel). Runs Vite only, no TypeScript check (for CI speed/reliability).
+- `npm run typecheck` — standalone TypeScript check. Run locally before pushing.
+- `npm run dev` — local dev server at `http://localhost:5173`
 
 ## PWA Configuration
 
@@ -80,59 +172,29 @@ VitePWA({
 })
 ```
 
-### PWA Features
-- **Service Worker**: Auto-generated by `vite-plugin-pwa`, auto-updates on new deployments
-- **Offline Support**: All app assets cached by service worker; IndexedDB provides data persistence
-- **Installable**: Meets PWA install criteria with manifest, icons, and service worker
-- **Display Mode**: `standalone` (no browser chrome when installed)
-- **Theme Color**: `#6366f1` (primary indigo)
+- **Service Worker**: Auto-generated, auto-updates on new deployments
+- **Offline Support**: All assets cached; IndexedDB provides data persistence
+- **Installable**: Meets PWA criteria — can be added to home screen on mobile
+- **Display Mode**: `standalone` (no browser chrome)
 
-### Service Worker Behavior
-- `registerType: 'autoUpdate'` - New service worker activates immediately without user prompt
-- Caches all built assets (JS, CSS, HTML, fonts)
-- On subsequent visits, serves from cache first, then checks for updates in background
+## Deployment Workflow
 
-## Vite Configuration
-
-**File:** `vite.config.ts`
-
-### Plugins
-1. `@vitejs/plugin-react` - React Fast Refresh, JSX transform
-2. `@tailwindcss/vite` - Tailwind CSS 4 integration
-3. `vite-plugin-pwa` - Service worker generation
-
-### Path Alias
-```typescript
-resolve: {
-  alias: {
-    '@': path.resolve(__dirname, './src'),
-  },
-}
 ```
-All imports use `@/` prefix (e.g., `import { db } from '@/db'`).
-
-### Build Optimizations
-- Target: `es2022` (modern browsers, minimal polyfills)
-- Chunk size warning: 500KB
-- Manual chunks: 5 vendor bundles (react, editor, dnd, motion, state)
-
-## Deployment Checklist
-
-1. Ensure `tsc -b` passes (no type errors)
-2. Ensure `eslint .` passes (no lint errors)
-3. Set environment variables on Vercel (if using Supabase)
-4. Push to connected Git branch
-5. Vercel auto-builds and deploys
-6. Verify PWA works: check service worker registration in DevTools > Application
-7. Test offline: disconnect network, verify app loads and IndexedDB data persists
-
-## Local Development
-
-```bash
-npm install
-npm run dev          # Start dev server (typically http://localhost:5173)
-npm run build        # Production build
-npm run preview      # Preview production build locally
+Developer pushes to master
+         ↓
+GitHub receives push
+         ↓
+Vercel detects change (webhook)
+         ↓
+Vercel runs: npm install → npm run build
+         ↓
+Vite bundles app → dist/ folder
+         ↓
+vite-plugin-pwa generates service worker
+         ↓
+Vercel deploys dist/ to CDN edge nodes
+         ↓
+Live at your-project.vercel.app
 ```
 
 ## Browser Support

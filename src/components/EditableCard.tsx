@@ -146,7 +146,7 @@ const EditableCard = memo(
               />
             ) : (
               <div
-                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer"
+                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer card-preview"
                 style={{
                   color: termEmpty
                     ? 'var(--color-text-tertiary)'
@@ -185,7 +185,7 @@ const EditableCard = memo(
               />
             ) : (
               <div
-                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer"
+                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer card-preview"
                 style={{
                   color: defEmpty
                     ? 'var(--color-text-tertiary)'

@@ -68,11 +68,13 @@ interface EditableCardProps {
 **Inactive (isActive = false):**
 - Term and definition rendered as static HTML via `dangerouslySetInnerHTML`
 - Empty fields show placeholder text ("Click to edit term/definition") in tertiary color
+- Images display as small thumbnails via `.card-preview img` CSS (80x56px max)
 - Click anywhere in content area activates the card
 
 **Active (isActive = true):**
 - TipTapEditor mounted for both term and definition
 - Blue border highlight + shadow elevation
+- Images display as thumbnails via `.editor-content img` CSS (80x56px max)
 - Validation warnings shown below empty fields ("Term is required" / "Definition is required")
 - Click-outside listener deactivates the card
 

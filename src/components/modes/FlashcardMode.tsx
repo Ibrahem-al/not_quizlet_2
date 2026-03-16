@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { recordReview } from '@/lib/spaced-repetition';
-import { useSetStore } from '@/stores/useSetStore';
 import { stripHtml } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
@@ -13,28 +11,14 @@ interface FlashcardModeProps {
   setId: string;
 }
 
-interface CardResult {
-  card: Card;
-  quality: number;
-}
-
 function FlashcardMode({ cards, setId }: FlashcardModeProps) {
   const navigate = useNavigate();
-  const updateSet = useSetStore((s) => s.updateSet);
-  const sets = useSetStore((s) => s.sets);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [results, setResults] = useState<CardResult[]>([]);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [revealedWords, setRevealedWords] = useState(0);
   const [isRevealing, setIsRevealing] = useState(false);
-  const exitConfirmRef = useRef(false);
-
-  const x = useMotionValue(0);
-  const rotate = useTransform(x, [-200, 200], [-15, 15]);
-  const swipeOpacity = useTransform(x, [-200, -80, 0, 80, 200], [1, 1, 0, 1, 1]);
-  const swipeLabelX = useTransform(x, [-200, 0, 200], [1, 0, 1]);
 
   const currentCard = cards[currentIndex];
 
@@ -42,35 +26,6 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
     if (!currentCard) return [];
     return stripHtml(currentCard.definition).split(/\s+/).filter(Boolean);
   }, [currentCard]);
-
-  const recordAndAdvance = useCallback(
-    (quality: number) => {
-      if (!currentCard) return;
-
-      setResults((prev) => [...prev, { card: currentCard, quality }]);
-
-      // Fire-and-forget spaced repetition update
-      const studySet = sets.find((s) => s.id === setId);
-      if (studySet) {
-        const updatedCard = recordReview(currentCard, quality, 'flashcards');
-        const updatedCards = studySet.cards.map((c) =>
-          c.id === updatedCard.id ? updatedCard : c,
-        );
-        updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() });
-      }
-
-      // Advance
-      if (currentIndex + 1 >= cards.length) {
-        setSessionComplete(true);
-      } else {
-        setCurrentIndex((prev) => prev + 1);
-        setIsFlipped(false);
-        setRevealedWords(0);
-        setIsRevealing(false);
-      }
-    },
-    [currentCard, currentIndex, cards.length, sets, setId, updateSet],
-  );
 
   const handleFlip = useCallback(() => {
     setIsFlipped((prev) => !prev);
@@ -93,6 +48,8 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
       setIsFlipped(false);
       setRevealedWords(0);
       setIsRevealing(false);
+    } else {
+      setSessionComplete(true);
     }
   }, [currentIndex, cards.length]);
 
@@ -111,17 +68,6 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
       setRevealedWords(1);
     }
   }, [getDefinitionWords, isFlipped, isRevealing]);
-
-  const handleExit = useCallback(() => {
-    if (exitConfirmRef.current) {
-      navigate(`/sets/${setId}`);
-      return;
-    }
-    exitConfirmRef.current = true;
-    setTimeout(() => {
-      exitConfirmRef.current = false;
-    }, 2000);
-  }, [navigate, setId]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -143,42 +89,15 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
           e.preventDefault();
           handleNext();
           break;
-        case '1':
-          recordAndAdvance(2);
-          break;
-        case '2':
-          recordAndAdvance(3);
-          break;
-        case '3':
-          recordAndAdvance(5);
-          break;
         case 'Escape':
-          handleExit();
+          navigate(`/sets/${setId}`);
           break;
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sessionComplete, handleProgressiveReveal, handlePrev, handleNext, recordAndAdvance, handleExit]);
-
-  const handleDragEnd = useCallback(
-    (_: unknown, info: { offset: { x: number; y: number } }) => {
-      const { x: offsetX, y: offsetY } = info.offset;
-
-      if (Math.abs(offsetY) > 100 && Math.abs(offsetY) > Math.abs(offsetX)) {
-        // Swipe down: skip
-        handleNext();
-      } else if (offsetX > 100) {
-        // Swipe right: know it
-        recordAndAdvance(5);
-      } else if (offsetX < -100) {
-        // Swipe left: study again
-        recordAndAdvance(2);
-      }
-    },
-    [handleNext, recordAndAdvance],
-  );
+  }, [sessionComplete, handleProgressiveReveal, handlePrev, handleNext, navigate, setId]);
 
   const getRevealedContent = useCallback(() => {
     if (!isRevealing) return currentCard?.definition ?? '';
@@ -194,10 +113,6 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
   }, [isRevealing, currentCard, getDefinitionWords, revealedWords]);
 
   if (sessionComplete) {
-    const knownCount = results.filter((r) => r.quality >= 4).length;
-    const learningCount = results.filter((r) => r.quality === 3).length;
-    const againCount = results.filter((r) => r.quality < 3).length;
-
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
         <motion.div
@@ -211,38 +126,14 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
           }}
         >
           <h2
-            className="text-2xl font-bold mb-6"
+            className="text-2xl font-bold mb-4"
             style={{ color: 'var(--color-text)' }}
           >
             Session Complete
           </h2>
-
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            <div className="p-4 rounded-xl" style={{ background: 'var(--color-success-light)' }}>
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
-                {knownCount}
-              </div>
-              <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                Know it
-              </div>
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: 'var(--color-warning-light)' }}>
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-warning)' }}>
-                {learningCount}
-              </div>
-              <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                Learning
-              </div>
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: 'var(--color-danger-light)' }}>
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-danger)' }}>
-                {againCount}
-              </div>
-              <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                Study again
-              </div>
-            </div>
-          </div>
+          <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
+            You reviewed all {cards.length} cards
+          </p>
 
           <div className="flex gap-3 justify-center">
             <Button
@@ -252,7 +143,6 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
                 setIsFlipped(false);
                 setRevealedWords(0);
                 setIsRevealing(false);
-                setResults([]);
                 setSessionComplete(false);
               }}
             >
@@ -275,8 +165,8 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={handleExit}>
-          {exitConfirmRef.current ? 'Press again to exit' : 'Exit'}
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
+          Exit
         </Button>
         <span
           className="text-sm font-medium"
@@ -305,39 +195,11 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
         className="relative cursor-pointer select-none"
         style={{
           perspective: 1000,
-          x,
-          rotate,
           minHeight: 320,
         }}
-        drag="x"
-        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-        dragElastic={0.8}
-        onDragEnd={handleDragEnd}
         onClick={handleFlip}
         whileTap={{ scale: 0.98 }}
       >
-        {/* Swipe indicators */}
-        <motion.div
-          className="absolute top-4 left-4 z-10 px-3 py-1 rounded-lg font-bold text-sm"
-          style={{
-            background: 'var(--color-danger)',
-            color: '#ffffff',
-            opacity: useTransform(x, [-200, -60, 0], [1, 0.6, 0]),
-          }}
-        >
-          Study Again
-        </motion.div>
-        <motion.div
-          className="absolute top-4 right-4 z-10 px-3 py-1 rounded-lg font-bold text-sm"
-          style={{
-            background: 'var(--color-success)',
-            color: '#ffffff',
-            opacity: useTransform(x, [0, 60, 200], [0, 0.6, 1]),
-          }}
-        >
-          Know It
-        </motion.div>
-
         <div style={{ transformStyle: 'preserve-3d', position: 'relative', minHeight: 320 }}>
           {/* Front face */}
           <motion.div
@@ -359,7 +221,7 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
               >
                 Term
               </div>
-              <StudyContent html={currentCard.term} className="text-xl font-semibold" />
+              <StudyContent html={currentCard.term} className="text-2xl font-semibold" />
             </div>
           </motion.div>
 
@@ -384,11 +246,11 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
                 Definition
               </div>
               {isRevealing ? (
-                <p className="text-lg" style={{ color: 'var(--color-text)' }}>
+                <p className="text-xl" style={{ color: 'var(--color-text)' }}>
                   {getRevealedContent()}
                 </p>
               ) : (
-                <StudyContent html={currentCard.definition} className="text-lg" />
+                <StudyContent html={currentCard.definition} className="text-xl" />
               )}
             </div>
           </motion.div>
@@ -396,8 +258,7 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
       </motion.div>
 
       {/* Controls */}
-      <div className="mt-8 space-y-4">
-        {/* Navigation */}
+      <div className="mt-8">
         <div className="flex items-center justify-center gap-3">
           <Button variant="outline" size="sm" onClick={handlePrev} disabled={currentIndex === 0}>
             Prev
@@ -405,50 +266,16 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
           <Button variant="ghost" size="sm" onClick={handleFlip}>
             Flip
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNext}
-            disabled={currentIndex >= cards.length - 1}
-          >
-            Next
+          <Button variant="primary" size="sm" onClick={handleNext}>
+            {currentIndex >= cards.length - 1 ? 'Finish' : 'Next'}
           </Button>
         </div>
 
-        {/* Rating buttons */}
-        <div className="flex items-center justify-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => recordAndAdvance(2)}
-            className="border-red-400 text-red-500"
-          >
-            1 - Again
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => recordAndAdvance(3)}
-            className="border-yellow-400 text-yellow-500"
-          >
-            2 - Hard
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => recordAndAdvance(5)}
-            className="border-green-400 text-green-500"
-          >
-            3 - Easy
-          </Button>
-        </div>
-
-        {/* Keyboard hints */}
         <div
-          className="text-center text-xs"
+          className="text-center text-xs mt-3"
           style={{ color: 'var(--color-text-tertiary)' }}
         >
-          Space: reveal words | Arrows: prev/next | 1/2/3: rate | Esc: exit
+          Space: reveal words | Arrows: prev/next | Esc: exit
         </div>
       </div>
     </div>

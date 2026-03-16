@@ -611,15 +611,15 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
                 <div className="mb-6">
                   <div className="mb-3">
                     <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Term:</span>
-                    <StudyContent html={currentQuestion.tfPair.term} className="text-lg font-semibold mt-1" />
+                    <StudyContent html={currentQuestion.tfPair.term} className="text-xl font-semibold mt-1" />
                   </div>
                   <div>
                     <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Definition:</span>
-                    <StudyContent html={currentQuestion.tfPair.definition} className="text-lg mt-1" />
+                    <StudyContent html={currentQuestion.tfPair.definition} className="text-xl mt-1" />
                   </div>
                 </div>
               ) : (
-                <StudyContent html={currentQuestion.promptHtml} className="text-xl font-semibold mb-6" />
+                <StudyContent html={currentQuestion.promptHtml} className="text-2xl font-semibold mb-6" />
               )}
 
               {/* Written */}

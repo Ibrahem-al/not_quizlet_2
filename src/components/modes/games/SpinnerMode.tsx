@@ -201,21 +201,26 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
           <polygon points="0,0 30,0 15,20" fill="#fff" stroke="var(--color-text)" strokeWidth="2" />
         </svg>
 
-        <svg width="320" height="320" viewBox="0 0 320 320">
-          <g
-            style={{
-              transformOrigin: `${centerX}px ${centerY}px`,
-              transform: `rotate(${rotationDeg}deg)`,
-              transition: isSpinning
-                ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
-                : 'none',
-            }}
-          >
-            {segments}
-          </g>
-          {/* Center circle */}
-          <circle cx={centerX} cy={centerY} r="20" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
-        </svg>
+        <div
+          style={{
+            width: 320,
+            height: 320,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            transform: `rotate(${rotationDeg}deg)`,
+            transition: isSpinning
+              ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
+              : 'none',
+          }}
+        >
+          <svg width="320" height="320" viewBox="0 0 320 320">
+            <g>
+              {segments}
+            </g>
+            {/* Center circle */}
+            <circle cx={centerX} cy={centerY} r="20" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
+          </svg>
+        </div>
 
         {/* Spin button */}
         <Button
@@ -275,7 +280,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
                       >
                         Term (click to flip)
                       </div>
-                      <StudyContent html={selectedCard.term} className="text-xl font-semibold" />
+                      <StudyContent html={selectedCard.term} className="text-2xl font-semibold" />
                     </div>
                   </motion.div>
 
@@ -297,7 +302,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
                       >
                         Definition
                       </div>
-                      <StudyContent html={selectedCard.definition} className="text-lg" />
+                      <StudyContent html={selectedCard.definition} className="text-xl" />
                     </div>
                   </motion.div>
                 </div>

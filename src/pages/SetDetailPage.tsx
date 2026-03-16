@@ -8,12 +8,12 @@ import {
   ClipboardCheck,
   Gamepad2,
   Printer,
-  Camera,
   Radio,
   FolderInput,
   X,
   Check,
   Loader2,
+  Save,
   Share2,
   Link2,
   Link2Off,
@@ -102,6 +102,17 @@ function SetDetailPage() {
         });
       }
     }, 5000);
+  }, [updateSet]);
+
+  const handleManualSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const current = localSetRef.current;
+    if (current) {
+      setSaveStatus('saving');
+      void updateSet({ ...current, updatedAt: Date.now() }).then(() => {
+        setSaveStatus('saved');
+      });
+    }
   }, [updateSet]);
 
   // Clean up timer on unmount; save immediately if unsaved
@@ -464,16 +475,6 @@ function SetDetailPage() {
           >
             Print
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<Camera size={16} />}
-            onClick={() => {
-              // Photo import placeholder
-            }}
-          >
-            Photo Import
-          </Button>
           {user && (
             <Button
               variant="ghost"
@@ -569,8 +570,16 @@ function SetDetailPage() {
           />
         </div>
 
-        {/* Add card button */}
-        <div className="flex justify-center py-4">
+        {/* Add card + Save buttons */}
+        <div className="flex justify-center gap-3 py-4">
+          <Button
+            variant="secondary"
+            icon={<Save size={18} />}
+            onClick={handleManualSave}
+            disabled={saveStatus !== 'unsaved'}
+          >
+            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+          </Button>
           <Button
             variant="primary"
             icon={<Plus size={18} />}

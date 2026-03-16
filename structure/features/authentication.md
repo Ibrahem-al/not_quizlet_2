@@ -13,6 +13,22 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 
 Without these, `supabase` client is `null` and `isSupabaseConfigured()` returns `false`.
 
+## Route Protection
+
+**File:** `src/components/RequireAuth.tsx`
+
+A route guard component that wraps protected routes (e.g., `/sets/new`). Behavior:
+- If Supabase is not configured (offline-only mode): allows access unconditionally
+- If auth is still loading: shows a spinner to avoid flash of redirect
+- If user is not authenticated: redirects to `/signin` with `state.returnTo` preserving the intended destination
+- After successful sign-in, user is redirected back to `returnTo` path
+
+Protected routes in `App.tsx`:
+- `/sets/new` — wrapped with `<RequireAuth>`
+- `FolderDetailPage` inline set creation — checks auth before creating
+
+Auth is initialized on app mount via `useAuthStore.getState().initialize()` in `App.tsx`.
+
 ## Auth Pages
 
 ### Sign In (`/signin`)
@@ -21,7 +37,7 @@ Without these, `supabase` client is `null` and `isSupabaseConfigured()` returns 
 1. Email and password fields with show/hide toggle
 2. Pre-login lockout check via `supabase.rpc('check_account_lockout', { p_email })`
 3. On failure: records failed attempt via `supabase.rpc('record_failed_login', { p_email })`
-4. On success: calls `useAuthStore.setUser(user, session)`, shows success toast, navigates to `/`
+4. On success: calls `useAuthStore.setUser(user, session)`, shows success toast, navigates to `returnTo` path (from location state) or `/`
 5. Link to Forgot Password page
 
 ### Sign Up (`/signup`)
@@ -76,7 +92,7 @@ Visual: progress bar (width = score/5 * 100%) + checklist with green checks / gr
 State: `user: User | null`, `session: Session | null`, `loading: boolean`
 
 Actions:
-- `initialize()` - Called on app mount, fetches current session
+- `initialize()` - Called on app mount in `App.tsx`, fetches current session from Supabase
 - `setUser(user, session)` - Updates state after login
 - `signOut()` - Calls Supabase signOut and clears state
 

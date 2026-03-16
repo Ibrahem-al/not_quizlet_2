@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
@@ -17,6 +17,8 @@ export default function SignInPage() {
   const [error, setError] = useState('');
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = (location.state as { returnTo?: string })?.returnTo || '/';
   const setUser = useAuthStore((s) => s.setUser);
   const addToast = useToastStore((s) => s.addToast);
 
@@ -65,7 +67,7 @@ export default function SignInPage() {
       if (data.user && data.session) {
         setUser(data.user, data.session);
         addToast('success', 'Signed in successfully!');
-        navigate('/');
+        navigate(returnTo, { replace: true });
       }
     } catch {
       setError('An unexpected error occurred. Please try again.');
