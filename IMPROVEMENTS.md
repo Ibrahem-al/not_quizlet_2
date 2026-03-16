@@ -1,0 +1,52 @@
+# StudyFlow Improvements Log
+
+This file tracks improvements, corrections, and lessons learned during development. It is continuously updated based on feedback.
+
+## Architecture Decisions
+
+### What Went Well
+- **Offline-first with optional cloud**: IndexedDB as primary storage means the app works without any backend
+- **Lazy TipTap mounting**: Only the focused card mounts TipTap editors, preventing slowdown with large sets (30+ cards)
+- **Code splitting by route**: Each page/mode is lazy-loaded, keeping initial bundle small
+- **Virtualized card list**: @tanstack/react-virtual for sets > 20 cards prevents DOM bloat
+- **Dynamic imports for heavy libs**: tesseract.js and jspdf only load when needed
+
+### Known Issues to Address
+1. **Live Multiplayer**: Currently placeholder pages - full Supabase Realtime implementation needed
+2. **Spaced Repetition**: SM-2 is functional but FSRS algorithm would give better scheduling
+3. **Image storage**: Base64 in card HTML is simple but inefficient for large images - consider Supabase Storage
+4. **Editor toolbar**: BubbleMenu positioning could be improved with custom floating UI
+5. **Offline sync queue**: When going back online, there's no queued sync - changes must be manually triggered
+6. **Test PDF quality**: jsPDF text rendering is basic - consider using a more capable PDF library
+7. **Memory Card Flip**: Content-based matching may have edge cases with very similar cards
+8. **Race to Finish board**: SVG board could be more visually polished with curved paths
+
+## Performance Lessons
+1. **Never mount rich text editors for all cards** - Previous versions became unusable at 30+ cards because TipTap was mounted for every card simultaneously
+2. **Virtualize lists over 20 items** - DOM nodes from large lists cause significant jank
+3. **Debounce saves at 5 seconds** - Shorter intervals cause write amplification to IndexedDB
+4. **Use React.memo with custom comparators** - Prevent re-renders of card components when unrelated state changes
+5. **Split vendor chunks** - Keep react, framer-motion, tiptap, dnd-kit in separate chunks for better caching
+
+## Feedback Log
+<!-- Record user feedback and corrections here -->
+| Date | Feedback | Action Taken |
+|------|----------|-------------|
+| 2026-03-16 | Initial build | Created app from specification |
+| 2026-03-16 | cloudSync.ts used camelCase column names, Supabase uses snake_case | Rewrote cloudSync.ts with proper rowToSet/setToRow mapping functions |
+| 2026-03-16 | No RLS policies — any user could read/modify any set | Created full migration SQL with RLS: owner CRUD + share_token SELECT for anonymous access |
+| 2026-03-16 | No share link feature | Added share_token column, /shared/:token route, read-only SharedSetPage with study modes, Share button on SetDetailPage |
+
+## Future Improvements
+- [ ] Implement full Live Multiplayer with Supabase Realtime
+- [ ] Add FSRS spaced repetition algorithm option
+- [ ] Supabase Storage for images instead of base64
+- [ ] Recharts integration for richer analytics charts
+- [ ] Keyboard shortcut overlay/help modal
+- [x] Share sets via link (read-only, no login required)
+- [x] Supabase RLS policies for private sets + share token access
+- [ ] Export/import sets as JSON
+- [ ] Collaborative set editing
+- [ ] Audio card support (text-to-speech)
+- [ ] Search within card content
+- [ ] Undo/redo for card operations (add/delete/reorder)
