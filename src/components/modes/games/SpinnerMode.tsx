@@ -123,9 +123,10 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
 
   const count = remainingCards.length;
   const segmentAngle = 360 / count;
-  const wheelRadius = 150;
-  const centerX = 160;
-  const centerY = 160;
+  const wheelSize = 360;
+  const wheelRadius = 170;
+  const centerX = wheelSize / 2;
+  const centerY = wheelSize / 2;
 
   // Build SVG segments
   const segments = remainingCards.map((card, i) => {
@@ -155,7 +156,10 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     const labelRotation = (i + 0.5) * segmentAngle;
 
     const term = stripHtml(card.term);
-    const truncated = term.length > 18 ? term.slice(0, 16) + '..' : term;
+    // Adjust truncation based on segment size
+    const maxChars = count <= 4 ? 24 : count <= 8 ? 18 : 12;
+    const truncated = term.length > maxChars ? term.slice(0, maxChars - 2) + '..' : term;
+    const fontSize = count <= 4 ? 14 : count <= 8 ? 12 : 10;
 
     return (
       <g key={card.id}>
@@ -167,7 +171,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
           dominantBaseline="middle"
           transform={`rotate(${labelRotation}, ${labelX}, ${labelY})`}
           fill="#fff"
-          fontSize="10"
+          fontSize={fontSize}
           fontWeight="600"
           fontFamily="var(--font-sans)"
           style={{ pointerEvents: 'none' }}
@@ -201,26 +205,22 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
           <polygon points="0,0 30,0 15,20" fill="#fff" stroke="var(--color-text)" strokeWidth="2" />
         </svg>
 
-        <div
+        <svg
+          width={wheelSize}
+          height={wheelSize}
+          viewBox={`0 0 ${wheelSize} ${wheelSize}`}
           style={{
-            width: 320,
-            height: 320,
-            borderRadius: '50%',
-            overflow: 'hidden',
+            willChange: isSpinning ? 'transform' : 'auto',
             transform: `rotate(${rotationDeg}deg)`,
             transition: isSpinning
               ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
               : 'none',
           }}
         >
-          <svg width="320" height="320" viewBox="0 0 320 320">
-            <g>
-              {segments}
-            </g>
-            {/* Center circle */}
-            <circle cx={centerX} cy={centerY} r="20" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
-          </svg>
-        </div>
+          {segments}
+          {/* Center circle */}
+          <circle cx={centerX} cy={centerY} r="22" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
+        </svg>
 
         {/* Spin button */}
         <Button

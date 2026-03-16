@@ -10,6 +10,7 @@ interface GameBrowserModalProps {
   onClose: () => void;
   setId: string;
   cardCount: number;
+  onNavigate?: (url: string) => void;
 }
 
 interface GameEntry {
@@ -61,15 +62,21 @@ export function GameBrowserModal({
   onClose,
   setId,
   cardCount,
+  onNavigate,
 }: GameBrowserModalProps) {
   const navigate = useNavigate();
 
   const handleSelect = useCallback(
     (gameId: string) => {
       onClose();
-      navigate(`/sets/${setId}/study/${gameId}`);
+      const url = `/sets/${setId}/study/${gameId}`;
+      if (onNavigate) {
+        onNavigate(url);
+      } else {
+        navigate(url);
+      }
     },
-    [navigate, setId, onClose],
+    [navigate, setId, onClose, onNavigate],
   );
 
   return (

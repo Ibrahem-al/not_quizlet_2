@@ -12,7 +12,8 @@
       "Bash(grep export.*BubbleMenu c:UsersibrahOneDriveDocumentsnot_quizlet_2node_modules@tiptapreactdistindex.d.ts)",
       "Bash(rm -rf node_modules package-lock.json)",
       "Bash(npm install:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npm ls:*)"
     ]
   }
 }

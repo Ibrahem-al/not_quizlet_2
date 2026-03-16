@@ -19,6 +19,7 @@ interface CardListProps {
   onUpdateCard: (id: string, field: 'term' | 'definition', value: string) => void;
   onDeleteCard: (id: string) => void;
   onReorderCards: (cards: Card[]) => void;
+  excludedCardIds?: Set<string>;  // Cards dimmed by filter
 }
 ```
 
@@ -78,6 +79,9 @@ interface EditableCardProps {
 - Validation warnings shown below empty fields ("Term is required" / "Definition is required")
 - Click-outside listener deactivates the card
 
+### Filtered Card Dimming
+When `dimmed` prop is true (card is excluded by the filter), the card renders at 40% opacity. This gives a clear visual indicator of which cards will be used in study modes.
+
 ### Performance Optimization
 - Wrapped in `React.memo` with custom comparison:
   ```typescript
@@ -86,7 +90,8 @@ interface EditableCardProps {
     prev.card.term === next.card.term &&
     prev.card.definition === next.card.definition &&
     prev.index === next.index &&
-    prev.isActive === next.isActive
+    prev.isActive === next.isActive &&
+    prev.dimmed === next.dimmed
   ```
 - All callbacks wrapped in `useCallback`
 - TipTap editors are only mounted when card is active (lazy mounting)

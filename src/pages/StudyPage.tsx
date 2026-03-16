@@ -79,8 +79,8 @@ function StudyPage() {
     (card) => hasTermContent(card) && hasDefinitionContent(card),
   );
 
-  // Apply active card filters
-  if (filteredCardIds) {
+  // Apply active card filter from store
+  if (filteredCardIds && filteredCardIds.length > 0) {
     const idSet = new Set(filteredCardIds);
     validCards = validCards.filter((c) => idSet.has(c.id));
   }

@@ -129,7 +129,7 @@ Each toast gets a `crypto.randomUUID()` id and a `setTimeout` for auto-removal.
 | State | Type | Default | Description |
 |-------|------|---------|-------------|
 | `cardFilter` | `'all' \| 'due' \| 'new' \| 'difficult'` | `'all'` | Active card filter |
-| `filteredCardIds` | `string[] \| null` | `null` | Specific card IDs to study (e.g., missed cards from test) |
+| `filteredCardIds` | `string[] \| null` | `null` | Specific card IDs to study |
 
 | Action | Signature | Description |
 |--------|-----------|-------------|
@@ -137,7 +137,11 @@ Each toast gets a `crypto.randomUUID()` id and a `setTimeout` for auto-removal.
 | `setFilteredCardIds` | `(ids: string[] \| null) => void` | Sets specific card IDs to study |
 | `resetFilter` | `() => void` | Resets both filter and IDs to defaults |
 
-**Usage:** When test mode shows "Study Missed Cards", it sets `filteredCardIds` to the IDs of incorrect cards, then navigates to flashcard mode which uses those IDs.
+**Usage:**
+1. **Card filter on SetDetailPage**: User opens "Filter Cards" panel, selects/deselects cards (minimum 2), clicks "Apply Filter". This sets `filteredCardIds` with the selected IDs. The filter persists across all mode navigations until the user clicks "Clear Filter" or refreshes the page.
+2. **Study Missed Cards**: Test mode sets `filteredCardIds` to IDs of incorrect cards, then navigates to flashcard mode.
+3. **StudyPage reads the filter**: `StudyPage` subscribes to `filteredCardIds` and filters `validCards` before passing to mode components. No automatic cleanup — the filter stays until explicitly cleared.
+4. **SetDetailPage restores filter state**: When navigating back from a game, SetDetailPage reads `filteredCardIds` from the store and rebuilds the visual state (excluded card IDs, dimmed cards, badge).
 
 ---
 

@@ -28,6 +28,7 @@
     "dexie": "^4.3.0",
     "framer-motion": "^12.36.0",
     "fuse.js": "^7.1.0",
+    "jspdf": "^4.2.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

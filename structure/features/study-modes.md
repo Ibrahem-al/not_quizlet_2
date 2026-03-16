@@ -61,8 +61,14 @@ Shows total cards reviewed. Options: Restart or Exit.
 **File:** `src/components/modes/MatchMode.tsx`
 **Route:** `/sets/:id/study/match`
 
+### Three Phases
+1. **Setup**: User selects number of pairs (2 to max 8) via +/- buttons. Shows "X tiles total — randomly selected from Y cards". Start Game or Exit.
+2. **Playing**: Drag-and-drop tile matching in a shuffled grid.
+3. **Complete**: Shows completion time. Options: Play Again (re-shuffles with new random cards), Change Settings (back to setup), Exit.
+
 ### Behavior
-- Takes first 8 cards, creates term + definition tiles (16 total), shuffled in a grid
+- Cards are **randomly selected** via `shuffleArray(cards).slice(0, pairCount)` each game — different cards every time
+- Creates term + definition tiles from selected cards, shuffled in a grid
 - **Drag-and-drop interaction**: each tile is both draggable and droppable — drag one tile onto another to attempt a match
 - Uses `@dnd-kit/core` with `useDraggable` + `useDroppable` on every tile, `PointerSensor` + `TouchSensor`
 - Timer starts on first drag
@@ -71,7 +77,6 @@ Shows total cards reviewed. Options: Restart or Exit.
 - `DragOverlay` shows the dragged tile with primary highlight
 - Drop targets scale up and highlight when hovered
 - Confetti via `canvas-confetti` on completion
-- Shows completion time
 
 ### Grid Layout
 Responsive: 2 cols (mobile), 3 cols (sm), 4 cols (md+). Each tile is 112px tall with `.match-tile` class for image containment.
@@ -117,10 +122,12 @@ Sets `filteredCardIds` in `useFilterStore` with IDs of incorrectly answered card
 - Game ends when all cards removed
 
 ### Wheel Mechanics
+- Wheel is 360x360px SVG with 170px radius
 - Segment angle = 360 / remaining cards
 - Landing calculated to center pointer on random segment
-- SVG wrapped in a rotating `<div>` (CSS transforms on HTML elements for cross-browser reliability)
+- CSS `transform: rotate()` applied directly to the `<svg>` element with `will-change: transform` for GPU-accelerated animation
 - Rotation uses `cubic-bezier(0.17, 0.67, 0.12, 0.99)` for natural deceleration
+- Adaptive text labels: font size scales with segment count (14px for ≤4 cards, 12px for ≤8, 10px for more); truncation limit also adapts
 
 ---
 
@@ -235,6 +242,12 @@ All modes use `gradeWrittenAnswer()` from `src/lib/equivalence.ts` which:
 1. Normalizes both user answer and correct answers (lowercase, trim, collapse whitespace, strip HTML)
 2. Checks equivalence groups for multi-answer correctness
 3. Uses Levenshtein distance with adaptive thresholds: exact for <= 4 chars, 1 edit for <= 8 chars, 15% of length for longer
+
+### True/False Equivalence
+T/F questions in all 4 question-based modes (Learn, Test, BlockBuilder, RaceToFinish) check `isCorrect` using all equivalent definitions via `correctAnswers.some(a => normalizeAnswer(a) === normalizeAnswer(shownDef))`, not just the specific card's definition. This prevents false negatives when cards share the same term with different definitions.
+
+### Card Filtering
+All modes receive pre-filtered cards from `StudyPage`. The filter is applied via `useFilterStore.filteredCardIds` — when set, only cards with matching IDs are passed to mode components. The filter persists across mode navigations and only clears when the user explicitly removes it from SetDetailPage.
 
 ### SM-2 Integration
 Learn and Test modes call `recordReview(card, quality, mode)` from `src/lib/spaced-repetition.ts`. Quality values: 1 (wrong), 2 (again), 3 (hard), 4 (medium), 5 (easy). Test mode uses 4 (correct) or 1 (wrong). Flashcard mode no longer uses SM-2 — it is a simple review mode.

@@ -46,6 +46,10 @@ This file tracks improvements, corrections, and lessons learned during developme
 | 2026-03-16 | Match mode was click-based | Rewrote with @dnd-kit drag-and-drop — tiles are both draggable and droppable in shuffled grid |
 | 2026-03-16 | Flashcard difficulty rating unnecessary | Removed SM-2 integration, rating buttons, swipe-to-rate; simplified to Prev/Flip/Next |
 | 2026-03-16 | Photo import feature unused | Removed Photo Import button and Camera icon from SetDetailPage |
+| 2026-03-16 | Match mode always used same first 8 cards | Added setup screen with pair count selector; cards randomly selected via shuffleArray each game |
+| 2026-03-16 | Spinner text too small and animation glitchy | Direct SVG rotation with will-change hint; bigger 360px wheel; adaptive font size and truncation |
+| 2026-03-16 | T/F questions marked equivalent definitions as wrong | Fixed isCorrect check in all 4 question modes to compare against all correctAnswers via normalizeAnswer |
+| 2026-03-16 | No way to filter cards before studying | Added card filter panel on SetDetailPage with checkboxes, min-2 guard, Apply/Clear buttons; filter persists in store across all modes until manually cleared |
 
 ## Future Improvements
 - [ ] Implement full Live Multiplayer with Supabase Realtime
@@ -56,6 +60,11 @@ This file tracks improvements, corrections, and lessons learned during developme
 - [x] Simplified Flashcard mode (no difficulty rating)
 - [x] Fixed spinner wheel animation
 - [x] Fixed memory game completion logic
+- [x] Match mode setup screen with pair count + random card selection
+- [x] Spinner wheel: bigger, adaptive text, GPU-accelerated rotation
+- [x] T/F equivalence fix across Learn, Test, BlockBuilder, RaceToFinish
+- [x] Card filter feature: select/deselect cards on SetDetailPage, persists across modes
+- [x] Dimmed excluded cards in card editor (40% opacity)
 - [x] Image thumbnails in card editor
 - [x] Viewport-fit memory game grid
 - [ ] Supabase Storage for images instead of base64

@@ -101,7 +101,7 @@ function buildQuestions(cards: Card[]): Question[] {
         tfPair: {
           term: card.term,
           definition: shownDefinition,
-          isCorrect: isCorrect || shownDefinition === card.definition,
+          isCorrect: isCorrect || correctAnswers.some((a) => normalizeAnswer(a) === normalizeAnswer(shownDefinition)),
         },
       });
     } else {

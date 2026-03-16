@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useCallback, useState } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, BarChart3, FolderOpen, Upload } from 'lucide-react';
+import { Search, Plus, BarChart3, FolderOpen } from 'lucide-react';
 import Fuse from 'fuse.js';
 import PageTransition from '@/components/layout/PageTransition';
 import { useSetStore } from '@/stores/useSetStore';
@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import SetCard from '@/components/SetCard';
-import ImportBackupModal from '@/components/ImportBackupModal'; // TEMPORARY: import backup feature
 import type { StudySet } from '@/types';
 
 function HomePage() {
@@ -18,7 +17,6 @@ function HomePage() {
     useSetStore();
   const { folders, selectedFolderId, loadFolders, selectFolder } =
     useFolderStore();
-  const [showImport, setShowImport] = useState(false); // TEMPORARY: import backup feature
 
   useEffect(() => {
     loadSets();
@@ -85,14 +83,6 @@ function HomePage() {
               icon={<Plus size={18} />}
             >
               New Set
-            </Button>
-            {/* TEMPORARY: import backup feature */}
-            <Button
-              variant="outline"
-              onClick={() => setShowImport(true)}
-              icon={<Upload size={18} />}
-            >
-              Import
             </Button>
             <Button
               variant="ghost"
@@ -193,8 +183,6 @@ function HomePage() {
           </div>
         )}
       </div>
-      {/* TEMPORARY: import backup feature */}
-      <ImportBackupModal isOpen={showImport} onClose={() => setShowImport(false)} />
     </PageTransition>
   );
 }

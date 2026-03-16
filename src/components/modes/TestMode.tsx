@@ -118,7 +118,7 @@ function buildTestQuestions(
         tfPair: {
           term: isReverse ? card.definition : card.term,
           definition: shownDef,
-          isCorrect: isCorrect || shownDef === (isReverse ? card.term : card.definition),
+          isCorrect: isCorrect || correctAnswers.some((a) => normalizeAnswer(a) === normalizeAnswer(shownDef)),
         },
       });
     } else {

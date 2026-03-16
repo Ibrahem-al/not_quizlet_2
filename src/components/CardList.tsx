@@ -22,6 +22,7 @@ interface CardListProps {
   onUpdateCard: (id: string, field: 'term' | 'definition', value: string) => void;
   onDeleteCard: (id: string) => void;
   onReorderCards: (cards: Card[]) => void;
+  excludedCardIds?: Set<string>;
 }
 
 const VIRTUALIZATION_THRESHOLD = 20;
@@ -32,6 +33,7 @@ export function CardList({
   onUpdateCard,
   onDeleteCard,
   onReorderCards,
+  excludedCardIds,
 }: CardListProps) {
   const [activeCardId, setActiveCardId] = useState('');
   const parentRef = useRef<HTMLDivElement>(null);
@@ -118,6 +120,7 @@ export function CardList({
                         card={card}
                         index={virtualItem.index}
                         isActive={activeCardId === card.id}
+                        dimmed={excludedCardIds?.has(card.id) ?? false}
                         onActivate={handleActivate}
                         onUpdate={onUpdateCard}
                         onDelete={onDeleteCard}
@@ -147,6 +150,7 @@ export function CardList({
               card={card}
               index={i}
               isActive={activeCardId === card.id}
+              dimmed={excludedCardIds?.has(card.id) ?? false}
               onActivate={handleActivate}
               onUpdate={onUpdateCard}
               onDelete={onDeleteCard}

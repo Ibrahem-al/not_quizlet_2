@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DndContext,
@@ -43,7 +43,6 @@ function DraggableDroppableTile({
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: tile.id });
   const { setNodeRef: setDropRef } = useDroppable({ id: tile.id });
 
-  // Combine both refs
   const setRefs = useCallback(
     (node: HTMLElement | null) => {
       setDragRef(node);
@@ -94,47 +93,64 @@ function DraggableDroppableTile({
 function MatchMode({ cards, setId }: MatchModeProps) {
   const navigate = useNavigate();
 
-  const pairCards = cards.slice(0, 8);
-  const groups = buildEquivalenceGroups(pairCards);
+  const maxPairs = Math.min(8, cards.length);
+  const [pairCount, setPairCount] = useState(Math.min(6, maxPairs));
+  const [phase, setPhase] = useState<'setup' | 'playing' | 'complete'>('setup');
 
-  const [tiles, setTiles] = useState<Tile[]>(() => {
-    const tilePairs: Tile[] = [];
-    for (const card of pairCards) {
-      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
-      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
-    }
-    return shuffleArray(tilePairs);
-  });
+  // These are set when the game starts
+  const [selectedCards, setSelectedCards] = useState<Card[]>([]);
+  const groups = useMemo(() => buildEquivalenceGroups(selectedCards), [selectedCards]);
 
+  const [tiles, setTiles] = useState<Tile[]>([]);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState(0);
   const [mismatchFlash, setMismatchFlash] = useState(false);
   const [timer, setTimer] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
-  const [gameComplete, setGameComplete] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } });
   const sensors = useSensors(pointerSensor, touchSensor);
 
+  const startGame = useCallback(() => {
+    const picked = shuffleArray(cards).slice(0, pairCount);
+    setSelectedCards(picked);
+
+    const tilePairs: Tile[] = [];
+    for (const card of picked) {
+      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
+      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
+    }
+    setTiles(shuffleArray(tilePairs));
+    setMatchedPairs(0);
+    setActiveDragId(null);
+    setOverId(null);
+    setMismatchFlash(false);
+    setTimer(0);
+    setTimerRunning(false);
+    setPhase('playing');
+  }, [cards, pairCount]);
+
+  // Timer
   useEffect(() => {
-    if (timerRunning && !gameComplete) {
+    if (timerRunning && phase === 'playing') {
       intervalRef.current = setInterval(() => setTimer((t) => t + 0.1), 100);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [timerRunning, gameComplete]);
+  }, [timerRunning, phase]);
 
+  // Confetti on complete
   useEffect(() => {
-    if (gameComplete) {
+    if (phase === 'complete') {
       import('canvas-confetti').then((mod) => {
         mod.default({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
       }).catch(() => {});
     }
-  }, [gameComplete]);
+  }, [phase]);
 
   const isMatch = useCallback(
     (tile1: Tile, tile2: Tile) => {
@@ -144,7 +160,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
       const termTile = tile1.side === 'term' ? tile1 : tile2;
       const defTile = tile1.side === 'definition' ? tile1 : tile2;
 
-      const termCard = pairCards.find((c) => c.id === termTile.cardId);
+      const termCard = selectedCards.find((c) => c.id === termTile.cardId);
       if (!termCard) return false;
 
       const normalizedDef = normalizeAnswer(defTile.content);
@@ -152,7 +168,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
       const group = groups.get(key) ?? [termCard];
       return group.some((c) => normalizeAnswer(c.definition) === normalizedDef);
     },
-    [pairCards, groups],
+    [selectedCards, groups],
   );
 
   const handleDragStart = useCallback(
@@ -187,37 +203,89 @@ function MatchMode({ cards, setId }: MatchModeProps) {
             t.id === draggedTile.id || t.id === droppedOnTile.id ? { ...t, matched: true } : t,
           ),
         );
-        if (newMatched >= pairCards.length) {
-          setGameComplete(true);
+        if (newMatched >= selectedCards.length) {
           setTimerRunning(false);
+          setPhase('complete');
         }
       } else {
         setMismatchFlash(true);
         setTimeout(() => setMismatchFlash(false), 600);
       }
     },
-    [tiles, isMatch, matchedPairs, pairCards.length],
+    [tiles, isMatch, matchedPairs, selectedCards.length],
   );
-
-  const handleRestart = useCallback(() => {
-    const tilePairs: Tile[] = [];
-    for (const card of pairCards) {
-      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
-      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
-    }
-    setTiles(shuffleArray(tilePairs));
-    setActiveDragId(null);
-    setOverId(null);
-    setMatchedPairs(0);
-    setMismatchFlash(false);
-    setTimer(0);
-    setTimerRunning(false);
-    setGameComplete(false);
-  }, [pairCards]);
 
   const activeTile = tiles.find((t) => t.id === activeDragId);
 
-  if (gameComplete) {
+  // Setup screen
+  if (phase === 'setup') {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: 'var(--color-text)' }}>
+          Match
+        </h2>
+
+        <div
+          className="rounded-2xl p-6 space-y-6"
+          style={{
+            background: 'var(--color-surface)',
+            boxShadow: 'var(--shadow-card)',
+            borderRadius: 'var(--radius-xl)',
+          }}
+        >
+          <div>
+            <label className="block text-sm font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+              Number of Pairs
+            </label>
+            <div className="flex items-center gap-4 justify-center">
+              <button
+                onClick={() => setPairCount((c) => Math.max(2, c - 1))}
+                className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer"
+                style={{
+                  background: 'var(--color-muted)',
+                  color: 'var(--color-text)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                -
+              </button>
+              <span className="text-3xl font-bold w-12 text-center" style={{ color: 'var(--color-primary)' }}>
+                {pairCount}
+              </span>
+              <button
+                onClick={() => setPairCount((c) => Math.min(maxPairs, c + 1))}
+                className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer"
+                style={{
+                  background: 'var(--color-muted)',
+                  color: 'var(--color-text)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                +
+              </button>
+            </div>
+            <p className="text-sm text-center mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+              {pairCount * 2} tiles total — randomly selected from {cards.length} cards
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Button variant="primary" className="flex-1" onClick={startGame}>
+              Start Game
+            </Button>
+            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
+              Exit
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Complete screen
+  if (phase === 'complete') {
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
         <motion.div
@@ -237,14 +305,16 @@ function MatchMode({ cards, setId }: MatchModeProps) {
             Completed in {formatTime(timer)}
           </p>
           <div className="flex gap-3 justify-center">
-            <Button variant="primary" onClick={handleRestart}>Play Again</Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>Exit</Button>
+            <Button variant="primary" onClick={startGame}>Play Again</Button>
+            <Button variant="outline" onClick={() => setPhase('setup')}>Change Settings</Button>
+            <Button variant="ghost" onClick={() => navigate(`/sets/${setId}`)}>Exit</Button>
           </div>
         </motion.div>
       </div>
     );
   }
 
+  // Playing screen
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Header */}
@@ -256,7 +326,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
           {formatTime(timer)}
         </span>
         <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-          {matchedPairs} / {pairCards.length} pairs
+          {matchedPairs} / {selectedCards.length} pairs
         </span>
       </div>
 

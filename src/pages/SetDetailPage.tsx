@@ -10,6 +10,7 @@ import {
   Printer,
   Radio,
   FolderInput,
+  Filter,
   X,
   Check,
   Loader2,
@@ -20,9 +21,10 @@ import {
   Copy,
 } from 'lucide-react';
 import type { Card, StudySet } from '@/types';
-import { generateId } from '@/lib/utils';
+import { generateId, stripHtml, hasTextContent, isImageOnly } from '@/lib/utils';
 import { useSetStore } from '@/stores/useSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useFilterStore } from '@/stores/useFilterStore';
 import { useToastStore } from '@/stores/useToastStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { generateShareToken, removeShareToken, syncSetToCloud } from '@/lib/cloudSync';
@@ -32,6 +34,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { CardList } from '@/components/CardList';
 import { GameBrowserModal } from '@/components/GameBrowserModal';
+import { PrintDialog } from '@/components/PrintDialog';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
@@ -63,9 +66,21 @@ function SetDetailPage() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [gameBrowserOpen, setGameBrowserOpen] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const storedFilterIds = useFilterStore((s) => s.filteredCardIds);
+  const setFilteredCardIds = useFilterStore((s) => s.setFilteredCardIds);
   const addToast = useToastStore((s) => s.addToast);
+
+  // Restore filter visual state from store on mount
+  const [excludedCardIds, setExcludedCardIds] = useState<Set<string>>(() => {
+    if (!storedFilterIds) return new Set();
+    // We'll rebuild excludedCardIds once we have localSet — handled below
+    return new Set();
+  });
+  const [filterApplied, setFilterApplied] = useState(!!storedFilterIds);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localSetRef = useRef<StudySet | null>(null);
@@ -80,6 +95,17 @@ function SetDetailPage() {
     }
   }, [sets.length, loadSets]);
 
+  // Restore excluded card IDs from filter store when set loads
+  useEffect(() => {
+    if (!localSet || !storedFilterIds) return;
+    const includedSet = new Set(storedFilterIds);
+    const excluded = new Set(localSet.cards.filter((c) => !includedSet.has(c.id)).map((c) => c.id));
+    if (excluded.size > 0) {
+      setExcludedCardIds(excluded);
+      setFilterApplied(true);
+    }
+  }, [localSet?.id, storedFilterIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Find set from store
   useEffect(() => {
     if (!loaded) return;
@@ -88,6 +114,47 @@ function SetDetailPage() {
       setLocalSet(found);
     }
   }, [id, sets, loaded, localSet]);
+
+  const toggleCardExclusion = useCallback((cardId: string) => {
+    setExcludedCardIds((prev) => {
+      const totalCards = localSet?.cards.length ?? 0;
+      const currentIncluded = totalCards - prev.size;
+      const isCurrentlyExcluded = prev.has(cardId);
+
+      // Prevent going below 2 selected cards
+      if (!isCurrentlyExcluded && currentIncluded <= 2) return prev;
+
+      const next = new Set(prev);
+      if (isCurrentlyExcluded) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  }, [localSet]);
+
+  const activeCardCount = localSet
+    ? localSet.cards.length - excludedCardIds.size
+    : 0;
+
+  const applyFilter = useCallback(() => {
+    if (!localSet) return;
+    const selectedIds = localSet.cards
+      .filter((c) => !excludedCardIds.has(c.id))
+      .map((c) => c.id);
+    setFilteredCardIds(selectedIds);
+    setFilterApplied(true);
+    setFilterOpen(false);
+    addToast('success', `Filter applied: ${selectedIds.length} of ${localSet.cards.length} cards selected`);
+  }, [localSet, excludedCardIds, setFilteredCardIds, addToast]);
+
+  const clearFilter = useCallback(() => {
+    setExcludedCardIds(new Set());
+    setFilteredCardIds(null);
+    setFilterApplied(false);
+    setFilterOpen(false);
+  }, [setFilteredCardIds]);
 
   // Debounced auto-save (5 seconds)
   const scheduleSave = useCallback(() => {
@@ -471,7 +538,7 @@ function SetDetailPage() {
             variant="ghost"
             size="sm"
             icon={<Printer size={16} />}
-            onClick={() => window.print()}
+            onClick={() => setPrintDialogOpen(true)}
           >
             Print
           </Button>
@@ -551,22 +618,148 @@ function SetDetailPage() {
 
         {/* Card list */}
         <div className="mb-4">
-          <div
-            className="flex items-center justify-between mb-3"
-          >
+          <div className="flex items-center justify-between mb-3">
             <h2
               className="text-lg font-semibold"
               style={{ color: 'var(--color-text)' }}
             >
               Cards ({localSet.cards.length})
             </h2>
+            <div className="flex items-center gap-2">
+              {filterApplied && (
+                <span
+                  className="text-xs font-medium px-2 py-1 rounded-full"
+                  style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)' }}
+                >
+                  {activeCardCount} of {localSet.cards.length} cards active
+                </span>
+              )}
+              <Button
+                variant={filterOpen || filterApplied ? 'primary' : 'ghost'}
+                size="sm"
+                icon={<Filter size={16} />}
+                onClick={() => setFilterOpen((v) => !v)}
+              >
+                {filterOpen ? 'Close' : 'Filter Cards'}
+              </Button>
+              {filterApplied && !filterOpen && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<X size={14} />}
+                  onClick={clearFilter}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* Card filter panel */}
+          {filterOpen && (
+            <div
+              className="rounded-xl p-4 mb-4"
+              style={{
+                background: 'var(--color-surface-raised)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-lg)',
+              }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  Select which cards to study
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setExcludedCardIds(new Set())}
+                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer"
+                    style={{
+                      background: 'var(--color-muted)',
+                      color: 'var(--color-primary)',
+                      border: 'none',
+                    }}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setExcludedCardIds(new Set(localSet.cards.map((c) => c.id)))}
+                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer"
+                    style={{
+                      background: 'var(--color-muted)',
+                      color: 'var(--color-text-secondary)',
+                      border: 'none',
+                    }}
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto">
+                {localSet.cards.map((card, i) => {
+                  const isIncluded = !excludedCardIds.has(card.id);
+                  const termText = stripHtml(card.term) || '(empty term)';
+                  const defText = stripHtml(card.definition) || '(empty definition)';
+                  return (
+                    <label
+                      key={card.id}
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                      style={{
+                        background: isIncluded ? 'var(--color-surface)' : 'transparent',
+                        opacity: isIncluded ? 1 : 0.5,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isIncluded}
+                        onChange={() => toggleCardExclusion(card.id)}
+                        className="shrink-0"
+                        style={{ accentColor: 'var(--color-primary)' }}
+                      />
+                      <span className="text-sm font-medium shrink-0 w-6" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {i + 1}
+                      </span>
+                      <span className="text-sm truncate flex-1" style={{ color: 'var(--color-text)' }}>
+                        {termText}
+                      </span>
+                      <span className="text-sm truncate flex-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {defText}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Footer: count + Apply/Clear */}
+              <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <span className="text-sm" style={{ color: activeCardCount <= 2 ? 'var(--color-warning)' : 'var(--color-text-secondary)' }}>
+                  {activeCardCount} of {localSet.cards.length} cards selected
+                  {activeCardCount <= 2 && ' (minimum 2)'}
+                </span>
+                <div className="flex gap-2">
+                  {filterApplied && (
+                    <Button variant="ghost" size="sm" onClick={clearFilter}>
+                      Clear Filter
+                    </Button>
+                  )}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={applyFilter}
+                    disabled={activeCardCount < 2 || (excludedCardIds.size === 0 && !filterApplied)}
+                  >
+                    Apply Filter
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <CardList
             cards={localSet.cards}
             onUpdateCard={handleUpdateCard}
             onDeleteCard={handleDeleteCard}
             onReorderCards={handleReorderCards}
+            excludedCardIds={excludedCardIds.size > 0 ? excludedCardIds : undefined}
           />
         </div>
 
@@ -594,7 +787,14 @@ function SetDetailPage() {
           isOpen={gameBrowserOpen}
           onClose={() => setGameBrowserOpen(false)}
           setId={localSet.id}
-          cardCount={localSet.cards.length}
+          cardCount={filterApplied ? activeCardCount : localSet.cards.length}
+        />
+
+        {/* Print dialog */}
+        <PrintDialog
+          isOpen={printDialogOpen}
+          onClose={() => setPrintDialogOpen(false)}
+          set={localSet}
         />
       </div>
     </PageTransition>

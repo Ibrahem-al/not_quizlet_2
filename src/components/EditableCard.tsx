@@ -10,6 +10,7 @@ interface EditableCardProps {
   card: Card;
   index: number;
   isActive: boolean;
+  dimmed?: boolean;
   onActivate: (id: string) => void;
   onUpdate: (id: string, field: 'term' | 'definition', value: string) => void;
   onDelete: (id: string) => void;
@@ -24,6 +25,7 @@ const EditableCard = memo(
     card,
     index,
     isActive,
+    dimmed,
     onActivate,
     onUpdate,
     onDelete,
@@ -42,7 +44,7 @@ const EditableCard = memo(
     const style = {
       transform: CSS.Transform.toString(transform),
       transition,
-      opacity: isDragging ? 0.5 : 1,
+      opacity: isDragging ? 0.5 : dimmed ? 0.4 : 1,
     };
 
     const handleClickOutside = useCallback(
@@ -243,7 +245,8 @@ const EditableCard = memo(
     prev.card.term === next.card.term &&
     prev.card.definition === next.card.definition &&
     prev.index === next.index &&
-    prev.isActive === next.isActive,
+    prev.isActive === next.isActive &&
+    prev.dimmed === next.dimmed,
 );
 
 export { EditableCard };
