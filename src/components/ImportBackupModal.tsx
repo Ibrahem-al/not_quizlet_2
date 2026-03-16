@@ -39,15 +39,6 @@ export default function ImportBackupModal({ isOpen, onClose }: ImportBackupModal
     onClose();
   }, [reset, onClose]);
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      processFile(file);
-    },
-    [processFile],
-  );
-
   const processFile = useCallback(
     async (file: File) => {
       setFileName(file.name);
@@ -88,6 +79,15 @@ export default function ImportBackupModal({ isOpen, onClose }: ImportBackupModal
       if (file && file.name.endsWith('.json')) {
         processFile(file);
       }
+    },
+    [processFile],
+  );
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      processFile(file);
     },
     [processFile],
   );
