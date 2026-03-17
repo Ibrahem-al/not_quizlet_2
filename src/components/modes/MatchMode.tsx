@@ -13,7 +13,7 @@ import {
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, normalizeAnswer, formatTime } from '@/lib/utils';
+import { shuffleArray, normalizeAnswer, formatTime, fairRepeatCards } from '@/lib/utils';
 import { buildEquivalenceGroups } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
@@ -93,8 +93,7 @@ function DraggableDroppableTile({
 function MatchMode({ cards, setId }: MatchModeProps) {
   const navigate = useNavigate();
 
-  const maxPairs = Math.min(8, cards.length);
-  const [pairCount, setPairCount] = useState(Math.min(6, maxPairs));
+  const [pairCount, setPairCount] = useState(Math.min(6, cards.length));
   const [phase, setPhase] = useState<'setup' | 'playing' | 'complete'>('setup');
 
   // These are set when the game starts
@@ -115,14 +114,15 @@ function MatchMode({ cards, setId }: MatchModeProps) {
   const sensors = useSensors(pointerSensor, touchSensor);
 
   const startGame = useCallback(() => {
-    const picked = shuffleArray(cards).slice(0, pairCount);
+    const picked = fairRepeatCards(cards, pairCount);
     setSelectedCards(picked);
 
     const tilePairs: Tile[] = [];
-    for (const card of picked) {
-      tilePairs.push({ id: `term-${card.id}`, cardId: card.id, content: card.term, side: 'term', matched: false });
-      tilePairs.push({ id: `def-${card.id}`, cardId: card.id, content: card.definition, side: 'definition', matched: false });
-    }
+    picked.forEach((card, i) => {
+      const uid = `${card.id}-${i}`;
+      tilePairs.push({ id: `term-${uid}`, cardId: uid, content: card.term, side: 'term', matched: false });
+      tilePairs.push({ id: `def-${uid}`, cardId: uid, content: card.definition, side: 'definition', matched: false });
+    });
     setTiles(shuffleArray(tilePairs));
     setMatchedPairs(0);
     setActiveDragId(null);
@@ -254,7 +254,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
                 {pairCount}
               </span>
               <button
-                onClick={() => setPairCount((c) => Math.min(maxPairs, c + 1))}
+                onClick={() => setPairCount((c) => c + 1)}
                 className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer"
                 style={{
                   background: 'var(--color-muted)',

@@ -105,6 +105,20 @@ export function gradeAnswer(userAnswer: string, correctAnswers: string[]): boole
   });
 }
 
+/**
+ * Fair card repetition: returns `count` cards from the pool, repeating evenly.
+ * No card appears N+1 times unless every card has appeared N times.
+ */
+export function fairRepeatCards<T>(items: T[], count: number): T[] {
+  if (count <= 0) return [];
+  if (count <= items.length) return shuffleArray(items).slice(0, count);
+  const result: T[] = [];
+  while (result.length < count) {
+    result.push(...shuffleArray(items));
+  }
+  return result.slice(0, count);
+}
+
 export function compressImage(file: File | Blob, maxSizeKB = 500): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

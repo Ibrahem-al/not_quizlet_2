@@ -4,7 +4,7 @@ import type { Card, QuestionType } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { recordReview } from '@/lib/spaced-repetition';
 import { useSetStore } from '@/stores/useSetStore';
-import { shuffleArray, stripHtml, normalizeAnswer } from '@/lib/utils';
+import { shuffleArray, stripHtml, normalizeAnswer, fairRepeatCards } from '@/lib/utils';
 import {
   buildEquivalenceGroups,
   getEquivalentAnswers,
@@ -29,9 +29,9 @@ interface Question {
   tfPair?: { term: string; definition: string; isCorrect: boolean };
 }
 
-function buildQuestions(cards: Card[]): Question[] {
+function buildQuestions(cards: Card[], questionCount: number = 20): Question[] {
   const groups = buildEquivalenceGroups(cards);
-  const sessionCards = shuffleArray(cards).slice(0, 20);
+  const sessionCards = fairRepeatCards(cards, questionCount);
   const questions: Question[] = [];
 
   for (let i = 0; i < sessionCards.length; i++) {
@@ -123,13 +123,17 @@ function LearnMode({ cards, setId }: LearnModeProps) {
   const updateSet = useSetStore((s) => s.updateSet);
   const sets = useSetStore((s) => s.sets);
 
-  const [questions, setQuestions] = useState<Question[]>(() => buildQuestions(cards));
+  const [phase, setPhase] = useState<'config' | 'learning' | 'complete'>('config');
+  const [questionCount, setQuestionCount] = useState(Math.min(20, cards.length));
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
   const [sessionComplete, setSessionComplete] = useState(false);
+
+  const presets = [5, 10, 20, 50].filter((n) => n <= cards.length * 3);
 
   const currentQuestion = questions[currentIndex];
 
@@ -204,6 +208,100 @@ function LearnMode({ cards, setId }: LearnModeProps) {
     [userAnswer, checkAnswer],
   );
 
+  // Config screen
+  if (phase === 'config') {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <h2 className="text-2xl font-bold mb-6 text-center" style={{ color: 'var(--color-text)' }}>
+          Learn
+        </h2>
+        <div
+          className="rounded-2xl p-6 space-y-6"
+          style={{ background: 'var(--color-surface)', boxShadow: 'var(--shadow-card)', borderRadius: 'var(--radius-xl)' }}
+        >
+          <div>
+            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+              Number of Questions
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setQuestionCount((c) => Math.max(1, c - 1))}
+                className="w-8 h-8 rounded-lg text-lg font-bold cursor-pointer"
+                style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', borderRadius: 'var(--radius-md)' }}
+              >
+                -
+              </button>
+              <input
+                type="number"
+                min={1}
+                value={questionCount}
+                onChange={(e) => setQuestionCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="w-20 px-3 py-2 rounded-lg text-sm text-center outline-none"
+                style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: '2px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}
+              />
+              <button
+                onClick={() => setQuestionCount((c) => c + 1)}
+                className="w-8 h-8 rounded-lg text-lg font-bold cursor-pointer"
+                style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', borderRadius: 'var(--radius-md)' }}
+              >
+                +
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {presets.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setQuestionCount(n)}
+                  className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
+                  style={{
+                    background: questionCount === n ? 'var(--color-primary)' : 'transparent',
+                    color: questionCount === n ? 'white' : 'var(--color-text-secondary)',
+                    border: questionCount === n ? 'none' : '1px solid var(--color-border)',
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                onClick={() => setQuestionCount(cards.length)}
+                className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
+                style={{
+                  background: questionCount === cards.length ? 'var(--color-primary)' : 'transparent',
+                  color: questionCount === cards.length ? 'white' : 'var(--color-text-secondary)',
+                  border: questionCount === cards.length ? 'none' : '1px solid var(--color-border)',
+                }}
+              >
+                All ({cards.length})
+              </button>
+            </div>
+            {questionCount > cards.length && (
+              <p className="text-xs mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+                Cards will repeat evenly — each card appears at least {Math.ceil(questionCount / cards.length)} times
+              </p>
+            )}
+          </div>
+
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={() => {
+              setQuestions(buildQuestions(cards, questionCount));
+              setCurrentIndex(0);
+              setUserAnswer('');
+              setSelectedOption(null);
+              setFeedback(null);
+              setCorrectCount(0);
+              setSessionComplete(false);
+              setPhase('learning');
+            }}
+          >
+            Start Learning
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (sessionComplete) {
     const accuracy = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
 
@@ -233,13 +331,7 @@ function LearnMode({ cards, setId }: LearnModeProps) {
             <Button
               variant="primary"
               onClick={() => {
-                setQuestions(buildQuestions(cards));
-                setCurrentIndex(0);
-                setUserAnswer('');
-                setSelectedOption(null);
-                setFeedback(null);
-                setCorrectCount(0);
-                setSessionComplete(false);
+                setPhase('config');
               }}
             >
               Continue Learning

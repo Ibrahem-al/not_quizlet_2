@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { recordReview } from '@/lib/spaced-repetition';
 import { useSetStore } from '@/stores/useSetStore';
 import { useFilterStore } from '@/stores/useFilterStore';
-import { shuffleArray, stripHtml, normalizeAnswer } from '@/lib/utils';
+import { shuffleArray, stripHtml, normalizeAnswer, fairRepeatCards } from '@/lib/utils';
 import {
   buildEquivalenceGroups,
   getEquivalentAnswers,
@@ -39,7 +39,7 @@ function buildTestQuestions(
 ): TestQuestion[] {
   const groups = buildEquivalenceGroups(cards);
 
-  let selectedCards = shuffleArray(cards).slice(0, config.questionCount);
+  let selectedCards = fairRepeatCards(cards, config.questionCount);
   if (config.direction === 'both') {
     // Duplicate and alternate direction
     const half1 = selectedCards.slice(0, Math.ceil(selectedCards.length / 2));
@@ -157,7 +157,7 @@ function ConfigScreen({
   };
 
   const effectiveCount = customCount
-    ? Math.min(Math.max(1, parseInt(customCount, 10) || 1), cardCount)
+    ? Math.max(1, parseInt(customCount, 10) || 1)
     : questionCount;
 
   return (
@@ -233,10 +233,26 @@ function ConfigScreen({
             >
               All ({cardCount})
             </button>
+            {cardCount * 2 <= 200 && (
+              <button
+                onClick={() => {
+                  setQuestionCount(cardCount * 2);
+                  setCustomCount('');
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors"
+                style={{
+                  background: !customCount && questionCount === cardCount * 2 ? 'var(--color-primary)' : 'var(--color-muted)',
+                  color: !customCount && questionCount === cardCount * 2 ? '#ffffff' : 'var(--color-text)',
+                  borderRadius: 'var(--radius-md)',
+                  border: 'none',
+                }}
+              >
+                2x ({cardCount * 2})
+              </button>
+            )}
             <input
               type="number"
               min={1}
-              max={cardCount}
               value={customCount}
               onChange={(e) => setCustomCount(e.target.value)}
               placeholder="Custom"
@@ -249,6 +265,11 @@ function ConfigScreen({
               }}
             />
           </div>
+          {effectiveCount > cardCount && (
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+              Cards will repeat evenly — each card appears at least {Math.ceil(effectiveCount / cardCount)} times
+            </p>
+          )}
         </div>
 
         {/* Direction */}

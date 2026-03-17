@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card, QuestionType, AnswerDirection } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, stripHtml, normalizeAnswer, cn } from '@/lib/utils';
+import { shuffleArray, stripHtml, normalizeAnswer, cn, fairRepeatCards } from '@/lib/utils';
 import {
   buildEquivalenceGroups,
   getEquivalentAnswers,
@@ -56,11 +56,7 @@ function buildGameQuestions(
 ): GameQuestion[] {
   const groups = buildEquivalenceGroups(cards);
   const count = config.isInfinite ? cards.length * 3 : config.questionCount;
-  const pool: Card[] = [];
-  while (pool.length < count) {
-    pool.push(...shuffleArray(cards));
-  }
-  const selected = pool.slice(0, count);
+  const selected = fairRepeatCards(cards, count);
   const questions: GameQuestion[] = [];
   const types = config.questionTypes;
 
@@ -251,7 +247,7 @@ function ConfigScreen({
             <input
               type="number"
               min={1}
-              max={cardCount * 3}
+              max={999}
               value={isInfinite ? '' : questionCount}
               onChange={(e) => setQuestionCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
               disabled={isInfinite}

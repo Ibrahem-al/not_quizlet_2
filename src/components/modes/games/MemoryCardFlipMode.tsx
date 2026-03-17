@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, stripHtml, normalizeAnswer, cn } from '@/lib/utils';
+import { shuffleArray, stripHtml, normalizeAnswer, cn, fairRepeatCards } from '@/lib/utils';
 import { buildEquivalenceGroups } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
@@ -24,8 +24,7 @@ interface MemoryCard {
 function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
   const navigate = useNavigate();
 
-  const maxPairs = Math.min(12, cards.length);
-  const [pairCount, setPairCount] = useState(Math.min(6, maxPairs));
+  const [pairCount, setPairCount] = useState(Math.min(6, cards.length));
   const [phase, setPhase] = useState<'setup' | 'playing' | 'results'>('setup');
   const [memoryCards, setMemoryCards] = useState<MemoryCard[]>([]);
   const [flippedIds, setFlippedIds] = useState<string[]>([]);
@@ -60,21 +59,22 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
   }, []);
 
   const startGame = useCallback(() => {
-    const selected = shuffleArray(cards).slice(0, pairCount);
+    const selected = fairRepeatCards(cards, pairCount);
     const pairs: MemoryCard[] = [];
 
-    selected.forEach((card) => {
+    selected.forEach((card, i) => {
+      const uid = `${card.id}-${i}`;
       pairs.push({
-        id: `t-${card.id}`,
-        pairId: card.id,
+        id: `t-${uid}`,
+        pairId: uid,
         type: 'term',
         content: card.term,
         isFlipped: false,
         isMatched: false,
       });
       pairs.push({
-        id: `d-${card.id}`,
-        pairId: card.id,
+        id: `d-${uid}`,
+        pairId: uid,
         type: 'definition',
         content: card.definition,
         isFlipped: false,
@@ -221,7 +221,7 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
                 {pairCount}
               </span>
               <button
-                onClick={() => setPairCount((c) => Math.min(maxPairs, c + 1))}
+                onClick={() => setPairCount((c) => c + 1)}
                 className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer"
                 style={{
                   background: 'var(--color-muted)',

@@ -41,7 +41,7 @@ not_quizlet_2/
     │   ├── equivalence.ts              # Equivalence groups, multi-answer grading
     │   ├── validation.ts               # Card/set validation (empty, length, duplicates, etc.)
     │   ├── ocrParser.ts                # Parse OCR text into term-definition pairs
-    │   ├── pdfGenerator.ts             # 6 PDF activity generators using jsPDF
+    │   ├── pdfGenerator.ts             # 6 PDF activity generators using jsPDF, equivalence-aware answer keys
     │   └── utils.ts                    # cn, generateId, stripHtml, shuffleArray, levenshtein, gradeAnswer, compressImage, FOLDER_COLORS
     │
     ├── hooks/
@@ -73,7 +73,7 @@ not_quizlet_2/
         ├── FolderSidebar.tsx           # Recursive folder tree with color-coded icons
         ├── MoveToFolderModal.tsx       # Modal to move a set into a folder
         ├── PhotoImportModal.tsx        # 3-step OCR workflow: upload -> process -> preview/edit
-        ├── PrintDialog.tsx             # PDF activity picker and config UI
+        ├── PrintDialog.tsx             # PDF activity picker (gradient grid) + test config sub-view
         ├── GameBrowserModal.tsx        # Game mode selector grid (Spinner, Block Builder, Memory, Race)
         ├── SetCard.tsx                 # Set preview card for grid views
         ├── StudyContent.tsx            # Safe HTML renderer for study mode content

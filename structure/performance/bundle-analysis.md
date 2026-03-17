@@ -42,7 +42,7 @@ Each lazy-loaded page becomes its own chunk:
 
 | Library | Trigger | Approx Size |
 |---------|---------|-------------|
-| jsPDF | User clicks "Generate PDF" in PrintDialog | ~250KB |
+| jsPDF | User clicks "Generate PDF" in PrintDialog | ~390KB (128KB gzipped) |
 | tesseract.js | User clicks "Extract Text" in PhotoImportModal | ~2MB+ (includes WASM) |
 | canvas-confetti | Match game completion | ~8KB |
 

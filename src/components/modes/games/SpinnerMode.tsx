@@ -14,7 +14,7 @@ interface SpinnerModeProps {
 function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   const navigate = useNavigate();
 
-  const [remainingCards, setRemainingCards] = useState<Card[]>(() => cards.slice(0, 12));
+  const [remainingCards, setRemainingCards] = useState<Card[]>(() => [...cards]);
   const [rotationDeg, setRotationDeg] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
@@ -24,7 +24,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRotationRef = useRef(0);
 
-  const totalCards = cards.slice(0, 12).length;
+  const totalCards = [...cards].length;
 
   useEffect(() => {
     return () => {
@@ -74,7 +74,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   }, []);
 
   const handleReset = useCallback(() => {
-    setRemainingCards(cards.slice(0, 12));
+    setRemainingCards([...cards]);
     setDoneCount(0);
     setSkippedCount(0);
     setRotationDeg(0);
