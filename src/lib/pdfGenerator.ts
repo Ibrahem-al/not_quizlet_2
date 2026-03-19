@@ -125,7 +125,9 @@ function checkPage(doc: DocType, y: number, needed: number): number {
 
 function tryAddImage(doc: DocType, base64: string, x: number, y: number, maxW: number, maxH: number) {
   try {
-    doc.addImage(base64, 'JPEG', x, y, maxW, maxH);
+    // Detect format from data URI, default to JPEG
+    const format = base64.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+    doc.addImage(base64, format, x, y, maxW, maxH);
   } catch {
     // Skip unsupported images
   }

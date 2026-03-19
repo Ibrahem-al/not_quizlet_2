@@ -147,11 +147,11 @@ body {
   pointer-events: none;
   height: 0;
 }
-.ProseMirror img { max-width: 100%; height: auto; border-radius: var(--radius-sm); }
+.ProseMirror img { max-width: 100%; height: auto; border-radius: var(--radius-sm); background: #ffffff; }
 
-.study-content img { max-width: 280px; max-height: 200px; object-fit: contain; border-radius: var(--radius-sm); }
-.match-tile .study-content img { max-width: 100%; max-height: 70px; object-fit: contain; }
-.memory-card-content .study-content img { max-width: 100%; max-height: 80px; object-fit: contain; }
+.study-content img { max-width: 280px; max-height: 200px; object-fit: contain; border-radius: var(--radius-sm); background: #ffffff; }
+.match-tile .study-content img { max-width: 100%; max-height: 70px; object-fit: contain; background: #ffffff; }
+.memory-card-content .study-content img { max-width: 100%; max-height: 80px; object-fit: contain; background: #ffffff; }
 .editor-content img,
 .editor-content .ProseMirror img,
-.card-preview img { max-width: 80px; max-height: 56px; object-fit: contain; border-radius: var(--radius-xs); display: inline-block; }
+.card-preview img { max-width: 80px; max-height: 56px; object-fit: contain; border-radius: var(--radius-xs); display: inline-block; background: #ffffff; }

@@ -136,6 +136,8 @@ export function compressImage(file: File | Blob, maxSizeKB = 500): Promise<strin
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         let quality = 0.8;
         let result = canvas.toDataURL('image/jpeg', quality);
