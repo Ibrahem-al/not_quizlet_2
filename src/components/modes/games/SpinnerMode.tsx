@@ -11,6 +11,45 @@ interface SpinnerModeProps {
   setId: string;
 }
 
+/** Extract first base64 image src from HTML content */
+function extractImageSrc(html: string): string | null {
+  const match = html.match(/<img[^>]+src="(data:[^"]+)"/);
+  return match ? match[1] : null;
+}
+
+/** Returns true if the card side contains an <img> tag */
+function hasImage(html: string): boolean {
+  return /<img\s/.test(html);
+}
+
+/**
+ * Pick the best label side for a spinner segment.
+ * Priority: side with image-only content > term > definition
+ */
+function getDisplaySide(card: Card): { html: string; imageSrc: string | null; text: string } {
+  const termImg = hasImage(card.term);
+  const defImg = hasImage(card.definition);
+  const termText = stripHtml(card.term);
+  const defText = stripHtml(card.definition);
+
+  // Prefer the side that is image-only (has image, no text)
+  if (termImg && !termText) {
+    return { html: card.term, imageSrc: extractImageSrc(card.term), text: '' };
+  }
+  if (defImg && !defText) {
+    return { html: card.definition, imageSrc: extractImageSrc(card.definition), text: '' };
+  }
+  // Otherwise prefer whichever side has an image
+  if (termImg) {
+    return { html: card.term, imageSrc: extractImageSrc(card.term), text: termText };
+  }
+  if (defImg) {
+    return { html: card.definition, imageSrc: extractImageSrc(card.definition), text: defText };
+  }
+  // No images — show term text
+  return { html: card.term, imageSrc: null, text: termText };
+}
+
 function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   const navigate = useNavigate();
 
@@ -24,7 +63,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRotationRef = useRef(0);
 
-  const totalCards = [...cards].length;
+  const totalCards = cards.length;
 
   useEffect(() => {
     return () => {
@@ -38,12 +77,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     const count = remainingCards.length;
     const segmentAngle = 360 / count;
 
-    // Pick a random segment
     const randomIndex = Math.floor(Math.random() * count);
-    // Landing angle: center of the chosen segment, measured from top (pointer at top = 0deg)
-    // Segment i spans from i*segmentAngle to (i+1)*segmentAngle
-    // The pointer is at top (0deg). After rotation, the segment under the pointer
-    // is the one whose center aligns with 360 - rotation%360
     const landingAngle = 360 - (randomIndex * segmentAngle + segmentAngle / 2);
 
     // Add 5-8 full bonus rotations
@@ -155,29 +189,57 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     const labelY = centerY + labelRadius * Math.sin(midAngle);
     const labelRotation = (i + 0.5) * segmentAngle;
 
-    const term = stripHtml(card.term);
-    // Adjust truncation based on segment size
-    const maxChars = count <= 4 ? 24 : count <= 8 ? 18 : 12;
-    const truncated = term.length > maxChars ? term.slice(0, maxChars - 2) + '..' : term;
+    const display = getDisplaySide(card);
+
+    // Image dimensions based on segment count
+    const imgSize = count <= 4 ? 50 : count <= 8 ? 36 : 26;
     const fontSize = count <= 4 ? 14 : count <= 8 ? 12 : 10;
+    const maxChars = count <= 4 ? 24 : count <= 8 ? 18 : 12;
+    const truncated = display.text.length > maxChars
+      ? display.text.slice(0, maxChars - 2) + '..'
+      : display.text;
+
+    // Unique clip path id for this segment's image
+    const clipId = `clip-seg-${i}`;
 
     return (
       <g key={card.id}>
         <path d={pathD} fill={color} stroke="#fff" strokeWidth="2" />
-        <text
-          x={labelX}
-          y={labelY}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          transform={`rotate(${labelRotation}, ${labelX}, ${labelY})`}
-          fill="#fff"
-          fontSize={fontSize}
-          fontWeight="600"
-          fontFamily="var(--font-sans)"
-          style={{ pointerEvents: 'none' }}
-        >
-          {truncated}
-        </text>
+        {display.imageSrc ? (
+          <>
+            <defs>
+              <clipPath id={clipId}>
+                <circle cx={labelX} cy={labelY} r={imgSize / 2} />
+              </clipPath>
+            </defs>
+            <image
+              href={display.imageSrc}
+              x={labelX - imgSize / 2}
+              y={labelY - imgSize / 2}
+              width={imgSize}
+              height={imgSize}
+              clipPath={`url(#${clipId})`}
+              transform={`rotate(${labelRotation}, ${labelX}, ${labelY})`}
+              preserveAspectRatio="xMidYMid slice"
+              style={{ pointerEvents: 'none' }}
+            />
+          </>
+        ) : (
+          <text
+            x={labelX}
+            y={labelY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            transform={`rotate(${labelRotation}, ${labelX}, ${labelY})`}
+            fill="#fff"
+            fontSize={fontSize}
+            fontWeight="600"
+            fontFamily="var(--font-sans)"
+            style={{ pointerEvents: 'none' }}
+          >
+            {truncated}
+          </text>
+        )}
       </g>
     );
   });
@@ -205,22 +267,22 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
           <polygon points="0,0 30,0 15,20" fill="#fff" stroke="var(--color-text)" strokeWidth="2" />
         </svg>
 
-        <svg
+        <motion.svg
           width={wheelSize}
           height={wheelSize}
           viewBox={`0 0 ${wheelSize} ${wheelSize}`}
-          style={{
-            willChange: isSpinning ? 'transform' : 'auto',
-            transform: `rotate(${rotationDeg}deg)`,
-            transition: isSpinning
-              ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)'
-              : 'none',
-          }}
+          animate={{ rotate: rotationDeg }}
+          transition={
+            isSpinning
+              ? { duration: 4, ease: [0.17, 0.67, 0.12, 0.99] }
+              : { duration: 0 }
+          }
+          style={{ willChange: isSpinning ? 'transform' : 'auto' }}
         >
           {segments}
           {/* Center circle */}
           <circle cx={centerX} cy={centerY} r="22" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
-        </svg>
+        </motion.svg>
 
         {/* Spin button */}
         <Button
