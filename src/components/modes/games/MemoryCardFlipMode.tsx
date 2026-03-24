@@ -15,6 +15,7 @@ interface MemoryCardFlipModeProps {
 interface MemoryCard {
   id: string;
   pairId: string;
+  originalCardId: string;
   type: 'term' | 'definition';
   content: string;
   isFlipped: boolean;
@@ -67,6 +68,7 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
       pairs.push({
         id: `t-${uid}`,
         pairId: uid,
+        originalCardId: card.id,
         type: 'term',
         content: card.term,
         isFlipped: false,
@@ -75,6 +77,7 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
       pairs.push({
         id: `d-${uid}`,
         pairId: uid,
+        originalCardId: card.id,
         type: 'definition',
         content: card.definition,
         isFlipped: false,
@@ -108,14 +111,14 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
     const defCard = card1.type === 'definition' ? card1 : card2;
 
     // Find the original card for the term card
-    const originalCard = cards.find((c) => c.id === termCard.pairId);
+    const originalCard = cards.find((c) => c.id === termCard.originalCardId);
     if (!originalCard) return false;
 
     const key = normalizeAnswer(originalCard.term);
     const group = equivalenceGroups.get(key) ?? [originalCard];
     const validDefIds = new Set(group.map((c) => c.id));
 
-    return validDefIds.has(defCard.pairId);
+    return validDefIds.has(defCard.originalCardId);
   }, [cards, equivalenceGroups]);
 
   const handleCardClick = useCallback((cardId: string) => {

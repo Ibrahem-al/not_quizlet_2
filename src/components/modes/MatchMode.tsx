@@ -26,6 +26,7 @@ interface MatchModeProps {
 interface Tile {
   id: string;
   cardId: string;
+  originalCardId: string;
   content: string;
   side: 'term' | 'definition';
   matched: boolean;
@@ -120,8 +121,8 @@ function MatchMode({ cards, setId }: MatchModeProps) {
     const tilePairs: Tile[] = [];
     picked.forEach((card, i) => {
       const uid = `${card.id}-${i}`;
-      tilePairs.push({ id: `term-${uid}`, cardId: uid, content: card.term, side: 'term', matched: false });
-      tilePairs.push({ id: `def-${uid}`, cardId: uid, content: card.definition, side: 'definition', matched: false });
+      tilePairs.push({ id: `term-${uid}`, cardId: uid, originalCardId: card.id, content: card.term, side: 'term', matched: false });
+      tilePairs.push({ id: `def-${uid}`, cardId: uid, originalCardId: card.id, content: card.definition, side: 'definition', matched: false });
     });
     setTiles(shuffleArray(tilePairs));
     setMatchedPairs(0);
@@ -160,7 +161,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
       const termTile = tile1.side === 'term' ? tile1 : tile2;
       const defTile = tile1.side === 'definition' ? tile1 : tile2;
 
-      const termCard = selectedCards.find((c) => c.id === termTile.cardId);
+      const termCard = selectedCards.find((c) => c.id === termTile.originalCardId);
       if (!termCard) return false;
 
       const normalizedDef = normalizeAnswer(defTile.content);
