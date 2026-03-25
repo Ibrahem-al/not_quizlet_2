@@ -11,12 +11,18 @@ import {
   Palette,
   Folder,
   FolderPlus,
+  Share2,
+  Link2Off,
+  Copy,
+  Loader2,
 } from 'lucide-react';
 import type { FolderColor } from '@/types';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useSetStore } from '@/stores/useSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { generateFolderShareToken, removeFolderShareToken, syncFolderTreeToCloud } from '@/lib/cloudSync';
+import { useToastStore } from '@/stores/useToastStore';
 import PageTransition from '@/components/layout/PageTransition';
 import SetCard from '@/components/SetCard';
 import { Button } from '@/components/ui/Button';
@@ -30,6 +36,8 @@ function FolderDetailPage() {
   const navigate = useNavigate();
   const { folders, updateFolder, removeFolder, addFolder, getDescendantIds } = useFolderStore();
   const { sets, addSet, updateSet, removeSet } = useSetStore();
+  const user = useAuthStore((s) => s.user);
+  const addToast = useToastStore((s) => s.addToast);
 
   const folder = folders.find((f) => f.id === id);
 
@@ -43,6 +51,7 @@ function FolderDetailPage() {
   const [showNewSubfolder, setShowNewSubfolder] = useState(false);
   const [newSubfolderName, setNewSubfolderName] = useState('');
   const [newSubfolderColor, setNewSubfolderColor] = useState<FolderColor>('blue');
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     if (folder) {
@@ -184,6 +193,57 @@ function FolderDetailPage() {
     },
     [removeSet],
   );
+
+  const shareUrl = folder?.shareToken
+    ? `${window.location.origin}/shared/folder/${folder.shareToken}`
+    : null;
+
+  const handleShareToggle = useCallback(async () => {
+    if (!folder) return;
+    if (!isSupabaseConfigured()) {
+      addToast('warning', 'Cloud features are not configured. Set up Supabase to share folders.');
+      return;
+    }
+    if (!user) {
+      addToast('warning', 'Sign in to share folders via link.');
+      return;
+    }
+    setSharing(true);
+
+    if (folder.shareToken) {
+      await removeFolderShareToken(folder.id);
+      await updateFolder({ ...folder, shareToken: undefined, updatedAt: Date.now() });
+      addToast('info', 'Share link removed.');
+    } else {
+      if (user) {
+        await syncFolderTreeToCloud(
+          folder.id,
+          folders.map((f) => ({ ...f, userId: user.id })),
+          sets.map((s) => ({ ...s, userId: user.id })),
+        );
+      }
+      const token = await generateFolderShareToken(user ? { ...folder, userId: user.id } : folder);
+      if (token) {
+        await updateFolder({ ...folder, shareToken: token, updatedAt: Date.now() });
+        const url = `${window.location.origin}/shared/folder/${token}`;
+        await navigator.clipboard.writeText(url).catch(() => {});
+        addToast('success', 'Share link created and copied to clipboard!');
+      } else {
+        addToast('error', 'Failed to create share link.');
+      }
+    }
+    setSharing(false);
+  }, [folder, user, folders, sets, updateFolder, addToast]);
+
+  const handleCopyShareLink = useCallback(async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      addToast('success', 'Link copied to clipboard!');
+    } catch {
+      addToast('error', 'Failed to copy link.');
+    }
+  }, [shareUrl, addToast]);
 
   // Breadcrumb: find parent chain
   const breadcrumbs = useMemo(() => {
@@ -350,9 +410,54 @@ function FolderDetailPage() {
               >
                 {''}
               </Button>
+              <Button
+                variant={folder.shareToken ? 'secondary' : 'ghost'}
+                size="sm"
+                icon={sharing ? <Loader2 size={16} className="animate-spin" /> : folder.shareToken ? <Link2Off size={16} /> : <Share2 size={16} />}
+                onClick={handleShareToggle}
+                disabled={sharing}
+              >
+                {folder.shareToken ? 'Stop Sharing' : 'Share'}
+              </Button>
+              {shareUrl && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCopyShareLink}
+                  icon={<Copy size={16} />}
+                >
+                  {''}
+                </Button>
+              )}
             </div>
           )}
         </div>
+
+        {/* Share URL banner */}
+        {shareUrl && (
+          <div
+            className="flex items-center gap-2 px-4 py-2 rounded-lg mb-4 text-sm"
+            style={{
+              background: 'var(--color-primary-light)',
+              border: '1px solid color-mix(in srgb, var(--color-primary) 30%, transparent)',
+            }}
+          >
+            <Share2 size={14} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+            <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>{shareUrl}</span>
+            <button
+              onClick={handleCopyShareLink}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer flex-shrink-0"
+              style={{
+                background: 'var(--color-primary)',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <Copy size={12} /> Copy
+            </button>
+          </div>
+        )}
 
         {/* Search + New Set + New Subfolder */}
         <div className="flex items-center gap-3 mb-6">

@@ -21,6 +21,8 @@ const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
 const AccountSettingsPage = lazy(() => import('@/pages/auth/AccountSettingsPage'));
 const SharedSetPage = lazy(() => import('@/pages/SharedSetPage'));
 const SharedStudyPage = lazy(() => import('@/pages/SharedStudyPage'));
+const SharedFolderPage = lazy(() => import('@/pages/SharedFolderPage'));
+const SharedFolderStudyPage = lazy(() => import('@/pages/SharedFolderStudyPage'));
 const LiveJoinPage = lazy(() => import('@/pages/live/LiveJoinPage'));
 const LiveHostPage = lazy(() => import('@/pages/live/LiveHostPage'));
 const LivePlayPage = lazy(() => import('@/pages/live/LivePlayPage'));
@@ -58,6 +60,8 @@ function App() {
               <Route path="/account/settings" element={<AccountSettingsPage />} />
               <Route path="/shared/:token" element={<SharedSetPage />} />
               <Route path="/shared/:token/study/:mode" element={<SharedStudyPage />} />
+              <Route path="/shared/folder/:token" element={<SharedFolderPage />} />
+              <Route path="/shared/folder/:token/set/:setId/study/:mode" element={<SharedFolderStudyPage />} />
               <Route path="/live" element={<LiveJoinPage />} />
               <Route path="/live/host/:sessionId" element={<LiveHostPage />} />
               <Route path="/live/play" element={<LivePlayPage />} />

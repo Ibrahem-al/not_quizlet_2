@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Folder, ChevronRight, ChevronDown, Plus, Layers } from 'lucide-react';
 import type { Folder as FolderType, FolderColor } from '@/types';
@@ -14,6 +15,7 @@ interface FolderNodeProps {
   expandedIds: Set<string>;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
+  onOpen: (id: string) => void;
   depth: number;
 }
 
@@ -24,6 +26,7 @@ function FolderNode({
   expandedIds,
   onSelect,
   onToggle,
+  onOpen,
   depth,
 }: FolderNodeProps) {
   const children = folders.filter((f) => f.parentFolderId === folder.id);
@@ -36,6 +39,7 @@ function FolderNode({
       <button
         onClick={() => {
           onSelect(folder.id);
+          onOpen(folder.id);
           if (hasChildren) onToggle(folder.id);
         }}
         className={cn(
@@ -85,6 +89,7 @@ function FolderNode({
                 expandedIds={expandedIds}
                 onSelect={onSelect}
                 onToggle={onToggle}
+                onOpen={onOpen}
                 depth={depth + 1}
               />
             ))}
@@ -96,6 +101,7 @@ function FolderNode({
 }
 
 function FolderSidebar() {
+  const navigate = useNavigate();
   const { folders, selectedFolderId, selectFolder, addFolder } = useFolderStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isCreating, setIsCreating] = useState(false);
@@ -103,6 +109,10 @@ function FolderSidebar() {
   const [newColor, setNewColor] = useState<FolderColor>('blue');
 
   const rootFolders = folders.filter((f) => !f.parentFolderId);
+
+  const handleOpen = useCallback((id: string) => {
+    navigate(`/folders/${id}`);
+  }, [navigate]);
 
   const handleToggle = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -206,6 +216,7 @@ function FolderSidebar() {
             expandedIds={expandedIds}
             onSelect={selectFolder}
             onToggle={handleToggle}
+            onOpen={handleOpen}
             depth={0}
           />
         ))}

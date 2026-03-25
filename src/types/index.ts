@@ -62,6 +62,7 @@ export interface Folder {
   createdAt: number;
   updatedAt: number;
   itemCount?: number;
+  shareToken?: string;
 }
 
 export interface FolderItem {

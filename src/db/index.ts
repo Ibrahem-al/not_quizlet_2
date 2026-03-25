@@ -23,6 +23,14 @@ class StudyFlowDB extends Dexie {
       folders: 'id, userId, parentFolderId, updatedAt',
       folderItems: 'id, folderId, itemId',
     });
+
+    this.version(3).stores({
+      sets: 'id, updatedAt, createdAt, folderId',
+      sessions: '++id, setId, startedAt',
+      settings: '++id',
+      folders: 'id, userId, parentFolderId, updatedAt, shareToken',
+      folderItems: 'id, folderId, itemId',
+    });
   }
 }
 

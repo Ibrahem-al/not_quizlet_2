@@ -1,4 +1,4 @@
-import type { StudySet } from '@/types';
+import type { StudySet, Folder } from '@/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 // ============================================================
@@ -205,4 +205,190 @@ export async function fetchSharedSet(shareToken: string): Promise<StudySet | nul
   }
 
   return rowToSet((data as DbRow[])[0]);
+}
+
+// ============================================================
+// Folder column mapping
+// ============================================================
+
+interface FolderDbRow {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  parent_folder_id: string | null;
+  color: string;
+  created_at: number;
+  updated_at: number;
+  share_token: string | null;
+}
+
+function rowToFolder(row: FolderDbRow): Folder {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    description: row.description,
+    parentFolderId: row.parent_folder_id ?? undefined,
+    color: (row.color ?? 'blue') as Folder['color'],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    shareToken: row.share_token ?? undefined,
+  };
+}
+
+function folderToRow(folder: Folder): Record<string, unknown> {
+  return {
+    id: folder.id,
+    user_id: folder.userId,
+    name: folder.name,
+    description: folder.description,
+    parent_folder_id: folder.parentFolderId ?? null,
+    color: folder.color,
+    created_at: folder.createdAt,
+    updated_at: folder.updatedAt,
+    share_token: folder.shareToken ?? null,
+  };
+}
+
+// ============================================================
+// Folder sync operations
+// ============================================================
+
+export async function syncFolderToCloud(folder: Folder): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  const { error } = await supabase
+    .from('folders')
+    .upsert(folderToRow(folder), { onConflict: 'id' });
+
+  if (error) {
+    console.error('Failed to sync folder:', error.message);
+  }
+}
+
+/** Sync a folder, all its descendants, and all sets in the tree to cloud */
+export async function syncFolderTreeToCloud(
+  folderId: string,
+  allFolders: Folder[],
+  allSets: StudySet[],
+): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  // BFS to collect the folder + all descendants
+  const folderIds = new Set<string>();
+  const queue = [folderId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    folderIds.add(id);
+    for (const f of allFolders) {
+      if (f.parentFolderId === id && !folderIds.has(f.id)) {
+        queue.push(f.id);
+      }
+    }
+  }
+
+  // Upsert all folders in the tree
+  const folderRows = allFolders
+    .filter((f) => folderIds.has(f.id))
+    .map(folderToRow);
+  if (folderRows.length > 0) {
+    const { error } = await supabase
+      .from('folders')
+      .upsert(folderRows, { onConflict: 'id' });
+    if (error) console.error('Failed to sync folder tree:', error.message);
+  }
+
+  // Upsert all sets in those folders
+  const setRows = allSets
+    .filter((s) => s.folderId && folderIds.has(s.folderId))
+    .map(setToRow);
+  if (setRows.length > 0) {
+    const { error } = await supabase
+      .from('study_sets')
+      .upsert(setRows, { onConflict: 'id' });
+    if (error) console.error('Failed to sync folder sets:', error.message);
+  }
+}
+
+// ============================================================
+// Folder share link operations
+// ============================================================
+
+/** Generate a share token for a folder and persist to cloud */
+export async function generateFolderShareToken(folder: Folder): Promise<string | null> {
+  if (!isSupabaseConfigured() || !supabase) return null;
+
+  const token = crypto.randomUUID();
+
+  const { error } = await supabase
+    .from('folders')
+    .update({ share_token: token })
+    .eq('id', folder.id);
+
+  if (error) {
+    console.error('Failed to generate folder share token:', error.message);
+    return null;
+  }
+
+  return token;
+}
+
+/** Remove folder share token (stop sharing) */
+export async function removeFolderShareToken(folderId: string): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  const { error } = await supabase
+    .from('folders')
+    .update({ share_token: null })
+    .eq('id', folderId);
+
+  if (error) {
+    console.error('Failed to remove folder share token:', error.message);
+  }
+}
+
+/** Fetch a shared folder with all subfolders and sets — works without auth */
+export async function fetchSharedFolder(
+  shareToken: string,
+): Promise<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] } | null> {
+  if (!isSupabaseConfigured() || !supabase) return null;
+
+  // Fetch subfolders (includes the root folder) and sets in parallel
+  const [foldersRes, setsRes] = await Promise.all([
+    supabase.rpc('get_shared_folder_subfolders', { p_share_token: shareToken }),
+    supabase.rpc('get_shared_folder_sets', { p_share_token: shareToken }),
+  ]);
+
+  if (foldersRes.error || !foldersRes.data || (foldersRes.data as FolderDbRow[]).length === 0) {
+    // Fallback: try direct query for just the root folder
+    const { data, error } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('share_token', shareToken)
+      .limit(1)
+      .single();
+    if (error || !data) return null;
+
+    const folder = rowToFolder(data as FolderDbRow);
+
+    // Fetch sets directly
+    const { data: setData } = await supabase
+      .from('study_sets')
+      .select('*')
+      .eq('folder_id', folder.id);
+
+    return {
+      folder,
+      subfolders: [],
+      sets: ((setData ?? []) as DbRow[]).map(rowToSet),
+    };
+  }
+
+  const allFolders = (foldersRes.data as FolderDbRow[]).map(rowToFolder);
+  const rootFolder = allFolders.find((f) => f.shareToken === shareToken) ?? allFolders[0];
+  const subfolders = allFolders.filter((f) => f.id !== rootFolder.id);
+  const sets = ((setsRes.data ?? []) as DbRow[]).map(rowToSet);
+
+  return { folder: rootFolder, subfolders, sets };
 }
