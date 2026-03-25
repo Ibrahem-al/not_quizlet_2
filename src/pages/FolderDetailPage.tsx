@@ -9,6 +9,8 @@ import {
   Search,
   ChevronRight,
   Palette,
+  Folder,
+  FolderPlus,
 } from 'lucide-react';
 import type { FolderColor } from '@/types';
 import { useFolderStore } from '@/stores/useFolderStore';
@@ -26,8 +28,8 @@ const COLOR_KEYS = Object.keys(FOLDER_COLORS) as FolderColor[];
 function FolderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { folders, updateFolder, removeFolder } = useFolderStore();
-  const { sets, addSet, removeSet } = useSetStore();
+  const { folders, updateFolder, removeFolder, addFolder, getDescendantIds } = useFolderStore();
+  const { sets, addSet, updateSet, removeSet } = useSetStore();
 
   const folder = folders.find((f) => f.id === id);
 
@@ -36,7 +38,11 @@ function FolderDetailPage() {
   const [editDescription, setEditDescription] = useState('');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteWithSets, setDeleteWithSets] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showNewSubfolder, setShowNewSubfolder] = useState(false);
+  const [newSubfolderName, setNewSubfolderName] = useState('');
+  const [newSubfolderColor, setNewSubfolderColor] = useState<FolderColor>('blue');
 
   useEffect(() => {
     if (folder) {
@@ -44,6 +50,11 @@ function FolderDetailPage() {
       setEditDescription(folder.description);
     }
   }, [folder]);
+
+  const childFolders = useMemo(() => {
+    if (!id) return [];
+    return folders.filter((f) => f.parentFolderId === id).sort((a, b) => a.name.localeCompare(b.name));
+  }, [folders, id]);
 
   const folderSets = useMemo(() => {
     if (!id) return [];
@@ -59,6 +70,12 @@ function FolderDetailPage() {
         s.tags.some((t) => t.toLowerCase().includes(q)),
     );
   }, [folderSets, searchQuery]);
+
+  const filteredFolders = useMemo(() => {
+    if (!searchQuery.trim()) return childFolders;
+    const q = searchQuery.toLowerCase();
+    return childFolders.filter((f) => f.name.toLowerCase().includes(q));
+  }, [childFolders, searchQuery]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!folder) return;
@@ -89,9 +106,32 @@ function FolderDetailPage() {
 
   const handleDelete = useCallback(async () => {
     if (!folder) return;
+
+    const parentId = folder.parentFolderId ?? undefined;
+
+    if (deleteWithSets) {
+      // Delete all sets in this folder and all descendant folders
+      const allFolderIds = [folder.id, ...getDescendantIds(folder.id)];
+      const setsToDelete = sets.filter((s) => s.folderId && allFolderIds.includes(s.folderId));
+      for (const s of setsToDelete) {
+        await removeSet(s.id);
+      }
+      // Delete all descendant folders
+      const descIds = getDescendantIds(folder.id);
+      for (const did of descIds) {
+        await removeFolder(did);
+      }
+    } else {
+      // Move sets up to parent folder (or root)
+      const setsInFolder = sets.filter((s) => s.folderId === folder.id);
+      for (const s of setsInFolder) {
+        await updateSet({ ...s, folderId: parentId, updatedAt: Date.now() });
+      }
+    }
+
     await removeFolder(folder.id);
-    navigate('/');
-  }, [folder, removeFolder, navigate]);
+    navigate(parentId ? `/folders/${parentId}` : '/');
+  }, [folder, deleteWithSets, sets, removeSet, removeFolder, updateSet, navigate, getDescendantIds]);
 
   const handleNewSet = useCallback(async () => {
     if (!id) return;
@@ -116,6 +156,27 @@ function FolderDetailPage() {
     await addSet(newSet);
     navigate(`/sets/${newSet.id}`);
   }, [id, addSet, navigate]);
+
+  const handleCreateSubfolder = useCallback(async () => {
+    const trimmed = newSubfolderName.trim();
+    if (!trimmed || !id) return;
+
+    const now = Date.now();
+    const newFolder = {
+      id: generateId(),
+      userId: '',
+      name: trimmed,
+      description: '',
+      color: newSubfolderColor,
+      parentFolderId: id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await addFolder(newFolder);
+    setNewSubfolderName('');
+    setNewSubfolderColor('blue');
+    setShowNewSubfolder(false);
+  }, [newSubfolderName, newSubfolderColor, id, addFolder]);
 
   const handleDeleteSet = useCallback(
     async (setId: string) => {
@@ -293,7 +354,7 @@ function FolderDetailPage() {
           )}
         </div>
 
-        {/* Search + New Set */}
+        {/* Search + New Set + New Subfolder */}
         <div className="flex items-center gap-3 mb-6">
           <div className="relative flex-1">
             <Search
@@ -324,32 +385,144 @@ function FolderDetailPage() {
               }}
             />
           </div>
+          <Button onClick={() => setShowNewSubfolder(true)} variant="outline" icon={<FolderPlus size={16} />}>
+            Subfolder
+          </Button>
           <Button onClick={handleNewSet} icon={<Plus size={16} />}>
             New Set
           </Button>
         </div>
 
-        {/* Set Grid */}
-        {filteredSets.length > 0 ? (
+        {/* New Subfolder inline form */}
+        {showNewSubfolder && (
           <motion.div
-            className="grid gap-4"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            className="rounded-xl p-4 mb-6"
             style={{
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              overflow: 'hidden',
             }}
           >
-            {filteredSets.map((set) => (
-              <SetCard key={set.id} set={set} onDelete={handleDeleteSet} />
-            ))}
+            <div className="flex items-center gap-3">
+              <input
+                autoFocus
+                value={newSubfolderName}
+                onChange={(e) => setNewSubfolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateSubfolder();
+                  if (e.key === 'Escape') { setShowNewSubfolder(false); setNewSubfolderName(''); }
+                }}
+                placeholder="Subfolder name"
+                className="flex-1 h-9 px-3 text-sm"
+                style={{
+                  background: 'var(--color-muted)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  fontFamily: 'var(--font-sans)',
+                  outline: 'none',
+                }}
+              />
+              <div className="flex gap-1.5">
+                {COLOR_KEYS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setNewSubfolderColor(color)}
+                    className="w-5 h-5 rounded-full cursor-pointer"
+                    style={{
+                      background: FOLDER_COLORS[color],
+                      border: 'none',
+                      outline: newSubfolderColor === color ? '2px solid var(--color-text)' : 'none',
+                      outlineOffset: 2,
+                      transform: newSubfolderColor === color ? 'scale(1.15)' : 'scale(1)',
+                    }}
+                    aria-label={color}
+                  />
+                ))}
+              </div>
+              <Button size="sm" onClick={handleCreateSubfolder}>Create</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowNewSubfolder(false); setNewSubfolderName(''); }}>Cancel</Button>
+            </div>
           </motion.div>
-        ) : (
+        )}
+
+        {/* Subfolders */}
+        {filteredFolders.length > 0 && (
+          <div className="mb-6">
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+              Subfolders
+            </p>
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
+            >
+              {filteredFolders.map((child) => {
+                const childSetCount = sets.filter((s) => s.folderId === child.id).length;
+                const childSubfolderCount = folders.filter((f) => f.parentFolderId === child.id).length;
+                return (
+                  <motion.div
+                    key={child.id}
+                    whileHover={{ y: -2 }}
+                    onClick={() => navigate(`/folders/${child.id}`)}
+                    className="flex items-center gap-3 p-4 rounded-xl cursor-pointer"
+                    style={{
+                      background: 'var(--color-surface)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-lg)',
+                      boxShadow: 'var(--shadow-xs)',
+                    }}
+                  >
+                    <Folder size={20} style={{ color: FOLDER_COLORS[child.color], flexShrink: 0 }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate" style={{ color: 'var(--color-text)' }}>
+                        {child.name}
+                      </p>
+                      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {childSetCount} set{childSetCount !== 1 ? 's' : ''}
+                        {childSubfolderCount > 0 && `, ${childSubfolderCount} folder${childSubfolderCount !== 1 ? 's' : ''}`}
+                      </p>
+                    </div>
+                    <ChevronRight size={14} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} />
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Sets */}
+        {filteredSets.length > 0 && (
+          <div>
+            {filteredFolders.length > 0 && (
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
+                Sets
+              </p>
+            )}
+            <motion.div
+              className="grid gap-4"
+              style={{
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              }}
+            >
+              {filteredSets.map((set) => (
+                <SetCard key={set.id} set={set} onDelete={handleDeleteSet} />
+              ))}
+            </motion.div>
+          </div>
+        )}
+
+        {filteredSets.length === 0 && filteredFolders.length === 0 && (
           <div className="text-center py-16">
             <p
               className="text-sm"
               style={{ color: 'var(--color-text-tertiary)' }}
             >
               {searchQuery
-                ? 'No sets match your search.'
-                : 'This folder is empty. Create a new set to get started.'}
+                ? 'No items match your search.'
+                : 'This folder is empty. Create a new set or subfolder to get started.'}
             </p>
           </div>
         )}
@@ -385,7 +558,7 @@ function FolderDetailPage() {
         {/* Delete Confirmation Modal */}
         <Modal
           isOpen={showDeleteModal}
-          onClose={() => setShowDeleteModal(false)}
+          onClose={() => { setShowDeleteModal(false); setDeleteWithSets(false); }}
           title="Delete Folder"
           danger
           size="sm"
@@ -394,14 +567,66 @@ function FolderDetailPage() {
             className="text-sm mb-4"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            Are you sure you want to delete &quot;{folder.name}&quot;? Sets inside this
-            folder will not be deleted but will be unassigned.
+            Are you sure you want to delete &quot;{folder.name}&quot;?
           </p>
+
+          {/* Delete options */}
+          <div className="flex flex-col gap-2 mb-4">
+            <label
+              className="flex items-start gap-3 p-3 rounded-lg cursor-pointer"
+              style={{
+                background: !deleteWithSets ? 'var(--color-primary-light)' : 'var(--color-surface)',
+                border: `2px solid ${!deleteWithSets ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <input
+                type="radio"
+                name="deleteOption"
+                checked={!deleteWithSets}
+                onChange={() => setDeleteWithSets(false)}
+                style={{ accentColor: 'var(--color-primary)', marginTop: 2 }}
+              />
+              <div>
+                <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                  Keep sets
+                </p>
+                <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Sets will be moved to {folder.parentFolderId ? 'the parent folder' : 'the root level'}. Subfolders will also be moved up.
+                </p>
+              </div>
+            </label>
+            <label
+              className="flex items-start gap-3 p-3 rounded-lg cursor-pointer"
+              style={{
+                background: deleteWithSets ? 'var(--color-danger-light)' : 'var(--color-surface)',
+                border: `2px solid ${deleteWithSets ? 'var(--color-danger)' : 'var(--color-border)'}`,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <input
+                type="radio"
+                name="deleteOption"
+                checked={deleteWithSets}
+                onChange={() => setDeleteWithSets(true)}
+                style={{ accentColor: 'var(--color-danger)', marginTop: 2 }}
+              />
+              <div>
+                <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                  Delete everything
+                </p>
+                <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                  All sets and subfolders inside will be permanently deleted.
+                </p>
+              </div>
+            </label>
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setShowDeleteModal(false)}
+              onClick={() => { setShowDeleteModal(false); setDeleteWithSets(false); }}
             >
               Cancel
             </Button>

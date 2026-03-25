@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/Input';
 import { CardList } from '@/components/CardList';
 import { GameBrowserModal } from '@/components/GameBrowserModal';
 import { PrintDialog } from '@/components/PrintDialog';
+import MoveToFolderModal from '@/components/MoveToFolderModal';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
@@ -67,6 +68,7 @@ function SetDetailPage() {
   const [tagInput, setTagInput] = useState('');
   const [gameBrowserOpen, setGameBrowserOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -556,9 +558,7 @@ function SetDetailPage() {
             variant="ghost"
             size="sm"
             icon={<FolderInput size={16} />}
-            onClick={() => {
-              // Move to folder placeholder
-            }}
+            onClick={() => setFolderModalOpen(true)}
           >
             Move to Folder
           </Button>
@@ -795,6 +795,14 @@ function SetDetailPage() {
           isOpen={printDialogOpen}
           onClose={() => setPrintDialogOpen(false)}
           set={localSet}
+        />
+
+        {/* Move to folder modal */}
+        <MoveToFolderModal
+          isOpen={folderModalOpen}
+          onClose={() => setFolderModalOpen(false)}
+          setId={localSet.id}
+          currentFolderId={localSet.folderId}
         />
       </div>
     </PageTransition>

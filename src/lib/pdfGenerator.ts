@@ -34,6 +34,38 @@ async function getJsPDF() {
   return jsPDF;
 }
 
+const FONT_NAME = 'NotoSansArabic';
+let fontRegistered = false;
+
+/** Load NotoSansArabic TTF and register it with jsPDF for Arabic + Latin support */
+async function registerUnicodeFont(doc: DocType) {
+  if (fontRegistered) {
+    doc.setFont(FONT_NAME, 'normal');
+    return;
+  }
+  try {
+    const resp = await fetch(new URL('/fonts/NotoSansArabic-Regular.ttf', window.location.origin));
+    const buf = await resp.arrayBuffer();
+    // Convert ArrayBuffer to base64 in chunks to avoid call stack overflow
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    const base64 = btoa(binary);
+    doc.addFileToVFS('NotoSansArabic-Regular.ttf', base64);
+    doc.addFont('NotoSansArabic-Regular.ttf', FONT_NAME, 'normal');
+    // Register same font as bold (variable font supports weight range)
+    doc.addFileToVFS('NotoSansArabic-Bold.ttf', base64);
+    doc.addFont('NotoSansArabic-Bold.ttf', FONT_NAME, 'bold');
+    doc.setFont(FONT_NAME, 'normal');
+    fontRegistered = true;
+  } catch {
+    // Fallback to Helvetica if font fails to load
+  }
+}
+
 /** Extract base64 image srcs from HTML content */
 function extractImages(html: string): string[] {
   if (!html) return [];
@@ -89,10 +121,10 @@ function buildPairs(set: StudySet, config: PDFConfig): CardPair[] {
 /** PDF header: title + subtitle + rule. Returns Y position after header. */
 function header(doc: DocType, title: string, setTitle: string): number {
   doc.setFontSize(16);
-  doc.setFont('Helvetica', 'bold');
+  doc.setFont(FONT_NAME, 'bold');
   doc.text(title, 15, 18);
   doc.setFontSize(9);
-  doc.setFont('Helvetica', 'normal');
+  doc.setFont(FONT_NAME, 'normal');
   doc.setTextColor(120);
   const date = new Date().toLocaleDateString();
   doc.text(`${setTitle}  |  ${date}`, 15, 25);
@@ -108,7 +140,7 @@ function pageNumber(doc: DocType) {
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
-    doc.setFont('Helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
     doc.setTextColor(150);
     doc.text(`Page ${i} of ${pageCount}`, 105, 290, { align: 'center' });
     doc.setTextColor(0);
@@ -174,6 +206,7 @@ function save(doc: DocType, type: string, title: string) {
 export async function generateTestPDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const groups = buildEquivalenceGroups(set.cards);
   const pairs = buildPairs(set, config);
   const types = config.questionTypes ?? ['written'];
@@ -183,7 +216,7 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
 
   // Student info
   doc.setFontSize(10);
-  doc.setFont('Helvetica', 'normal');
+  doc.setFont(FONT_NAME, 'normal');
   doc.text('Name: ________________________________________', 15, y);
   y += 6;
   doc.text(`Date: _________________    Score: ______ / ${pairs.length}`, 15, y);
@@ -200,10 +233,10 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
     if (qType === 'written') {
       y = checkPage(doc, y, 28);
       doc.setFontSize(10);
-      doc.setFont('Helvetica', 'bold');
+      doc.setFont(FONT_NAME, 'bold');
       const verb = config.direction === 'def-to-term' ? 'What term means' : 'Define';
       doc.text(`${i + 1}.`, 15, y);
-      doc.setFont('Helvetica', 'normal');
+      doc.setFont(FONT_NAME, 'normal');
       const qLines = wrapText(doc, `${verb}: "${pair.question}"`, 150);
       doc.text(qLines, 23, y);
       y += qLines.length * 4.5 + 2;
@@ -227,10 +260,10 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
     } else if (qType === 'multiple-choice') {
       y = checkPage(doc, y, 36);
       doc.setFontSize(10);
-      doc.setFont('Helvetica', 'bold');
+      doc.setFont(FONT_NAME, 'bold');
       const verb = config.direction === 'def-to-term' ? 'Which term matches' : 'What is the definition of';
       doc.text(`${i + 1}.`, 15, y);
-      doc.setFont('Helvetica', 'normal');
+      doc.setFont(FONT_NAME, 'normal');
       const qLines = wrapText(doc, `${verb} "${pair.question}"?`, 150);
       doc.text(qLines, 23, y);
       y += qLines.length * 4.5 + 2;
@@ -282,9 +315,9 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
         : shuffleArray(pairs.filter((_, idx) => idx !== i).map((p) => p.answer))[0] ?? pair.answer;
 
       doc.setFontSize(10);
-      doc.setFont('Helvetica', 'bold');
+      doc.setFont(FONT_NAME, 'bold');
       doc.text(`${i + 1}.`, 15, y);
-      doc.setFont('Helvetica', 'normal');
+      doc.setFont(FONT_NAME, 'normal');
 
       const statement = config.direction === 'def-to-term'
         ? `"${shownAnswer}" is the term for "${pair.question}"`
@@ -321,9 +354,9 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
 
   answerKey.forEach((entry) => {
     y = checkPage(doc, y, 10);
-    doc.setFont('Helvetica', 'bold');
+    doc.setFont(FONT_NAME, 'bold');
     doc.text(`${entry.idx + 1}.`, 15, y);
-    doc.setFont('Helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
 
     let answerText = '';
     if (entry.type === 'written') {
@@ -351,6 +384,7 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
 export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
   const shuffledAnswers = shuffleArray(pairs.map((p, i) => ({ answer: p.answer, origIdx: i, images: p.answerImages })));
   const groups = buildEquivalenceGroups(set.cards);
@@ -368,10 +402,10 @@ export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) 
   const leftLabel = config.direction === 'def-to-term' ? 'Definitions' : 'Terms';
   const rightLabel = config.direction === 'def-to-term' ? 'Terms' : 'Definitions';
   doc.setFontSize(10);
-  doc.setFont('Helvetica', 'bold');
+  doc.setFont(FONT_NAME, 'bold');
   doc.text(leftLabel, 15, y);
   doc.text(rightLabel, 125, y);
-  doc.setFont('Helvetica', 'normal');
+  doc.setFont(FONT_NAME, 'normal');
   y += 6;
 
   const itemsPerPage = 10;
@@ -456,6 +490,7 @@ export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) 
 export async function generateFlashcardsPDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
 
   const cols = 2;
@@ -505,7 +540,7 @@ export async function generateFlashcardsPDF(set: StudySet, config: PDFConfig) {
 
       // Top half: prompt (bold)
       doc.setFontSize(10);
-      doc.setFont('Helvetica', 'bold');
+      doc.setFont(FONT_NAME, 'bold');
       const qLines = wrapText(doc, pair.question, cardW - textPad * 2);
       // Auto-shrink if needed
       let qFontSize = 10;
@@ -533,7 +568,7 @@ export async function generateFlashcardsPDF(set: StudySet, config: PDFConfig) {
       doc.setLineDashPattern([], 0);
 
       // Bottom half: answer (normal)
-      doc.setFont('Helvetica', 'normal');
+      doc.setFont(FONT_NAME, 'normal');
       doc.setFontSize(9);
       const aLines = wrapText(doc, pair.answer, cardW - textPad * 2);
       let aFontSize = 9;
@@ -573,6 +608,7 @@ export async function generateFlashcardsPDF(set: StudySet, config: PDFConfig) {
 export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
 
   const cols = 3;
@@ -591,10 +627,10 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
 
   // First page header
   doc.setFontSize(14);
-  doc.setFont('Helvetica', 'bold');
+  doc.setFont(FONT_NAME, 'bold');
   doc.text('Matching Game', 15, 16);
   doc.setFontSize(8);
-  doc.setFont('Helvetica', 'normal');
+  doc.setFont(FONT_NAME, 'normal');
   doc.setTextColor(120);
   doc.text(`${set.title}  |  Cut out cards. Match each term (T) with its definition (D).`, 15, 22);
   doc.text('Matching numbers in the corners can be used to verify correct pairs.', 15, 27);
@@ -622,14 +658,14 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
     doc.roundedRect(x + 2, y + 2, 8, 5, 1, 1, 'F');
     doc.setFontSize(7);
     doc.setTextColor(255);
-    doc.setFont('Helvetica', 'bold');
+    doc.setFont(FONT_NAME, 'bold');
     doc.text(tile.type, x + 6, y + 5.5, { align: 'center' });
     doc.setTextColor(0);
 
     // Match number
     doc.setFontSize(6);
     doc.setTextColor(190);
-    doc.setFont('Helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
     doc.text(`#${tile.matchNum}`, x + tileW - 3, y + 5.5, { align: 'right' });
     doc.setTextColor(0);
 
@@ -637,7 +673,7 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
     const contentY = y + 10;
     const availH = tileH - 12;
     doc.setFontSize(9);
-    doc.setFont('Helvetica', tile.type === 'T' ? 'bold' : 'normal');
+    doc.setFont(FONT_NAME, tile.type === 'T' ? 'bold' : 'normal');
     const lines = wrapText(doc, tile.text, tileW - 8);
 
     // Auto-shrink
@@ -686,6 +722,7 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
 export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
 
   // Section 1: Definition sheet with glue spaces
@@ -721,7 +758,7 @@ export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
 
     // Answer text (left side)
     doc.setFontSize(10);
-    doc.setFont('Helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
     const lines = wrapText(doc, `${i + 1}. ${pair.answer}`, contentW);
     doc.text(lines, 15, y);
 
@@ -754,10 +791,10 @@ export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
   // Section 2: Cut-out terms
   doc.addPage();
   doc.setFontSize(14);
-  doc.setFont('Helvetica', 'bold');
+  doc.setFont(FONT_NAME, 'bold');
   doc.text('Cut Out & Glue', 15, 16);
   doc.setFontSize(8);
-  doc.setFont('Helvetica', 'normal');
+  doc.setFont(FONT_NAME, 'normal');
   doc.setTextColor(120);
   doc.text('Cut along the dotted lines. Glue each term next to its matching definition.', 15, 22);
   doc.setTextColor(0);
@@ -791,7 +828,7 @@ export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
     doc.setLineDashPattern([], 0);
 
     // Term text (centered, bold)
-    doc.setFont('Helvetica', 'bold');
+    doc.setFont(FONT_NAME, 'bold');
     doc.setFontSize(9);
     const lines = wrapText(doc, pair.question, termW - 6);
     let fontSize = 9;
@@ -852,6 +889,7 @@ export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
 export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
   const JsPDF = await getJsPDF();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+  await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
 
   const marginX = 12;
@@ -870,10 +908,10 @@ export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
 
     // Header
     doc.setFontSize(11);
-    doc.setFont('Helvetica', 'bold');
+    doc.setFont(FONT_NAME, 'bold');
     doc.text(set.title, marginX, 14);
     doc.setFontSize(7);
-    doc.setFont('Helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
     doc.setTextColor(120);
     doc.text('Base Sheet — Answers are revealed when flaps are lifted', marginX, 20);
     doc.setTextColor(0);
@@ -903,7 +941,7 @@ export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
 
       // Answer content (left of glue strip)
       const answerW = contentW - glueStripW - 6;
-      doc.setFont('Helvetica', 'normal');
+      doc.setFont(FONT_NAME, 'normal');
       doc.setFontSize(9);
       const lines = wrapText(doc, pair.answer, answerW);
       let fontSize = 9;
@@ -952,7 +990,7 @@ export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
       doc.setLineDashPattern([], 0);
 
       // Question content (centered in full cell)
-      doc.setFont('Helvetica', 'bold');
+      doc.setFont(FONT_NAME, 'bold');
       doc.setFontSize(9);
       const lines = wrapText(doc, pair.question, contentW - 10);
       let fontSize = 9;

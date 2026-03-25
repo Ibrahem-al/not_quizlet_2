@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, BarChart3, FolderOpen } from 'lucide-react';
+import { Search, Plus, BarChart3, FolderOpen, PanelLeftClose, PanelLeft } from 'lucide-react';
 import Fuse from 'fuse.js';
 import PageTransition from '@/components/layout/PageTransition';
 import { useSetStore } from '@/stores/useSetStore';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import SetCard from '@/components/SetCard';
+import FolderSidebar from '@/components/FolderSidebar';
 import type { StudySet } from '@/types';
 
 function HomePage() {
@@ -17,6 +18,7 @@ function HomePage() {
     useSetStore();
   const { folders, selectedFolderId, loadFolders, selectFolder } =
     useFolderStore();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     loadSets();
@@ -63,125 +65,185 @@ function HomePage() {
     );
   }
 
+  const selectedFolder = selectedFolderId
+    ? folders.find((f) => f.id === selectedFolderId)
+    : null;
+
   return (
     <PageTransition>
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Top bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
-          <div className="flex-1">
-            <Input
-              placeholder="Search sets..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              icon={<Search size={18} />}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="primary"
-              onClick={() => navigate('/sets/new')}
-              icon={<Plus size={18} />}
-            >
-              New Set
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/stats')}
-              aria-label="Statistics"
-            >
-              <BarChart3 size={20} />
-            </Button>
-          </div>
-        </div>
-
-        {/* Folder filter */}
-        {folders.length > 0 && (
-          <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-            <button
-              onClick={() => selectFolder(null)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap cursor-pointer transition-colors"
-              style={{
-                background: selectedFolderId === null
-                  ? 'var(--color-primary)'
-                  : 'var(--color-muted)',
-                color: selectedFolderId === null
-                  ? '#ffffff'
-                  : 'var(--color-text-secondary)',
-                border: 'none',
-              }}
-            >
-              All Sets
-            </button>
-            {folders.map((folder) => (
-              <button
-                key={folder.id}
-                onClick={() => selectFolder(folder.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap cursor-pointer transition-colors"
-                style={{
-                  background:
-                    selectedFolderId === folder.id
-                      ? 'var(--color-primary)'
-                      : 'var(--color-muted)',
-                  color:
-                    selectedFolderId === folder.id
-                      ? '#ffffff'
-                      : 'var(--color-text-secondary)',
-                  border: 'none',
-                }}
-              >
-                <FolderOpen size={14} />
-                {folder.name}
-              </button>
-            ))}
+      <div className="flex min-h-[calc(100vh-112px)]">
+        {/* Sidebar — desktop only */}
+        {sidebarOpen && (
+          <div className="hidden md:block flex-shrink-0">
+            <FolderSidebar />
           </div>
         )}
 
-        {/* Set grid or empty state */}
-        {filteredSets.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredSets.map((set) => (
-              <SetCard key={set.id} set={set} onDelete={handleDelete} />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div
-              className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-              style={{ background: 'var(--color-muted)' }}
-            >
-              <Plus
-                size={28}
-                style={{ color: 'var(--color-text-tertiary)' }}
-              />
+        {/* Main content */}
+        <div className="flex-1 min-w-0 px-4 py-6 max-w-6xl mx-auto w-full">
+          {/* Top bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+            <div className="flex items-center gap-2 flex-1">
+              <button
+                onClick={() => setSidebarOpen((v) => !v)}
+                className="hidden md:flex items-center justify-center w-9 h-9 rounded-lg cursor-pointer transition-colors flex-shrink-0"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--color-text-secondary)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--color-muted)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+                aria-label={sidebarOpen ? 'Hide folders' : 'Show folders'}
+              >
+                {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
+              </button>
+              <div className="flex-1">
+                <Input
+                  placeholder="Search sets..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  icon={<Search size={18} />}
+                />
+              </div>
             </div>
-            <h2
-              className="text-lg font-semibold mb-1"
-              style={{ color: 'var(--color-text)' }}
-            >
-              {searchQuery
-                ? 'No sets found'
-                : 'No study sets yet'}
-            </h2>
-            <p
-              className="text-sm mb-4"
-              style={{ color: 'var(--color-text-secondary)' }}
-            >
-              {searchQuery
-                ? 'Try a different search term'
-                : 'Create your first study set to get started'}
-            </p>
-            {!searchQuery && (
+            <div className="flex items-center gap-2">
               <Button
                 variant="primary"
                 onClick={() => navigate('/sets/new')}
                 icon={<Plus size={18} />}
               >
-                Create Your First Set
+                New Set
               </Button>
-            )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate('/stats')}
+                aria-label="Statistics"
+              >
+                <BarChart3 size={20} />
+              </Button>
+            </div>
           </div>
-        )}
+
+          {/* Mobile folder filter pills */}
+          {folders.length > 0 && (
+            <div className="flex md:hidden items-center gap-2 mb-4 overflow-x-auto pb-1">
+              <button
+                onClick={() => selectFolder(null)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap cursor-pointer transition-colors"
+                style={{
+                  background: selectedFolderId === null
+                    ? 'var(--color-primary)'
+                    : 'var(--color-muted)',
+                  color: selectedFolderId === null
+                    ? '#ffffff'
+                    : 'var(--color-text-secondary)',
+                  border: 'none',
+                }}
+              >
+                All Sets
+              </button>
+              {folders.filter((f) => !f.parentFolderId).map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => selectFolder(folder.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap cursor-pointer transition-colors"
+                  style={{
+                    background:
+                      selectedFolderId === folder.id
+                        ? 'var(--color-primary)'
+                        : 'var(--color-muted)',
+                    color:
+                      selectedFolderId === folder.id
+                        ? '#ffffff'
+                        : 'var(--color-text-secondary)',
+                    border: 'none',
+                  }}
+                >
+                  <FolderOpen size={14} />
+                  {folder.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Active folder indicator */}
+          {selectedFolder && (
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
+                Showing sets in:
+              </span>
+              <button
+                onClick={() => navigate(`/folders/${selectedFolder.id}`)}
+                className="flex items-center gap-1.5 text-sm font-medium cursor-pointer"
+                style={{ color: 'var(--color-primary)', background: 'none', border: 'none', fontFamily: 'var(--font-sans)' }}
+              >
+                <FolderOpen size={14} />
+                {selectedFolder.name}
+              </button>
+              <button
+                onClick={() => selectFolder(null)}
+                className="text-xs cursor-pointer"
+                style={{ color: 'var(--color-text-tertiary)', background: 'none', border: 'none', fontFamily: 'var(--font-sans)' }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* Set grid or empty state */}
+          {filteredSets.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredSets.map((set) => (
+                <SetCard key={set.id} set={set} onDelete={handleDelete} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+                style={{ background: 'var(--color-muted)' }}
+              >
+                <Plus
+                  size={28}
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                />
+              </div>
+              <h2
+                className="text-lg font-semibold mb-1"
+                style={{ color: 'var(--color-text)' }}
+              >
+                {searchQuery
+                  ? 'No sets found'
+                  : selectedFolderId
+                    ? 'No sets in this folder'
+                    : 'No study sets yet'}
+              </h2>
+              <p
+                className="text-sm mb-4"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                {searchQuery
+                  ? 'Try a different search term'
+                  : 'Create your first study set to get started'}
+              </p>
+              {!searchQuery && (
+                <Button
+                  variant="primary"
+                  onClick={() => navigate('/sets/new')}
+                  icon={<Plus size={18} />}
+                >
+                  Create Your First Set
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </PageTransition>
   );

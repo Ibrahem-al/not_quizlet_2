@@ -124,9 +124,19 @@ function FolderSidebar() {
       name: trimmed,
       description: '',
       color: newColor,
+      parentFolderId: selectedFolderId ?? undefined,
       createdAt: now,
       updatedAt: now,
     });
+
+    // Auto-expand the parent so the new folder is visible
+    if (selectedFolderId) {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        next.add(selectedFolderId);
+        return next;
+      });
+    }
 
     setNewName('');
     setNewColor('blue');

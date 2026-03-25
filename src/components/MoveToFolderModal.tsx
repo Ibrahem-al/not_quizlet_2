@@ -1,10 +1,13 @@
-import { useCallback } from 'react';
-import { Folder, FolderMinus, Check } from 'lucide-react';
-import type { Folder as FolderType } from '@/types';
+import { useState, useCallback } from 'react';
+import { Folder, FolderMinus, FolderPlus, Check } from 'lucide-react';
+import type { Folder as FolderType, FolderColor } from '@/types';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useSetStore } from '@/stores/useSetStore';
 import { Modal } from '@/components/ui/Modal';
-import { cn, FOLDER_COLORS } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
+import { cn, generateId, FOLDER_COLORS } from '@/lib/utils';
+
+const COLOR_KEYS = Object.keys(FOLDER_COLORS) as FolderColor[];
 
 interface MoveToFolderModalProps {
   isOpen: boolean;
@@ -65,8 +68,11 @@ function FolderRow({ folder, folders, currentFolderId, depth, onSelect }: Folder
 }
 
 function MoveToFolderModal({ isOpen, onClose, setId, currentFolderId }: MoveToFolderModalProps) {
-  const { folders } = useFolderStore();
+  const { folders, addFolder } = useFolderStore();
   const { sets, updateSet } = useSetStore();
+  const [isCreating, setIsCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState<FolderColor>('blue');
 
   const rootFolders = folders.filter((f) => !f.parentFolderId);
 
@@ -98,18 +104,46 @@ function MoveToFolderModal({ isOpen, onClose, setId, currentFolderId }: MoveToFo
     onClose();
   }, [sets, setId, updateSet, onClose]);
 
+  const handleCreateFolder = useCallback(async () => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    const now = Date.now();
+    const newFolder = {
+      id: generateId(),
+      userId: '',
+      name: trimmed,
+      description: '',
+      color: newColor,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await addFolder(newFolder);
+
+    // Move the set into the new folder
+    const set = sets.find((s) => s.id === setId);
+    if (set) {
+      await updateSet({ ...set, folderId: newFolder.id, updatedAt: Date.now() });
+    }
+
+    setNewName('');
+    setNewColor('blue');
+    setIsCreating(false);
+    onClose();
+  }, [newName, newColor, addFolder, sets, setId, updateSet, onClose]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Move to Folder" size="sm">
       <div
         className="max-h-64 overflow-y-auto -mx-1.5"
         style={{ scrollbarWidth: 'thin' }}
       >
-        {rootFolders.length === 0 && (
+        {rootFolders.length === 0 && !isCreating && (
           <p
             className="text-sm text-center py-6"
             style={{ color: 'var(--color-text-tertiary)' }}
           >
-            No folders yet. Create one from the sidebar.
+            No folders yet. Create one below.
           </p>
         )}
         {rootFolders.map((folder) => (
@@ -124,27 +158,97 @@ function MoveToFolderModal({ isOpen, onClose, setId, currentFolderId }: MoveToFo
         ))}
       </div>
 
-      {currentFolderId && (
+      {/* Create new folder inline */}
+      {isCreating ? (
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateFolder();
+              if (e.key === 'Escape') { setIsCreating(false); setNewName(''); }
+            }}
+            placeholder="Folder name"
+            className="w-full h-8 px-2 text-sm mb-2"
+            style={{
+              background: 'var(--color-surface)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              fontFamily: 'var(--font-sans)',
+              outline: 'none',
+            }}
+          />
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {COLOR_KEYS.map((color) => (
+              <button
+                key={color}
+                onClick={() => setNewColor(color)}
+                className="w-5 h-5 rounded-full cursor-pointer"
+                style={{
+                  background: FOLDER_COLORS[color],
+                  border: 'none',
+                  outline: newColor === color ? '2px solid var(--color-text)' : 'none',
+                  outlineOffset: 2,
+                  transform: newColor === color ? 'scale(1.15)' : 'scale(1)',
+                }}
+                aria-label={color}
+              />
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleCreateFolder} className="flex-1">
+              Create & Move
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setIsCreating(false); setNewName(''); }}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
         <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
           <button
-            onClick={handleRemoveFromFolder}
+            onClick={() => setIsCreating(true)}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer transition-colors"
             style={{
               background: 'transparent',
-              color: 'var(--color-danger)',
+              color: 'var(--color-text-secondary)',
               border: 'none',
               fontFamily: 'var(--font-sans)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--color-danger-light)';
+              e.currentTarget.style.background = 'var(--color-muted)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = 'transparent';
             }}
           >
-            <FolderMinus size={16} className="flex-shrink-0" />
-            <span>Remove from folder</span>
+            <FolderPlus size={16} className="flex-shrink-0" />
+            <span>New folder</span>
           </button>
+
+          {currentFolderId && (
+            <button
+              onClick={handleRemoveFromFolder}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer transition-colors"
+              style={{
+                background: 'transparent',
+                color: 'var(--color-danger)',
+                border: 'none',
+                fontFamily: 'var(--font-sans)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--color-danger-light)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <FolderMinus size={16} className="flex-shrink-0" />
+              <span>Remove from folder</span>
+            </button>
+          )}
         </div>
       )}
     </Modal>

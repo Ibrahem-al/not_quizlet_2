@@ -11,6 +11,8 @@ interface FolderStore {
   updateFolder: (folder: Folder) => Promise<void>;
   removeFolder: (id: string) => Promise<void>;
   selectFolder: (id: string | null) => void;
+  /** Get all descendant folder IDs (recursive) */
+  getDescendantIds: (id: string) => string[];
 }
 
 export const useFolderStore = create<FolderStore>((set, get) => ({
@@ -40,12 +42,42 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
   },
 
   removeFolder: async (id: string) => {
+    const folder = get().folders.find((f) => f.id === id);
+    const parentId = folder?.parentFolderId ?? undefined;
+
+    // Move child folders up to parent
+    const childFolders = get().folders.filter((f) => f.parentFolderId === id);
+    for (const child of childFolders) {
+      const updated = { ...child, parentFolderId: parentId, updatedAt: Date.now() };
+      await saveFolder(updated);
+    }
+
     await deleteFolder(id);
+
+    const updatedFolders = get()
+      .folders.filter((f) => f.id !== id)
+      .map((f) => (f.parentFolderId === id ? { ...f, parentFolderId: parentId } : f))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
     set({
-      folders: get().folders.filter((f) => f.id !== id),
+      folders: updatedFolders,
       selectedFolderId:
         get().selectedFolderId === id ? null : get().selectedFolderId,
     });
+  },
+
+  getDescendantIds: (id: string) => {
+    const result: string[] = [];
+    const queue = [id];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const children = get().folders.filter((f) => f.parentFolderId === current);
+      for (const child of children) {
+        result.push(child.id);
+        queue.push(child.id);
+      }
+    }
+    return result;
   },
 
   selectFolder: (id: string | null) => {
