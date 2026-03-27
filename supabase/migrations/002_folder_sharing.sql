@@ -70,6 +70,7 @@ CREATE POLICY "shared_folder_sets_select" ON study_sets FOR SELECT
 CREATE OR REPLACE FUNCTION get_shared_folder(p_share_token UUID)
 RETURNS SETOF folders
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
   SELECT * FROM folders WHERE share_token = p_share_token LIMIT 1;
 $$;
@@ -81,6 +82,7 @@ $$;
 CREATE OR REPLACE FUNCTION get_shared_folder_subfolders(p_share_token UUID)
 RETURNS SETOF folders
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
   WITH RECURSIVE folder_tree AS (
     SELECT * FROM folders WHERE share_token = p_share_token
@@ -98,6 +100,7 @@ $$;
 CREATE OR REPLACE FUNCTION get_shared_folder_sets(p_share_token UUID)
 RETURNS SETOF study_sets
 LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
 AS $$
   WITH RECURSIVE folder_tree AS (
     SELECT id FROM folders WHERE share_token = p_share_token
