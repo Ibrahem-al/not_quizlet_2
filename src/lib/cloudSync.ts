@@ -1,5 +1,6 @@
 import type { StudySet, Folder } from '@/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { compressBase64InHtml } from '@/lib/utils';
 
 // ============================================================
 // Column mapping: App uses camelCase, Supabase uses snake_case
@@ -444,4 +445,78 @@ export async function fetchSharedFolder(
   }
 
   return { folder: rootFolder, subfolders, sets };
+}
+
+// ============================================================
+// One-time migration: compress oversized inline images
+// ============================================================
+
+const MIGRATE_KEY = 'studyflow_images_migrated';
+const IMG_SIZE_THRESHOLD = 500 * 1024 * 1.37; // ~500 KB in base64 chars
+
+function hasOversizedImages(html: string): boolean {
+  const regex = /data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) !== null) {
+    if (match[0].length > IMG_SIZE_THRESHOLD) return true;
+  }
+  return false;
+}
+
+/** One-time migration: find all sets with oversized base64 images, compress them,
+ *  and save back to IndexedDB + cloud. Runs only once (localStorage flag). */
+export async function migrateOversizedImages(): Promise<void> {
+  if (localStorage.getItem(MIGRATE_KEY)) return;
+
+  try {
+    const { getAllSets, saveSet } = await import('@/db');
+
+    const allSets = await getAllSets();
+    let migrated = 0;
+
+    for (const set of allSets) {
+      let changed = false;
+      const cards = [...set.cards];
+
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const termNeedsCompress = hasOversizedImages(card.term);
+        const defNeedsCompress = hasOversizedImages(card.definition);
+
+        if (termNeedsCompress || defNeedsCompress) {
+          cards[i] = {
+            ...card,
+            term: termNeedsCompress ? await compressBase64InHtml(card.term) : card.term,
+            definition: defNeedsCompress ? await compressBase64InHtml(card.definition) : card.definition,
+          };
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        const updated = { ...set, cards };
+        await saveSet(updated);
+        migrated++;
+
+        // Sync to cloud if user is authenticated
+        if (isSupabaseConfigured()) {
+          try {
+            const { useAuthStore } = await import('@/stores/useAuthStore');
+            const user = useAuthStore.getState().user;
+            if (user) {
+              await syncSetContentToCloud({ ...updated, userId: user.id });
+            }
+          } catch { /* cloud sync is best-effort */ }
+        }
+      }
+    }
+
+    if (migrated > 0) {
+      console.log(`Image migration: compressed images in ${migrated} set(s)`);
+    }
+  } catch (err) {
+    console.error('Image migration failed:', err);
+  }
+
+  localStorage.setItem(MIGRATE_KEY, '1');
 }

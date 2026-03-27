@@ -7,6 +7,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { migrateOversizedImages } from '@/lib/cloudSync';
 
 const HomePage = lazy(() => import('@/pages/HomePage'));
 const NewSetPage = lazy(() => import('@/pages/NewSetPage'));
@@ -33,6 +34,8 @@ function App() {
   useEffect(() => {
     useThemeStore.getState();
     useAuthStore.getState().initialize();
+    // One-time migration: compress oversized inline images
+    migrateOversizedImages();
   }, []);
 
   return (

@@ -155,6 +155,56 @@ export function compressImage(file: File | Blob, maxSizeKB = 500): Promise<strin
   });
 }
 
+/** Re-compress base64 image via Canvas. Returns compressed data URI. */
+function recompressBase64(dataUri: string, maxDim = 1024, maxSizeKB = 500): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height);
+        width *= ratio;
+        height *= ratio;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      let quality = 0.7;
+      let result = canvas.toDataURL('image/jpeg', quality);
+      while (result.length > maxSizeKB * 1024 * 1.37 && quality > 0.1) {
+        quality -= 0.1;
+        result = canvas.toDataURL('image/jpeg', quality);
+      }
+      resolve(result);
+    };
+    img.onerror = () => resolve(dataUri); // keep original on error
+    img.src = dataUri;
+  });
+}
+
+/** Find all base64 images in HTML and re-compress any over 500 KB. */
+export async function compressBase64InHtml(html: string): Promise<string> {
+  const regex = /data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g;
+  const matches = html.match(regex);
+  if (!matches) return html;
+
+  let result = html;
+  for (const match of matches) {
+    // ~750 KB in base64 chars ≈ 500 KB decoded
+    if (match.length > 500 * 1024 * 1.37) {
+      const compressed = await recompressBase64(match);
+      if (compressed.length < match.length) {
+        result = result.replace(match, compressed);
+      }
+    }
+  }
+  return result;
+}
+
 export const FOLDER_COLORS: Record<string, string> = {
   blue: '#3b82f6',
   green: '#22c55e',
