@@ -372,22 +372,26 @@ export async function fetchSharedFolder(
 
     const folder = rowToFolder(data as FolderDbRow);
 
-    // Fetch all subfolders recursively by walking parent_folder_id
-    const { data: allFolderData } = await supabase
-      .from('folders')
-      .select('*')
-      .eq('user_id', folder.userId);
-    const allDbFolders = ((allFolderData ?? []) as FolderDbRow[]).map(rowToFolder);
+    // Fetch subfolders by walking parent_folder_id from the shared root
+    // Uses BFS with sequential queries since RLS only allows reading
+    // folders within the shared tree (via shared_folder_children_select policy)
+    const folderIds = new Set<string>([folder.id]);
+    const subfolders: Folder[] = [];
+    let parentIds = [folder.id];
 
-    // BFS to collect all descendant folder IDs
-    const folderIds = new Set<string>();
-    const queue = [folder.id];
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      folderIds.add(id);
-      for (const f of allDbFolders) {
-        if (f.parentFolderId === id && !folderIds.has(f.id)) {
-          queue.push(f.id);
+    while (parentIds.length > 0) {
+      const { data: childData } = await supabase
+        .from('folders')
+        .select('*')
+        .in('parent_folder_id', parentIds);
+      const children = ((childData ?? []) as FolderDbRow[]).map(rowToFolder);
+      if (children.length === 0) break;
+      parentIds = [];
+      for (const child of children) {
+        if (!folderIds.has(child.id)) {
+          folderIds.add(child.id);
+          subfolders.push(child);
+          parentIds.push(child.id);
         }
       }
     }
@@ -397,8 +401,6 @@ export async function fetchSharedFolder(
       .from('study_sets')
       .select('*')
       .in('folder_id', Array.from(folderIds));
-
-    const subfolders = allDbFolders.filter((f) => folderIds.has(f.id) && f.id !== folder.id);
 
     return {
       folder,
