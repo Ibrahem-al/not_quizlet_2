@@ -133,6 +133,23 @@ export async function syncSetToCloud(set: StudySet): Promise<void> {
   }
 }
 
+/** Sync set content to cloud WITHOUT overwriting share_token.
+ *  Used for auto-sync when a set in a shared folder is modified. */
+export async function syncSetContentToCloud(set: StudySet): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  const row = setToRow(set);
+  delete row.share_token; // preserve whatever share_token exists in cloud
+
+  const { error } = await supabase
+    .from('study_sets')
+    .upsert(row, { onConflict: 'id' });
+
+  if (error) {
+    console.error('Failed to sync set content:', error.message);
+  }
+}
+
 export async function deleteSetFromCloud(setId: string): Promise<void> {
   if (!isSupabaseConfigured() || !supabase) return;
 
