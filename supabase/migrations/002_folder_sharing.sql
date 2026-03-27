@@ -13,6 +13,22 @@ CREATE INDEX idx_folders_share ON folders (share_token) WHERE share_token IS NOT
 CREATE POLICY "shared_folder_select" ON folders FOR SELECT
   USING (share_token IS NOT NULL);
 
+-- Allow anyone to SELECT sets that belong to a shared folder tree
+-- This ensures sets are accessible when the folder is shared,
+-- even without the RPC functions (e.g., direct query fallback)
+CREATE POLICY "shared_folder_sets_select" ON study_sets FOR SELECT
+  USING (
+    folder_id IS NOT NULL AND EXISTS (
+      WITH RECURSIVE folder_tree AS (
+        SELECT id FROM folders WHERE share_token IS NOT NULL
+        UNION ALL
+        SELECT f.id FROM folders f
+        JOIN folder_tree ft ON f.parent_folder_id = ft.id
+      )
+      SELECT 1 FROM folder_tree WHERE id = study_sets.folder_id
+    )
+  );
+
 -- ============================================================
 -- RPC: Fetch a shared folder by token
 -- ============================================================

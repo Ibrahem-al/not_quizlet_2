@@ -372,15 +372,37 @@ export async function fetchSharedFolder(
 
     const folder = rowToFolder(data as FolderDbRow);
 
-    // Fetch sets directly
+    // Fetch all subfolders recursively by walking parent_folder_id
+    const { data: allFolderData } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('user_id', folder.userId);
+    const allDbFolders = ((allFolderData ?? []) as FolderDbRow[]).map(rowToFolder);
+
+    // BFS to collect all descendant folder IDs
+    const folderIds = new Set<string>();
+    const queue = [folder.id];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      folderIds.add(id);
+      for (const f of allDbFolders) {
+        if (f.parentFolderId === id && !folderIds.has(f.id)) {
+          queue.push(f.id);
+        }
+      }
+    }
+
+    // Fetch all sets belonging to any folder in the tree
     const { data: setData } = await supabase
       .from('study_sets')
       .select('*')
-      .eq('folder_id', folder.id);
+      .in('folder_id', Array.from(folderIds));
+
+    const subfolders = allDbFolders.filter((f) => folderIds.has(f.id) && f.id !== folder.id);
 
     return {
       folder,
-      subfolders: [],
+      subfolders,
       sets: ((setData ?? []) as DbRow[]).map(rowToSet),
     };
   }
@@ -388,7 +410,19 @@ export async function fetchSharedFolder(
   const allFolders = (foldersRes.data as FolderDbRow[]).map(rowToFolder);
   const rootFolder = allFolders.find((f) => f.shareToken === shareToken) ?? allFolders[0];
   const subfolders = allFolders.filter((f) => f.id !== rootFolder.id);
-  const sets = ((setsRes.data ?? []) as DbRow[]).map(rowToSet);
+
+  // If the sets RPC failed, fetch sets via direct query as fallback
+  let sets: StudySet[];
+  if (setsRes.error || !setsRes.data) {
+    const folderIds = allFolders.map((f) => f.id);
+    const { data: setData } = await supabase
+      .from('study_sets')
+      .select('*')
+      .in('folder_id', folderIds);
+    sets = ((setData ?? []) as DbRow[]).map(rowToSet);
+  } else {
+    sets = (setsRes.data as DbRow[]).map(rowToSet);
+  }
 
   return { folder: rootFolder, subfolders, sets };
 }
