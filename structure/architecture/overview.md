@@ -78,7 +78,11 @@ main.tsx
 | `/sets/:id` | SetDetailPage | Set overview, study mode selection, edit |
 | `/sets/:id/study/:mode` | StudyPage | Active study session (8 modes) |
 | `/stats` | StatsPage | Study statistics and progress |
-| `/folders/:id` | FolderDetailPage | View sets in a folder |
+| `/folders/:id` | FolderDetailPage | View sets in a folder, share folder |
+| `/shared/:token` | SharedSetPage | Read-only shared set view (no auth) |
+| `/shared/:token/study/:mode` | SharedStudyPage | Study mode for shared set |
+| `/shared/folder/:token` | SharedFolderPage | Read-only shared folder view (no auth) |
+| `/shared/folder/:token/set/:setId/study/:mode` | SharedFolderStudyPage | Study mode for set in shared folder |
 | `/signin` | SignInPage | Email/password sign in |
 | `/signup` | SignUpPage | Account creation |
 | `/forgot-password` | ForgotPasswordPage | Password reset request |

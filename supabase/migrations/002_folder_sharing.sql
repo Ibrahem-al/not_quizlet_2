@@ -26,22 +26,30 @@ DROP POLICY IF EXISTS "shared_folder_select" ON folders;
 CREATE POLICY "shared_folder_select" ON folders FOR SELECT
   USING (share_token IS NOT NULL);
 
+-- Helper function: check if a folder is in any shared folder tree.
+-- Uses SECURITY DEFINER to bypass RLS and avoid infinite recursion
+-- (inline recursive CTEs in RLS policies cause Postgres to re-enter
+-- the same policy, triggering "infinite recursion detected").
+CREATE OR REPLACE FUNCTION is_in_shared_folder_tree(p_folder_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH RECURSIVE folder_tree AS (
+    SELECT id FROM folders WHERE share_token IS NOT NULL
+    UNION ALL
+    SELECT f.id FROM folders f
+    JOIN folder_tree ft ON f.parent_folder_id = ft.id
+  )
+  SELECT EXISTS (SELECT 1 FROM folder_tree WHERE id = p_folder_id);
+$$;
+
 -- Anyone can SELECT subfolders whose parent chain leads to a shared folder
--- Only applies to non-authenticated users (owners already have full access)
 DROP POLICY IF EXISTS "shared_folder_children_select" ON folders;
 CREATE POLICY "shared_folder_children_select" ON folders FOR SELECT
   USING (
-    auth.uid() IS NULL
-    AND parent_folder_id IS NOT NULL
-    AND EXISTS (
-      WITH RECURSIVE folder_tree AS (
-        SELECT id FROM folders WHERE share_token IS NOT NULL
-        UNION ALL
-        SELECT f.id FROM folders f
-        JOIN folder_tree ft ON f.parent_folder_id = ft.id
-      )
-      SELECT 1 FROM folder_tree WHERE id = folders.id
-    )
+    parent_folder_id IS NOT NULL
+    AND is_in_shared_folder_tree(id)
   );
 
 -- ============================================================
@@ -49,21 +57,11 @@ CREATE POLICY "shared_folder_children_select" ON folders FOR SELECT
 -- ============================================================
 
 -- Anyone can SELECT sets in a shared folder tree
--- Only applies to non-authenticated users (owners already have full access)
 DROP POLICY IF EXISTS "shared_folder_sets_select" ON study_sets;
 CREATE POLICY "shared_folder_sets_select" ON study_sets FOR SELECT
   USING (
-    auth.uid() IS NULL
-    AND folder_id IS NOT NULL
-    AND EXISTS (
-      WITH RECURSIVE folder_tree AS (
-        SELECT id FROM folders WHERE share_token IS NOT NULL
-        UNION ALL
-        SELECT f.id FROM folders f
-        JOIN folder_tree ft ON f.parent_folder_id = ft.id
-      )
-      SELECT 1 FROM folder_tree WHERE id = study_sets.folder_id
-    )
+    folder_id IS NOT NULL
+    AND is_in_shared_folder_tree(folder_id)
   );
 
 -- ============================================================

@@ -35,12 +35,36 @@ Single-set deletion:
 supabase.from('sets').delete().eq('id', setId)
 ```
 
-### fetchPublicSets()
+### Share Link Operations (Sets)
 
-Fetches public sets (previously used by the Explore page, which has been removed; this function is currently unused):
+- **`generateShareToken(set)`** — Generates `crypto.randomUUID()`, updates `share_token` on the set row in Supabase, returns the token
+- **`removeShareToken(setId)`** — Sets `share_token` to null (stops sharing)
+- **`fetchSharedSet(shareToken)`** — Fetches set by token via RPC `get_shared_set` (SECURITY DEFINER), with fallback to direct query. Works without auth.
 
-1. First tries RPC: `supabase.rpc('get_public_sets')` (optimized server-side function)
-2. Falls back to direct query: `supabase.from('sets').select('*').eq('visibility', 'public').order('updatedAt', { ascending: false }).limit(50)`
+### Folder Cloud Sync
+
+- **`syncFolderToCloud(folder)`** — Upserts a single folder to Supabase
+- **`syncFolderTreeToCloud(folderId, allFolders, allSets)`** — BFS from the target folder to collect all descendants, then batch upserts all folders and their sets. Called before generating a folder share token.
+
+### Share Link Operations (Folders)
+
+- **`generateFolderShareToken(folder)`** — Generates UUID, updates `share_token` on folder row, returns token
+- **`removeFolderShareToken(folderId)`** — Sets `share_token` to null (stops sharing)
+- **`fetchSharedFolder(shareToken)`** — Fetches folder + all subfolders + all sets in the tree. Uses two parallel RPCs (`get_shared_folder_subfolders`, `get_shared_folder_sets`). Falls back to BFS walking `parent_folder_id` if RPCs unavailable. Returns `{ folder, subfolders, sets }` or null.
+
+### Column Mapping (Folders)
+
+| App (camelCase) | DB (snake_case) |
+|-----------------|-----------------|
+| `id` | `id` |
+| `userId` | `user_id` |
+| `name` | `name` |
+| `description` | `description` |
+| `parentFolderId` | `parent_folder_id` |
+| `color` | `color` |
+| `createdAt` | `created_at` |
+| `updatedAt` | `updated_at` |
+| `shareToken` | `share_token` |
 
 ## Conflict Resolution
 

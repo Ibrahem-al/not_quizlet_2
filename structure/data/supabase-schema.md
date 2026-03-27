@@ -25,6 +25,7 @@ The primary table for study set storage and sharing.
 | `folderId` | `text` | Optional folder reference |
 | `userId` | `text` / `uuid` | Owner's auth user ID |
 | `cardCount` | `integer` | Denormalized card count |
+| `shareToken` | `uuid` | Unique share link token (null = not shared) |
 
 **Key operations:**
 - `select('*').eq('userId', userId)` - Fetch user's sets
@@ -32,50 +33,54 @@ The primary table for study set storage and sharing.
 - `delete().eq('id', setId)` - Delete set
 - `select('*').eq('visibility', 'public').order('updatedAt').limit(50)` - Public sets (currently unused; Explore page removed)
 
-### Expected RLS Policies
+### RLS Policies (study_sets)
 
-```sql
--- Users can read their own sets
-CREATE POLICY "Users can read own sets"
-  ON sets FOR SELECT
-  USING (auth.uid()::text = "userId");
+- **`owner_select/insert/update/delete`** — Full CRUD for `auth.uid() = user_id`
+- **`shared_select`** — Anyone can SELECT if `share_token IS NOT NULL`
+- **`shared_folder_sets_select`** — Anonymous users can SELECT sets whose `folder_id` is in a shared folder tree (recursive CTE)
 
--- Users can insert their own sets
-CREATE POLICY "Users can insert own sets"
-  ON sets FOR INSERT
-  WITH CHECK (auth.uid()::text = "userId");
+### folders
 
--- Users can update their own sets
-CREATE POLICY "Users can update own sets"
-  ON sets FOR UPDATE
-  USING (auth.uid()::text = "userId");
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | Owner (references auth.users) |
+| `name` | `text` | Folder name |
+| `description` | `text` | Optional description |
+| `parent_folder_id` | `uuid` | Parent folder (null = root) |
+| `color` | `text` | Color name (default 'blue') |
+| `created_at` | `bigint` | Unix timestamp (ms) |
+| `updated_at` | `bigint` | Unix timestamp (ms) |
+| `share_token` | `uuid` | Unique share link token (null = not shared) |
 
--- Users can delete their own sets
-CREATE POLICY "Users can delete own sets"
-  ON sets FOR DELETE
-  USING (auth.uid()::text = "userId");
+### RLS Policies (folders)
 
--- Anyone can read public sets
-CREATE POLICY "Anyone can read public sets"
-  ON sets FOR SELECT
-  USING (visibility = 'public');
-```
+- **`folders_owner`** — Full CRUD for `auth.uid() = user_id`
+- **`shared_folder_select`** — Anyone can SELECT if `share_token IS NOT NULL`
+- **`shared_folder_children_select`** — Anonymous users can SELECT subfolders within a shared folder tree (recursive CTE)
+
+### Migration Files
+
+- `001_initial_schema.sql` — Tables, indexes, RLS, RPC functions for sets, folders, folder_items, auth, live games
+- `002_folder_sharing.sql` — Adds `share_token` to folders, RLS policies for shared folder/set access, RPC functions for shared folder fetching (idempotent, safe to re-run)
 
 ## RPC Functions
 
-### get_public_sets
+### get_shared_set(p_share_token UUID)
 
-Optimized server-side function for fetching public sets (Explore page has been removed; this function is currently unused):
+Fetches a shared set by token. SECURITY DEFINER (bypasses RLS). Used by `fetchSharedSet()`.
 
-```sql
-CREATE OR REPLACE FUNCTION get_public_sets()
-RETURNS SETOF sets AS $$
-  SELECT * FROM sets
-  WHERE visibility = 'public'
-  ORDER BY "updatedAt" DESC
-  LIMIT 50;
-$$ LANGUAGE sql STABLE;
-```
+### get_shared_folder(p_share_token UUID)
+
+Fetches a shared folder by token. SECURITY DEFINER.
+
+### get_shared_folder_subfolders(p_share_token UUID)
+
+Returns the shared folder + all descendant subfolders via recursive CTE on `parent_folder_id`. SECURITY DEFINER.
+
+### get_shared_folder_sets(p_share_token UUID)
+
+Returns all `study_sets` whose `folder_id` is in the shared folder tree (recursive CTE). SECURITY DEFINER.
 
 ### check_account_lockout
 

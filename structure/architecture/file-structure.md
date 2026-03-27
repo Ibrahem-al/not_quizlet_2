@@ -10,7 +10,9 @@ not_quizlet_2/
 ├── tsconfig.app.json                   # App TS config, path alias @/ -> ./src
 ├── tsconfig.node.json                  # Node TS config for vite.config.ts
 ├── eslint.config.js                    # ESLint 9 flat config
-├── public/                             # Static assets (favicon.svg)
+├── public/                             # Static assets (favicon.svg, fonts/)
+│   └── fonts/
+│       └── NotoSansArabic-Regular.ttf  # Arabic + Latin font for PDF generation
 ├── dist/                               # Build output (not committed)
 ├── structure/                          # This documentation
 │
@@ -36,7 +38,7 @@ not_quizlet_2/
     │
     ├── lib/
     │   ├── supabase.ts                 # Supabase client initialization (nullable)
-    │   ├── cloudSync.ts                # Sync sets to/from cloud, fetch public sets
+    │   ├── cloudSync.ts                # Sync sets/folders to/from cloud, share link operations
     │   ├── spaced-repetition.ts        # SM-2 algorithm: recordReview, isDueForReview, getCardState
     │   ├── equivalence.ts              # Equivalence groups, multi-answer grading
     │   ├── validation.ts               # Card/set validation (empty, length, duplicates, etc.)
@@ -53,7 +55,11 @@ not_quizlet_2/
     │   ├── SetDetailPage.tsx           # Set overview, study mode picker, edit mode
     │   ├── StudyPage.tsx               # Study session router (loads correct mode component)
     │   ├── StatsPage.tsx               # Study statistics dashboard
-    │   ├── FolderDetailPage.tsx        # View sets within a folder
+    │   ├── FolderDetailPage.tsx        # View sets within a folder, share folder
+    │   ├── SharedSetPage.tsx           # Read-only shared set view (no auth)
+    │   ├── SharedStudyPage.tsx         # Study modes for shared sets
+    │   ├── SharedFolderPage.tsx        # Read-only shared folder view (no auth)
+    │   ├── SharedFolderStudyPage.tsx   # Study modes for sets in shared folders
     │   └── auth/
     │       ├── SignInPage.tsx           # Email/password login with lockout check
     │       ├── SignUpPage.tsx           # Registration with password strength meter

@@ -17,6 +17,7 @@ interface Folder {
   createdAt: number;    // Unix timestamp
   updatedAt: number;    // Unix timestamp
   itemCount?: number;   // Computed count
+  shareToken?: string;  // UUID for shareable link (mirrors StudySet.shareToken)
 }
 
 type FolderColor = 'blue' | 'green' | 'purple' | 'red' | 'orange' | 'yellow' | 'pink' | 'teal' | 'gray';
@@ -28,7 +29,7 @@ type FolderColor = 'blue' | 'green' | 'purple' | 'red' | 'orange' | 'yellow' | '
 
 **File:** `src/components/FolderSidebar.tsx`
 
-Fixed-width sidebar (240px) on the left side of the home page.
+Fixed-width sidebar (240px) on the left side of the home page. Togglable via a panel icon in the top bar (desktop only; mobile uses horizontal filter pills).
 
 **Layout:**
 1. "Folders" header
@@ -40,6 +41,7 @@ Fixed-width sidebar (240px) on the left side of the home page.
 - Expand/collapse chevron (if has children)
 - Colored folder icon (using FOLDER_COLORS map)
 - Folder name (truncated)
+- **Click navigates to `/folders/:id`** (FolderDetailPage) and expands children
 - Children rendered inside AnimatePresence with height animation
 
 **Create Folder Flow:**
@@ -90,8 +92,37 @@ On the home page, when `selectedFolderId` is set:
 | teal | `#14b8a6` | |
 | gray | `#6b7280` | |
 
+## Folder Sharing
+
+Folder sharing mirrors set sharing. The owner generates a UUID `shareToken`, producing a URL like `/shared/folder/:token`. Anyone with the link can view the folder read-only and study all sets inside (including subfolders), without authentication.
+
+**Share Flow:**
+1. Owner clicks "Share" on FolderDetailPage
+2. `syncFolderTreeToCloud()` syncs the folder, all descendants, and all their sets to Supabase
+3. `generateFolderShareToken()` creates a UUID token on the folder row
+4. URL is copied to clipboard: `{origin}/shared/folder/{token}`
+
+**Shared Folder View:**
+- **Route:** `/shared/folder/:token` → `SharedFolderPage.tsx`
+- Calls `fetchSharedFolder(token)` which fetches the folder, all subfolders (recursive CTE), and all sets in the tree via parallel RPCs
+- Displays folder name, description, color, stats (set count, card count)
+- Sets grouped by subfolder with study mode buttons per set
+- Clicking a study mode navigates to `/shared/folder/:token/set/:setId/study/:mode` → `SharedFolderStudyPage.tsx`
+
+**Cloud Sync Functions** (`src/lib/cloudSync.ts`):
+- `syncFolderToCloud(folder)` — upsert single folder
+- `syncFolderTreeToCloud(folderId, allFolders, allSets)` — BFS to collect descendants, batch upsert folders + sets
+- `generateFolderShareToken(folder)` / `removeFolderShareToken(folderId)` — manage share token
+- `fetchSharedFolder(shareToken)` — fetch folder + subfolders + sets (RPC with fallback)
+
+**Supabase:**
+- Migration: `supabase/migrations/002_folder_sharing.sql`
+- `share_token UUID UNIQUE DEFAULT NULL` on folders table
+- RLS policies: `shared_folder_select`, `shared_folder_children_select`, `shared_folder_sets_select`
+- RPCs: `get_shared_folder`, `get_shared_folder_subfolders`, `get_shared_folder_sets` (recursive CTEs, SECURITY DEFINER)
+
 ## Database
 
-Folders stored in Dexie `folders` table with indexes on `id`, `userId`, `parentFolderId`, `updatedAt`.
+Folders stored in Dexie `folders` table with indexes on `id`, `userId`, `parentFolderId`, `updatedAt`, `shareToken` (schema version 3).
 
 FolderItems stored in `folderItems` table (id, folderId, itemId) -- though the primary mechanism uses `StudySet.folderId` directly.

@@ -58,6 +58,7 @@ interface StudySet {
   folderId?: string;       // Parent folder reference
   userId?: string;         // Owner's Supabase user ID
   cardCount?: number;      // Denormalized count (for cloud queries)
+  shareToken?: string;     // UUID for shareable link
 }
 ```
 
@@ -84,6 +85,7 @@ interface Folder {
   createdAt: number;
   updatedAt: number;
   itemCount?: number;       // Denormalized
+  shareToken?: string;      // UUID for shareable link (same pattern as StudySet)
 }
 
 type FolderColor = 'blue' | 'green' | 'purple' | 'red' | 'orange' | 'yellow' | 'pink' | 'teal' | 'gray';
