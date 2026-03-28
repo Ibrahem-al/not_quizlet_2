@@ -28,6 +28,10 @@ Single-set sync:
 supabase.from('sets').upsert(set, { onConflict: 'id' })
 ```
 
+### syncSetContentToCloud(set)
+
+Same as `syncSetToCloud` but omits `share_token` from the upsert payload. Used by auto-sync in `useSetStore` to avoid accidentally clearing an individually-shared set's token when syncing content changes.
+
 ### deleteSetFromCloud(setId)
 
 Single-set deletion:
@@ -65,6 +69,32 @@ supabase.from('sets').delete().eq('id', setId)
 | `createdAt` | `created_at` |
 | `updatedAt` | `updated_at` |
 | `shareToken` | `share_token` |
+
+## Auto Cloud Sync (Shared Folders)
+
+When a set or folder is in a shared tree (i.e., the folder or any ancestor has a `shareToken`), changes are automatically synced to the cloud so the second user sees updates without needing a new share link.
+
+**useSetStore** (`src/stores/useSetStore.ts`):
+- `addSet` / `updateSet` — if the set's folder is in a shared tree, calls `syncSetContentToCloud()` (fire-and-forget)
+- `updateSet` — also checks the **old** folder (handles moving a set out of a shared folder)
+- `removeSet` — if the set was in a shared folder, calls `deleteSetFromCloud()`
+- Uses `isInSharedTree(folderId)` helper that walks the folder ancestor chain via `useFolderStore.getState()`
+
+**useFolderStore** (`src/stores/useFolderStore.ts`):
+- `updateFolder` — if the folder is shared (or in a shared tree), calls `syncFolderToCloud()` (fire-and-forget)
+- Uses `isSharedFolder(folder, allFolders)` helper
+
+All auto-syncs are non-blocking and silently swallow errors to maintain offline-first behavior.
+
+## One-Time Image Migration
+
+**Function:** `migrateOversizedImages()` in `src/lib/cloudSync.ts`
+**Trigger:** Called once on app startup from `App.tsx`
+**Guard:** `localStorage.studyflow_images_migrated` prevents re-runs
+
+Scans all local sets for cards with base64 images exceeding 500 KB. Compresses them via `compressBase64InHtml()` (Canvas API — max 1024px, JPEG quality 0.7). Saves compressed cards back to IndexedDB and syncs to cloud if the user is authenticated. This fixes legacy cards that bypassed the 500 KB `compressImage()` limit.
+
+**Utility:** `compressBase64InHtml(html)` in `src/lib/utils.ts` — finds all `data:image/...;base64,...` patterns in an HTML string, re-compresses any over 500 KB via Image → Canvas → JPEG.
 
 ## Conflict Resolution
 

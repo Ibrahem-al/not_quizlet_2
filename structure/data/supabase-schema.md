@@ -57,7 +57,15 @@ The primary table for study set storage and sharing.
 
 - **`folders_owner`** — Full CRUD for `auth.uid() = user_id`
 - **`shared_folder_select`** — Anyone can SELECT if `share_token IS NOT NULL`
-- **`shared_folder_children_select`** — Anonymous users can SELECT subfolders within a shared folder tree (recursive CTE)
+- **`shared_folder_children_select`** — Anyone can SELECT subfolders within a shared folder tree (uses `is_in_shared_folder_tree()` helper)
+
+### RLS Policies (study_sets) — shared folder access
+
+- **`shared_folder_sets_select`** — Anyone can SELECT sets whose `folder_id` is in a shared folder tree (uses `is_in_shared_folder_tree()` helper)
+
+### Helper: is_in_shared_folder_tree(p_folder_id UUID)
+
+`SECURITY DEFINER` function that checks if a folder is a descendant of any shared folder. Used by RLS policies instead of inline recursive CTEs to avoid infinite recursion (inline CTEs in RLS policies re-trigger the same policies, causing Postgres to error). Walks the tree starting from all folders with a non-null `share_token`.
 
 ### Migration Files
 

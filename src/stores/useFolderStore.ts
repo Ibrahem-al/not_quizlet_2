@@ -1,6 +1,21 @@
 import { create } from 'zustand';
 import type { Folder } from '@/types';
 import { getAllFolders, saveFolder, deleteFolder } from '@/db';
+import { syncFolderToCloud } from '@/lib/cloudSync';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/useAuthStore';
+
+/** Check if a folder (or any ancestor) is shared */
+function isSharedFolder(folder: Folder, allFolders: Folder[]): boolean {
+  let currentId: string | undefined = folder.id;
+  while (currentId) {
+    const f = allFolders.find((x) => x.id === currentId);
+    if (!f) break;
+    if (f.shareToken) return true;
+    currentId = f.parentFolderId;
+  }
+  return false;
+}
 
 interface FolderStore {
   folders: Folder[];
@@ -39,6 +54,14 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       .folders.map((f) => (f.id === updated.id ? updated : f))
       .sort((a, b) => b.updatedAt - a.updatedAt);
     set({ folders });
+
+    // Auto-sync if this folder is shared (or is inside a shared tree)
+    if (isSupabaseConfigured() && isSharedFolder(updated, folders)) {
+      const user = useAuthStore.getState().user;
+      if (user) {
+        syncFolderToCloud({ ...updated, userId: user.id }).catch(() => {});
+      }
+    }
   },
 
   removeFolder: async (id: string) => {

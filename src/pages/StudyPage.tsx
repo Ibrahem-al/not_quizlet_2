@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import type { Card, StudyMode } from '@/types';
 import { useSetStore } from '@/stores/useSetStore';
 import { useFilterStore } from '@/stores/useFilterStore';
@@ -33,8 +33,15 @@ function StudyPage() {
   const navigate = useNavigate();
   const sets = useSetStore((s) => s.sets);
   const loadSets = useSetStore((s) => s.loadSets);
-  const filteredCardIds = useFilterStore((s) => s.filteredCardIds);
   const [loading, setLoading] = useState(true);
+
+  // Snapshot the filter once on mount, then clear the store so stale filters
+  // don't leak into future sessions (fixes games ending after 1 question).
+  const snapshotRef = useRef<string[] | null>(useFilterStore.getState().filteredCardIds);
+  useEffect(() => {
+    useFilterStore.getState().setFilteredCardIds(null);
+  }, []);
+  const filteredCardIds = snapshotRef.current;
 
   useEffect(() => {
     if (sets.length === 0) {

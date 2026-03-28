@@ -40,6 +40,8 @@ Zustand Stores (6 total)
 
 **Data flow:** All mutations write to IndexedDB first (via `saveSet`/`deleteSet`), then update in-memory state. Sorts are applied after every mutation.
 
+**Auto cloud sync:** After local save, if the set's folder (or previous folder) is in a shared tree, the set is automatically synced to the cloud via `syncSetContentToCloud()` (fire-and-forget). Deletions in shared folders call `deleteSetFromCloud()`. Uses `isInSharedTree(folderId)` helper that walks the folder ancestor chain via `useFolderStore.getState()`.
+
 ---
 
 ## useThemeStore
@@ -119,6 +121,9 @@ Each toast gets a `crypto.randomUUID()` id and a `setTimeout` for auto-removal.
 | `updateFolder` | `(folder: Folder) => Promise<void>` | Updates folder in DB and state |
 | `removeFolder` | `(id: string) => Promise<void>` | Deletes folder; clears selection if deleted folder was selected |
 | `selectFolder` | `(id: string \| null) => void` | Sets active folder filter |
+| `getDescendantIds` | `(id: string) => string[]` | BFS to collect all descendant folder IDs |
+
+**Auto cloud sync:** After local save in `updateFolder`, if the folder is shared (or in a shared tree), it is synced to the cloud via `syncFolderToCloud()` (fire-and-forget). This ensures name/description/color changes are visible to shared folder viewers without re-sharing.
 
 ---
 
