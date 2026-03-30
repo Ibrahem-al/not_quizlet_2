@@ -144,7 +144,8 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
         const isMatch = checkMatch(newFlipped[0].id, newFlipped[1].id, updated);
 
         if (isMatch) {
-          // Match found
+          // Match found — clear any pending timeout first
+          if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
           lockTimeoutRef.current = setTimeout(() => {
             setMemoryCards((curr) => {
               const updated = curr.map((c) =>
@@ -163,7 +164,8 @@ function MemoryCardFlipMode({ cards, setId }: MemoryCardFlipModeProps) {
             setIsLocked(false);
           }, 600);
         } else {
-          // No match, flip back
+          // No match, flip back — clear any pending timeout first
+          if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
           lockTimeoutRef.current = setTimeout(() => {
             setMemoryCards((curr) =>
               curr.map((c) =>

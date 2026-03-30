@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { BookOpen, GraduationCap, Puzzle, ClipboardCheck, Gamepad2, Loader2, AlertCircle } from 'lucide-react';
+import { BookOpen, GraduationCap, Puzzle, ClipboardCheck, Gamepad2, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet } from '@/types';
 import { fetchSharedSet } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -8,6 +8,7 @@ import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import StudyContent from '@/components/StudyContent';
+import { GameBrowserModal } from '@/components/GameBrowserModal';
 
 function SharedSetPage() {
   const { token } = useParams<{ token: string }>();
@@ -15,19 +16,27 @@ function SharedSetPage() {
   const [set, setSet] = useState<StudySet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
+  const [gameBrowserOpen, setGameBrowserOpen] = useState(false);
 
-  useEffect(() => {
+  const fetchSet = useCallback(() => {
     if (!token) {
       setError('Invalid share link.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
 
     if (!isSupabaseConfigured()) {
       setError('Cloud features are not configured. This share link cannot be loaded.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
+
+    setError(null);
+    setErrorType(null);
+    setLoading(true);
 
     let cancelled = false;
     fetchSharedSet(token).then((result) => {
@@ -36,17 +45,23 @@ function SharedSetPage() {
         setSet(result);
       } else {
         setError('This study set was not found. The share link may have expired or been removed.');
+        setErrorType('not_found');
       }
       setLoading(false);
     }).catch(() => {
       if (!cancelled) {
-        setError('Failed to load shared set. Please try again.');
+        setError('Failed to load shared set. Check your connection and try again.');
+        setErrorType('network');
         setLoading(false);
       }
     });
 
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    return fetchSet();
+  }, [fetchSet]);
 
   const validCards = useMemo(() => {
     if (!set) return [];
@@ -59,8 +74,8 @@ function SharedSetPage() {
 
   const studyModes = useMemo(() => [
     { id: 'flashcards', label: 'Flashcards', icon: <BookOpen size={16} />, minCards: 1 },
-    { id: 'learn', label: 'Learn', icon: <GraduationCap size={16} />, minCards: 4 },
-    { id: 'match', label: 'Match', icon: <Puzzle size={16} />, minCards: 4 },
+    { id: 'learn', label: 'Learn', icon: <GraduationCap size={16} />, minCards: 2 },
+    { id: 'match', label: 'Match', icon: <Puzzle size={16} />, minCards: 2 },
     { id: 'test', label: 'Test', icon: <ClipboardCheck size={16} />, minCards: 2 },
   ], []);
 
@@ -96,9 +111,16 @@ function SharedSetPage() {
           <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>
             {error}
           </p>
-          <Button variant="primary" onClick={() => navigate('/')}>
-            Go to Home
-          </Button>
+          <div className="flex items-center justify-center gap-3">
+            {errorType === 'network' && (
+              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchSet}>
+                Try Again
+              </Button>
+            )}
+            <Button variant={errorType === 'network' ? 'outline' : 'primary'} onClick={() => navigate('/')}>
+              Go to Home
+            </Button>
+          </div>
         </div>
       </PageTransition>
     );
@@ -170,13 +192,24 @@ function SharedSetPage() {
               variant="outline"
               size="sm"
               icon={<Gamepad2 size={16} />}
-              onClick={() => navigate(`/shared/${token}/study/spinner`)}
+              onClick={() => setGameBrowserOpen(true)}
               disabled={validCards.length < 2}
             >
               Games
             </Button>
           </div>
         )}
+
+        <GameBrowserModal
+          isOpen={gameBrowserOpen}
+          onClose={() => setGameBrowserOpen(false)}
+          setId={set.id}
+          cardCount={validCards.length}
+          onNavigate={(url) => {
+            const gameId = url.split('/study/')[1];
+            navigate(`/shared/${token}/study/${gameId}`);
+          }}
+        />
 
         {/* Card preview list */}
         <div className="space-y-3">

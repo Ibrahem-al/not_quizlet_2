@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet, Card } from '@/types';
 import { fetchSharedFolder } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -29,21 +29,25 @@ function SharedFolderStudyPage() {
   const [set, setSet] = useState<StudySet | null>(stateSet);
   const [loading, setLoading] = useState(!stateSet);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
 
-  useEffect(() => {
-    // Already have the set from navigation state
-    if (set) return;
-
+  const fetchData = useCallback(() => {
     if (!token || !setId) {
       setError('Invalid share link.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
     if (!isSupabaseConfigured()) {
       setError('Cloud features are not configured.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
+
+    setError(null);
+    setErrorType(null);
+    setLoading(true);
 
     let cancelled = false;
     fetchSharedFolder(token)
@@ -55,15 +59,18 @@ function SharedFolderStudyPage() {
             setSet(found);
           } else {
             setError('This set was not found in the shared folder.');
+            setErrorType('not_found');
           }
         } else {
           setError('Shared folder not found.');
+          setErrorType('not_found');
         }
         setLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
-          setError('Failed to load shared folder.');
+          setError('Failed to load shared folder. Check your connection and try again.');
+          setErrorType('network');
           setLoading(false);
         }
       });
@@ -71,7 +78,13 @@ function SharedFolderStudyPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, setId, set]);
+  }, [token, setId]);
+
+  useEffect(() => {
+    // Already have the set from navigation state
+    if (set) return;
+    return fetchData();
+  }, [set, fetchData]);
 
   const validCards: Card[] = useMemo(() => {
     if (!set) return [];
@@ -98,9 +111,16 @@ function SharedFolderStudyPage() {
           <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>
             {error}
           </p>
-          <Button variant="primary" onClick={() => navigate(backUrl)}>
-            Back to Folder
-          </Button>
+          <div className="flex items-center justify-center gap-3">
+            {errorType === 'network' && (
+              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchData}>
+                Try Again
+              </Button>
+            )}
+            <Button variant={errorType === 'network' ? 'outline' : 'primary'} onClick={() => navigate(backUrl)}>
+              Back to Folder
+            </Button>
+          </div>
         </div>
       </PageTransition>
     );

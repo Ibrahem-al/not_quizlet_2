@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   FolderOpen,
@@ -9,6 +9,7 @@ import {
   Gamepad2,
   Loader2,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import type { StudySet, Folder } from '@/types';
 import { fetchSharedFolder } from '@/lib/cloudSync';
@@ -16,6 +17,7 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { FOLDER_COLORS } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
+import { GameBrowserModal } from '@/components/GameBrowserModal';
 
 interface FolderData {
   folder: Folder;
@@ -29,18 +31,26 @@ function SharedFolderPage() {
   const [data, setData] = useState<FolderData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
+  const [gameBrowserSetId, setGameBrowserSetId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchFolder = useCallback(() => {
     if (!token) {
       setError('Invalid share link.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
     if (!isSupabaseConfigured()) {
       setError('Cloud features are not configured. This share link cannot be loaded.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
+
+    setError(null);
+    setErrorType(null);
+    setLoading(true);
 
     let cancelled = false;
     fetchSharedFolder(token)
@@ -50,12 +60,14 @@ function SharedFolderPage() {
           setData(result);
         } else {
           setError('This folder was not found. The share link may have expired or been removed.');
+          setErrorType('not_found');
         }
         setLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
-          setError('Failed to load shared folder. Please try again.');
+          setError('Failed to load shared folder. Check your connection and try again.');
+          setErrorType('network');
           setLoading(false);
         }
       });
@@ -64,6 +76,10 @@ function SharedFolderPage() {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    return fetchFolder();
+  }, [fetchFolder]);
 
   // Group sets by their folder
   const setsByFolder = useMemo(() => {
@@ -86,8 +102,8 @@ function SharedFolderPage() {
   const studyModes = useMemo(
     () => [
       { id: 'flashcards', label: 'Flashcards', icon: <BookOpen size={14} />, minCards: 1 },
-      { id: 'learn', label: 'Learn', icon: <GraduationCap size={14} />, minCards: 4 },
-      { id: 'match', label: 'Match', icon: <Puzzle size={14} />, minCards: 4 },
+      { id: 'learn', label: 'Learn', icon: <GraduationCap size={14} />, minCards: 2 },
+      { id: 'match', label: 'Match', icon: <Puzzle size={14} />, minCards: 2 },
       { id: 'test', label: 'Test', icon: <ClipboardCheck size={14} />, minCards: 2 },
     ],
     [],
@@ -115,9 +131,16 @@ function SharedFolderPage() {
           <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>
             {error}
           </p>
-          <Button variant="primary" onClick={() => navigate('/')}>
-            Go to Home
-          </Button>
+          <div className="flex items-center justify-center gap-3">
+            {errorType === 'network' && (
+              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchFolder}>
+                Try Again
+              </Button>
+            )}
+            <Button variant={errorType === 'network' ? 'outline' : 'primary'} onClick={() => navigate('/')}>
+              Go to Home
+            </Button>
+          </div>
         </div>
       </PageTransition>
     );
@@ -277,16 +300,24 @@ function SharedFolderPage() {
                                 size="sm"
                                 icon={<Gamepad2 size={14} />}
                                 disabled={cardCount < 2}
-                                onClick={() =>
-                                  navigate(`/shared/folder/${token}/set/${set.id}/study/spinner`, {
-                                    state: { set },
-                                  })
-                                }
+                                onClick={() => setGameBrowserSetId(set.id)}
                               >
                                 Games
                               </Button>
                             </div>
                           )}
+                          <GameBrowserModal
+                            isOpen={gameBrowserSetId === set.id}
+                            onClose={() => setGameBrowserSetId(null)}
+                            setId={set.id}
+                            cardCount={cardCount}
+                            onNavigate={(url) => {
+                              const gameId = url.split('/study/')[1];
+                              navigate(`/shared/folder/${token}/set/${set.id}/study/${gameId}`, {
+                                state: { set },
+                              });
+                            }}
+                          />
                         </div>
                       );
                     })}

@@ -283,7 +283,18 @@ function RaceToFinishMode({ cards, setId }: RaceToFinishModeProps) {
 
   const questionIndexRef = useRef(0);
   const boardRef = useRef<HTMLDivElement>(null);
+  const moveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const moveTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const groups = useMemo(() => buildEquivalenceGroups(cards), [cards]);
+
+  // Cleanup intervals and timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
+      for (const t of moveTimeoutsRef.current) clearTimeout(t);
+      moveTimeoutsRef.current.clear();
+    };
+  }, []);
 
   // Generate shortcuts for paths >= 15
   const generateShortcuts = useCallback((pathLen: number) => {
@@ -350,6 +361,8 @@ function RaceToFinishMode({ cards, setId }: RaceToFinishModeProps) {
 
   const animateMove = useCallback((playerIdx: number, from: number, to: number, onDone: () => void) => {
     if (from >= to) { onDone(); return; }
+    // Clear any previous move interval
+    if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
     setIsAnimating(true);
     let step = from;
     const interval = setInterval(() => {
@@ -366,10 +379,12 @@ function RaceToFinishMode({ cards, setId }: RaceToFinishModeProps) {
       }
       if (step >= to) {
         clearInterval(interval);
+        moveIntervalRef.current = null;
         setIsAnimating(false);
         onDone();
       }
     }, 350);
+    moveIntervalRef.current = interval;
   }, []);
 
   const processCorrectAnswer = useCallback((playerIdx: number) => {
@@ -379,7 +394,8 @@ function RaceToFinishMode({ cards, setId }: RaceToFinishModeProps) {
     const roll = 1 + Math.floor(Math.random() * 6);
     setDiceRoll(roll);
 
-    setTimeout(() => {
+    const t1 = setTimeout(() => {
+      moveTimeoutsRef.current.delete(t1);
       const player = players[playerIdx];
       const newPos = Math.min(config.pathLength, player.position + roll);
 
@@ -388,17 +404,20 @@ function RaceToFinishMode({ cards, setId }: RaceToFinishModeProps) {
         if (shortcuts.has(newPos)) {
           const dest = shortcuts.get(newPos)!;
           setShowShortcut(true);
-          setTimeout(() => {
+          const t2 = setTimeout(() => {
+            moveTimeoutsRef.current.delete(t2);
             animateMove(playerIdx, newPos, dest, () => {
               setShowShortcut(false);
               checkWinAndAdvance(playerIdx, dest);
             });
           }, 800);
+          moveTimeoutsRef.current.add(t2);
         } else {
           checkWinAndAdvance(playerIdx, newPos);
         }
       });
     }, 600);
+    moveTimeoutsRef.current.add(t1);
   }, [config, players, shortcuts, animateMove]);
 
   const checkWinAndAdvance = useCallback((playerIdx: number, finalPos: number) => {

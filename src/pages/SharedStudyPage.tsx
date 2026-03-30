@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet, Card } from '@/types';
 import { fetchSharedSet } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -24,18 +24,25 @@ function SharedStudyPage() {
   const [set, setSet] = useState<StudySet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
 
-  useEffect(() => {
+  const fetchSet = useCallback(() => {
     if (!token) {
       setError('Invalid share link.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
     if (!isSupabaseConfigured()) {
       setError('Cloud features are not configured.');
+      setErrorType('not_found');
       setLoading(false);
       return;
     }
+
+    setError(null);
+    setErrorType(null);
+    setLoading(true);
 
     let cancelled = false;
     fetchSharedSet(token).then((result) => {
@@ -44,17 +51,23 @@ function SharedStudyPage() {
         setSet(result);
       } else {
         setError('Shared set not found.');
+        setErrorType('not_found');
       }
       setLoading(false);
     }).catch(() => {
       if (!cancelled) {
-        setError('Failed to load shared set.');
+        setError('Failed to load shared set. Check your connection and try again.');
+        setErrorType('network');
         setLoading(false);
       }
     });
 
     return () => { cancelled = true; };
   }, [token]);
+
+  useEffect(() => {
+    return fetchSet();
+  }, [fetchSet]);
 
   const validCards: Card[] = useMemo(() => {
     if (!set) return [];
@@ -77,7 +90,16 @@ function SharedStudyPage() {
         <div className="max-w-lg mx-auto px-4 py-16 text-center">
           <AlertCircle size={48} className="mx-auto mb-4" style={{ color: 'var(--color-danger)' }} />
           <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>{error}</p>
-          <Button variant="primary" onClick={() => navigate('/')}>Go to Home</Button>
+          <div className="flex items-center justify-center gap-3">
+            {errorType === 'network' && (
+              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchSet}>
+                Try Again
+              </Button>
+            )}
+            <Button variant={errorType === 'network' ? 'outline' : 'primary'} onClick={() => navigate('/')}>
+              Go to Home
+            </Button>
+          </div>
         </div>
       </PageTransition>
     );

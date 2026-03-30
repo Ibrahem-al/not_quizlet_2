@@ -446,9 +446,17 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
   const advance = useCallback(() => {
     if (currentIndex + 1 >= questions.length) {
       if (config?.isInfinite) {
-        // Generate more questions
+        // Generate more questions, trim old ones to prevent unbounded growth
         const more = buildGameQuestions(cards, config);
-        setQuestions((prev) => [...prev, ...more]);
+        const keepCount = 20;
+        setQuestions((prev) => {
+          if (prev.length > keepCount) {
+            const trimmed = prev.slice(-keepCount);
+            setCurrentIndex(keepCount - 1);
+            return [...trimmed, ...more];
+          }
+          return [...prev, ...more];
+        });
       } else {
         // Out of questions but didn't reach summit = lose
         gameStateRef.current = 'lost';
