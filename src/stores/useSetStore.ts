@@ -57,18 +57,30 @@ export const useSetStore = create<SetStore>((set, get) => ({
     }
 
     // Background cloud pull — non-blocking, offline-first
-    const user = useAuthStore.getState().user;
-    if (user && isSupabaseConfigured()) {
-      try {
-        const merged = await pullSetsFromCloud(user.id, get().sets);
-        // Save new/updated sets to IndexedDB
-        for (const s of merged) {
-          await saveSet(s);
+    // Wait for auth to finish initializing if it hasn't yet
+    if (isSupabaseConfigured()) {
+      let user = useAuthStore.getState().user;
+      if (!user && useAuthStore.getState().loading) {
+        user = await new Promise<typeof user>((resolve) => {
+          const unsub = useAuthStore.subscribe((state) => {
+            if (!state.loading) {
+              unsub();
+              resolve(state.user);
+            }
+          });
+        });
+      }
+      if (user) {
+        try {
+          const merged = await pullSetsFromCloud(user.id, get().sets);
+          for (const s of merged) {
+            await saveSet(s);
+          }
+          merged.sort((a, b) => b.updatedAt - a.updatedAt);
+          set({ sets: merged });
+        } catch {
+          // Silent — offline-first, local sets already displayed
         }
-        merged.sort((a, b) => b.updatedAt - a.updatedAt);
-        set({ sets: merged });
-      } catch {
-        // Silent — offline-first, local sets already displayed
       }
     }
   },

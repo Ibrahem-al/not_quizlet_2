@@ -40,17 +40,30 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
     set({ folders: localFolders });
 
     // Background cloud pull — non-blocking, offline-first
-    const user = useAuthStore.getState().user;
-    if (user && isSupabaseConfigured()) {
-      try {
-        const merged = await pullFoldersFromCloud(user.id, get().folders);
-        for (const f of merged) {
-          await saveFolder(f);
+    // Wait for auth to finish initializing if it hasn't yet
+    if (isSupabaseConfigured()) {
+      let user = useAuthStore.getState().user;
+      if (!user && useAuthStore.getState().loading) {
+        user = await new Promise<typeof user>((resolve) => {
+          const unsub = useAuthStore.subscribe((state) => {
+            if (!state.loading) {
+              unsub();
+              resolve(state.user);
+            }
+          });
+        });
+      }
+      if (user) {
+        try {
+          const merged = await pullFoldersFromCloud(user.id, get().folders);
+          for (const f of merged) {
+            await saveFolder(f);
+          }
+          merged.sort((a, b) => b.updatedAt - a.updatedAt);
+          set({ folders: merged });
+        } catch {
+          // Silent — offline-first, local folders already displayed
         }
-        merged.sort((a, b) => b.updatedAt - a.updatedAt);
-        set({ folders: merged });
-      } catch {
-        // Silent — offline-first, local folders already displayed
       }
     }
   },
