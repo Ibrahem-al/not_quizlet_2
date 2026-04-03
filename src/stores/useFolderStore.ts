@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Folder } from '@/types';
 import { getAllFolders, saveFolder, deleteFolder } from '@/db';
-import { syncFolderToCloud } from '@/lib/cloudSync';
+import { syncFolderToCloud, pullFoldersFromCloud } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -35,9 +35,24 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
   selectedFolderId: null,
 
   loadFolders: async () => {
-    const folders = await getAllFolders();
-    folders.sort((a, b) => b.updatedAt - a.updatedAt);
-    set({ folders });
+    const localFolders = await getAllFolders();
+    localFolders.sort((a, b) => b.updatedAt - a.updatedAt);
+    set({ folders: localFolders });
+
+    // Background cloud pull — non-blocking, offline-first
+    const user = useAuthStore.getState().user;
+    if (user && isSupabaseConfigured()) {
+      try {
+        const merged = await pullFoldersFromCloud(user.id, get().folders);
+        for (const f of merged) {
+          await saveFolder(f);
+        }
+        merged.sort((a, b) => b.updatedAt - a.updatedAt);
+        set({ folders: merged });
+      } catch {
+        // Silent — offline-first, local folders already displayed
+      }
+    }
   },
 
   addFolder: async (folder: Folder) => {

@@ -299,6 +299,10 @@ function SetDetailPage() {
       addToast('warning', 'Connect Supabase to share sets via link.');
       return;
     }
+    if (!user) {
+      addToast('warning', 'Sign in to share sets via link.');
+      return;
+    }
     setSharing(true);
 
     if (localSet.shareToken) {
@@ -307,18 +311,20 @@ function SetDetailPage() {
       setLocalSet(prev => prev ? { ...prev, shareToken: undefined } : prev);
       addToast('info', 'Share link removed.');
     } else {
-      // Sync set to cloud first, then generate token
-      if (user) {
+      try {
+        // Sync set to cloud first, then generate token
         await syncSetToCloud({ ...localSet, userId: user.id });
-      }
-      const token = await generateShareToken(localSet);
-      if (token) {
-        setLocalSet(prev => prev ? { ...prev, shareToken: token } : prev);
-        const url = `${window.location.origin}/shared/${token}`;
-        await navigator.clipboard.writeText(url).catch(() => {});
-        addToast('success', 'Share link created and copied to clipboard!');
-      } else {
-        addToast('error', 'Failed to create share link.');
+        const token = await generateShareToken({ ...localSet, userId: user.id });
+        if (token) {
+          setLocalSet(prev => prev ? { ...prev, shareToken: token } : prev);
+          const url = `${window.location.origin}/shared/${token}`;
+          await navigator.clipboard.writeText(url).catch(() => {});
+          addToast('success', 'Share link created and copied to clipboard!');
+        } else {
+          addToast('error', 'Failed to create share link. The set may not have synced to the cloud.');
+        }
+      } catch {
+        addToast('error', 'Failed to create share link. Check your connection and try again.');
       }
     }
     setSharing(false);

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { StudySet, Folder } from '@/types';
 import { getAllSets, saveSet, deleteSet } from '@/db';
-import { syncSetContentToCloud, deleteSetFromCloud } from '@/lib/cloudSync';
+import { syncSetContentToCloud, deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -49,11 +49,27 @@ export const useSetStore = create<SetStore>((set, get) => ({
   loadSets: async () => {
     set({ loading: true });
     try {
-      const sets = await getAllSets();
-      sets.sort((a, b) => b.updatedAt - a.updatedAt);
-      set({ sets });
+      const localSets = await getAllSets();
+      localSets.sort((a, b) => b.updatedAt - a.updatedAt);
+      set({ sets: localSets });
     } finally {
       set({ loading: false });
+    }
+
+    // Background cloud pull — non-blocking, offline-first
+    const user = useAuthStore.getState().user;
+    if (user && isSupabaseConfigured()) {
+      try {
+        const merged = await pullSetsFromCloud(user.id, get().sets);
+        // Save new/updated sets to IndexedDB
+        for (const s of merged) {
+          await saveSet(s);
+        }
+        merged.sort((a, b) => b.updatedAt - a.updatedAt);
+        set({ sets: merged });
+      } catch {
+        // Silent — offline-first, local sets already displayed
+      }
     }
   },
 

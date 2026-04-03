@@ -62,66 +62,6 @@ function setToRow(set: StudySet): Record<string, unknown> {
 // Sync operations
 // ============================================================
 
-export async function syncSetsToCloud(
-  userId: string,
-  localSets: StudySet[],
-): Promise<StudySet[]> {
-  if (!isSupabaseConfigured() || !supabase) return [];
-
-  // Fetch user's cloud sets (only metadata, not full cards for speed)
-  const { data: cloudRows, error } = await supabase
-    .from('study_sets')
-    .select('*')
-    .eq('user_id', userId);
-
-  if (error) {
-    console.error('Failed to fetch cloud sets:', error.message);
-    return [];
-  }
-
-  const cloudSets = ((cloudRows ?? []) as DbRow[]).map(rowToSet);
-  const cloudMap = new Map(cloudSets.map(s => [s.id, s]));
-
-  const toUpsert: Record<string, unknown>[] = [];
-  const mergedSets: StudySet[] = [];
-
-  // Merge local → cloud
-  for (const local of localSets) {
-    const cloud = cloudMap.get(local.id);
-    if (!cloud) {
-      // Local-only: push to cloud
-      toUpsert.push(setToRow({ ...local, userId }));
-      mergedSets.push({ ...local, userId });
-    } else if (local.updatedAt > cloud.updatedAt) {
-      // Local is newer
-      toUpsert.push(setToRow({ ...local, userId, shareToken: cloud.shareToken ?? local.shareToken }));
-      mergedSets.push({ ...local, userId, shareToken: cloud.shareToken ?? local.shareToken });
-    } else {
-      // Cloud is newer or equal — use cloud version
-      mergedSets.push(cloud);
-    }
-    cloudMap.delete(local.id);
-  }
-
-  // Cloud-only sets (not in local) — pull down
-  for (const cloud of cloudMap.values()) {
-    mergedSets.push(cloud);
-  }
-
-  // Batch upsert changed sets
-  if (toUpsert.length > 0) {
-    const { error: upsertError } = await supabase
-      .from('study_sets')
-      .upsert(toUpsert, { onConflict: 'id' });
-
-    if (upsertError) {
-      console.error('Failed to upsert sets:', upsertError.message);
-    }
-  }
-
-  return mergedSets;
-}
-
 export async function syncSetToCloud(set: StudySet): Promise<void> {
   if (!isSupabaseConfigured() || !supabase) return;
 
@@ -131,7 +71,121 @@ export async function syncSetToCloud(set: StudySet): Promise<void> {
 
   if (error) {
     console.error('Failed to sync set:', error.message);
+    throw new Error(`Failed to sync set: ${error.message}`);
   }
+}
+
+// ============================================================
+// Pull operations (cloud → local) for cross-device sync
+// ============================================================
+
+/** Pull user's sets from Supabase and merge with local sets (LWW by updatedAt).
+ *  Returns the merged set list. Caller is responsible for saving to IndexedDB. */
+export async function pullSetsFromCloud(
+  userId: string,
+  localSets: StudySet[],
+): Promise<StudySet[]> {
+  if (!isSupabaseConfigured() || !supabase) return localSets;
+
+  const { data: cloudRows, error } = await supabase
+    .from('study_sets')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error || !cloudRows) return localSets;
+
+  const cloudSets = (cloudRows as DbRow[]).map(rowToSet);
+  const localMap = new Map(localSets.map((s) => [s.id, s]));
+  const cloudMap = new Map(cloudSets.map((s) => [s.id, s]));
+
+  const merged: StudySet[] = [];
+  const toUpload: Record<string, unknown>[] = [];
+
+  // Process all cloud sets
+  for (const cloud of cloudSets) {
+    const local = localMap.get(cloud.id);
+    if (!local) {
+      // Cloud-only → pull down
+      merged.push(cloud);
+    } else if (cloud.updatedAt > local.updatedAt) {
+      // Cloud is newer → use cloud (preserve local shareToken if cloud has none)
+      merged.push({ ...cloud, shareToken: cloud.shareToken ?? local.shareToken });
+    } else {
+      // Local is newer or equal → keep local
+      merged.push(local);
+      if (local.updatedAt > cloud.updatedAt) {
+        toUpload.push(setToRow({ ...local, userId }));
+      }
+    }
+    localMap.delete(cloud.id);
+  }
+
+  // Local-only sets (not in cloud) → keep local + push to cloud
+  for (const local of localMap.values()) {
+    merged.push(local);
+    toUpload.push(setToRow({ ...local, userId }));
+  }
+
+  // Push local-only and locally-newer sets to cloud (fire-and-forget)
+  if (toUpload.length > 0) {
+    supabase
+      .from('study_sets')
+      .upsert(toUpload, { onConflict: 'id' })
+      .then(({ error: e }) => { if (e) console.error('Failed to push sets:', e.message); });
+  }
+
+  return merged;
+}
+
+/** Pull user's folders from Supabase and merge with local folders (LWW). */
+export async function pullFoldersFromCloud(
+  userId: string,
+  localFolders: Folder[],
+): Promise<Folder[]> {
+  if (!isSupabaseConfigured() || !supabase) return localFolders;
+
+  const { data: cloudRows, error } = await supabase
+    .from('folders')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (error || !cloudRows) return localFolders;
+
+  const cloudFolders = (cloudRows as FolderDbRow[]).map(rowToFolder);
+  const localMap = new Map(localFolders.map((f) => [f.id, f]));
+  const cloudMap = new Map(cloudFolders.map((f) => [f.id, f]));
+
+  const merged: Folder[] = [];
+  const toUpload: Record<string, unknown>[] = [];
+
+  for (const cloud of cloudFolders) {
+    const local = localMap.get(cloud.id);
+    if (!local) {
+      merged.push(cloud);
+    } else if (cloud.updatedAt > local.updatedAt) {
+      merged.push(cloud);
+    } else {
+      merged.push(local);
+      if (local.updatedAt > cloud.updatedAt) {
+        toUpload.push(folderToRow({ ...local, userId }));
+      }
+    }
+    localMap.delete(cloud.id);
+  }
+
+  for (const local of localMap.values()) {
+    merged.push(local);
+    toUpload.push(folderToRow({ ...local, userId }));
+  }
+
+  if (toUpload.length > 0) {
+    supabase
+      .from('folders')
+      .upsert(toUpload, { onConflict: 'id' })
+      .then(({ error: e }) => { if (e) console.error('Failed to push folders:', e.message); });
+  }
+
+  return merged;
 }
 
 /** Sync set content to cloud WITHOUT overwriting share_token.
@@ -168,19 +222,28 @@ export async function deleteSetFromCloud(setId: string): Promise<void> {
 // Share link operations
 // ============================================================
 
-/** Generate a share token for a set and persist to cloud */
+/** Generate a share token for a set and persist to cloud.
+ *  Returns null if the update fails or matches 0 rows (set not in cloud). */
 export async function generateShareToken(set: StudySet): Promise<string | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
 
   const token = crypto.randomUUID();
 
-  const { error } = await supabase
+  // Use .select() to verify the update actually matched a row
+  const { data, error } = await supabase
     .from('study_sets')
     .update({ share_token: token })
-    .eq('id', set.id);
+    .eq('id', set.id)
+    .select('id');
 
   if (error) {
     console.error('Failed to generate share token:', error.message);
+    return null;
+  }
+
+  // If no rows were updated, the set doesn't exist in cloud or RLS blocked it
+  if (!data || data.length === 0) {
+    console.error('Share token update matched 0 rows — set may not be synced to cloud');
     return null;
   }
 
@@ -201,9 +264,46 @@ export async function removeShareToken(setId: string): Promise<void> {
   }
 }
 
+// ============================================================
+// Shared content cache — avoids re-fetching from Supabase
+// within the same browser session, dramatically reducing egress.
+// ============================================================
+
+const SHARED_SET_CACHE_PREFIX = 'sf_shared_set_';
+const SHARED_FOLDER_CACHE_PREFIX = 'sf_shared_folder_';
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCachedData<T>(key: string): T | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const { data, expiry } = JSON.parse(raw) as { data: T; expiry: number };
+    if (Date.now() > expiry) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedData<T>(key: string, data: T): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ data, expiry: Date.now() + CACHE_TTL_MS }));
+  } catch {
+    // sessionStorage full or unavailable — ignore
+  }
+}
+
 /** Fetch a shared set by token — works without auth */
 export async function fetchSharedSet(shareToken: string): Promise<StudySet | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
+
+  // Check sessionStorage cache first
+  const cacheKey = SHARED_SET_CACHE_PREFIX + shareToken;
+  const cached = getCachedData<StudySet>(cacheKey);
+  if (cached) return cached;
 
   // Use the RPC to bypass RLS cleanly
   const { data, error } = await supabase
@@ -219,10 +319,14 @@ export async function fetchSharedSet(shareToken: string): Promise<StudySet | nul
       .single();
 
     if (fallbackError || !fallbackData) return null;
-    return rowToSet(fallbackData as DbRow);
+    const result = rowToSet(fallbackData as DbRow);
+    setCachedData(cacheKey, result);
+    return result;
   }
 
-  return rowToSet((data as DbRow[])[0]);
+  const result = rowToSet((data as DbRow[])[0]);
+  setCachedData(cacheKey, result);
+  return result;
 }
 
 // ============================================================
@@ -372,6 +476,11 @@ export async function fetchSharedFolder(
 ): Promise<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] } | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
 
+  // Check sessionStorage cache first
+  const cacheKey = SHARED_FOLDER_CACHE_PREFIX + shareToken;
+  const cached = getCachedData<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] }>(cacheKey);
+  if (cached) return cached;
+
   // Fetch subfolders (includes the root folder) and sets in parallel
   const [foldersRes, setsRes] = await Promise.all([
     supabase.rpc('get_shared_folder_subfolders', { p_share_token: shareToken }),
@@ -420,11 +529,13 @@ export async function fetchSharedFolder(
       .select('*')
       .in('folder_id', Array.from(folderIds));
 
-    return {
+    const fallbackResult = {
       folder,
       subfolders,
       sets: ((setData ?? []) as DbRow[]).map(rowToSet),
     };
+    setCachedData(cacheKey, fallbackResult);
+    return fallbackResult;
   }
 
   const allFolders = (foldersRes.data as FolderDbRow[]).map(rowToFolder);
@@ -444,7 +555,9 @@ export async function fetchSharedFolder(
     sets = (setsRes.data as DbRow[]).map(rowToSet);
   }
 
-  return { folder: rootFolder, subfolders, sets };
+  const result = { folder: rootFolder, subfolders, sets };
+  setCachedData(cacheKey, result);
+  return result;
 }
 
 // ============================================================
