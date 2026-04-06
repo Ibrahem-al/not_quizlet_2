@@ -73,11 +73,30 @@ export const useSetStore = create<SetStore>((set, get) => ({
       if (user) {
         try {
           const merged = await pullSetsFromCloud(user.id, get().sets);
+          // Merge cloud results into current store instead of replacing.
+          // This prevents overwriting sets that were added or edited
+          // (via debounce save) during the async cloud pull.
+          const currentSets = get().sets;
+          const currentMap = new Map(currentSets.map((s) => [s.id, s]));
+          const newSets = [...currentSets];
+
           for (const s of merged) {
-            await saveSet(s);
+            const existing = currentMap.get(s.id);
+            if (!existing) {
+              // Cloud-only set not yet in store — add it
+              newSets.push(s);
+              await saveSet(s);
+            } else if (s.updatedAt > existing.updatedAt) {
+              // Cloud version is newer than current store — update
+              const idx = newSets.findIndex((x) => x.id === s.id);
+              if (idx !== -1) newSets[idx] = s;
+              await saveSet(s);
+            }
+            // If local is newer or equal, skip — don't overwrite
           }
-          merged.sort((a, b) => b.updatedAt - a.updatedAt);
-          set({ sets: merged });
+
+          newSets.sort((a, b) => b.updatedAt - a.updatedAt);
+          set({ sets: newSets });
         } catch {
           // Silent — offline-first, local sets already displayed
         }
@@ -113,13 +132,13 @@ export const useSetStore = create<SetStore>((set, get) => ({
   },
 
   removeSet: async (id: string) => {
-    const removedSet = get().sets.find((s) => s.id === id);
     await deleteSet(id);
     set({ sets: get().sets.filter((s) => s.id !== id) });
 
-    // Auto-sync deletion if set was in a shared folder
-    if (removedSet && isInSharedTree(removedSet.folderId)) {
-      if (isSupabaseConfigured()) {
+    // Delete from cloud so pullSetsFromCloud won't resurrect it
+    if (isSupabaseConfigured()) {
+      const user = useAuthStore.getState().user;
+      if (user) {
         deleteSetFromCloud(id).catch(() => {});
       }
     }

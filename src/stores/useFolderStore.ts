@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Folder } from '@/types';
 import { getAllFolders, saveFolder, deleteFolder } from '@/db';
-import { syncFolderToCloud, pullFoldersFromCloud } from '@/lib/cloudSync';
+import { syncFolderToCloud, pullFoldersFromCloud, deleteFolderFromCloud } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -56,11 +56,26 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       if (user) {
         try {
           const merged = await pullFoldersFromCloud(user.id, get().folders);
+          // Merge cloud results into current store instead of replacing.
+          // Prevents overwriting folders added or edited during the async pull.
+          const currentFolders = get().folders;
+          const currentMap = new Map(currentFolders.map((f) => [f.id, f]));
+          const newFolders = [...currentFolders];
+
           for (const f of merged) {
-            await saveFolder(f);
+            const existing = currentMap.get(f.id);
+            if (!existing) {
+              newFolders.push(f);
+              await saveFolder(f);
+            } else if (f.updatedAt > existing.updatedAt) {
+              const idx = newFolders.findIndex((x) => x.id === f.id);
+              if (idx !== -1) newFolders[idx] = f;
+              await saveFolder(f);
+            }
           }
-          merged.sort((a, b) => b.updatedAt - a.updatedAt);
-          set({ folders: merged });
+
+          newFolders.sort((a, b) => b.updatedAt - a.updatedAt);
+          set({ folders: newFolders });
         } catch {
           // Silent — offline-first, local folders already displayed
         }
@@ -115,6 +130,14 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       selectedFolderId:
         get().selectedFolderId === id ? null : get().selectedFolderId,
     });
+
+    // Delete from cloud so pullFoldersFromCloud won't resurrect it
+    if (isSupabaseConfigured()) {
+      const user = useAuthStore.getState().user;
+      if (user) {
+        deleteFolderFromCloud(id).catch(() => {});
+      }
+    }
   },
 
   getDescendantIds: (id: string) => {

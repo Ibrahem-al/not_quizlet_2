@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card, QuestionType, AnswerDirection } from '@/types';
 import { useNavigate } from 'react-router-dom';
@@ -22,15 +22,14 @@ type GameState = 'playing' | 'won' | 'lost';
 
 interface DifficultySettings {
   blockPenalty: number;
-  lavaBaseSpeed: number;
-  lavaAcceleration: number;
+  lavaRise: number;
   scoreMultiplier: number;
 }
 
 const DIFFICULTY_MAP: Record<Difficulty, DifficultySettings> = {
-  easy: { blockPenalty: 0, lavaBaseSpeed: 3, lavaAcceleration: 0, scoreMultiplier: 1 },
-  medium: { blockPenalty: 1, lavaBaseSpeed: 2.5, lavaAcceleration: 0.1, scoreMultiplier: 1.5 },
-  hard: { blockPenalty: 2, lavaBaseSpeed: 3, lavaAcceleration: 0.15, scoreMultiplier: 2 },
+  easy: { blockPenalty: 0, lavaRise: 20, scoreMultiplier: 1 },
+  medium: { blockPenalty: 1, lavaRise: 30, scoreMultiplier: 1.5 },
+  hard: { blockPenalty: 2, lavaRise: 40, scoreMultiplier: 2 },
 };
 
 interface GameConfig {
@@ -324,13 +323,6 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
 
-  // Refs for animation
-  const lavaRef = useRef(0);
-  const lavaSpeedRef = useRef(0);
-  const towerRef = useRef(0);
-  const animFrameRef = useRef(0);
-  const lastTimeRef = useRef(0);
-  const gameStateRef = useRef<GameState>('playing');
   const questionStartTimeRef = useRef(Date.now());
 
   const settings = config ? DIFFICULTY_MAP[config.difficulty] : DIFFICULTY_MAP.medium;
@@ -340,57 +332,14 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
 
   const currentQuestion = questions[currentIndex] ?? null;
 
-  // Lava animation loop
-  useEffect(() => {
-    if (phase !== 'game' || gameState !== 'playing') return;
-
-    gameStateRef.current = gameState;
-    lavaRef.current = lavaHeight;
-    towerRef.current = towerHeight;
-    lavaSpeedRef.current = settings.lavaBaseSpeed;
-    lastTimeRef.current = performance.now();
-
-    const tick = (now: number) => {
-      if (gameStateRef.current !== 'playing') return;
-
-      const dt = (now - lastTimeRef.current) / 1000;
-      lastTimeRef.current = now;
-
-      // Accelerate lava
-      lavaSpeedRef.current += settings.lavaAcceleration * dt;
-      lavaRef.current += lavaSpeedRef.current * dt;
-
-      // Check lose condition: lava >= tower top
-      if (lavaRef.current >= towerRef.current && towerRef.current > 0) {
-        gameStateRef.current = 'lost';
-        setGameState('lost');
-        setLavaHeight(lavaRef.current);
-        return;
-      }
-
-      setLavaHeight(lavaRef.current);
-      animFrameRef.current = requestAnimationFrame(tick);
-    };
-
-    animFrameRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [phase, gameState, settings.lavaBaseSpeed, settings.lavaAcceleration]);
-
-  // Sync refs when tower height changes
-  useEffect(() => {
-    towerRef.current = towerHeight;
-  }, [towerHeight]);
-
   const handleStart = useCallback((cfg: GameConfig) => {
     const q = buildGameQuestions(cards, cfg);
     setConfig(cfg);
     setQuestions(q);
     setCurrentIndex(0);
     setGameState('playing');
-    gameStateRef.current = 'playing';
     setTowerHeight(0);
     setLavaHeight(0);
-    lavaRef.current = 0;
     setScore(0);
     setStreak(0);
     setMaxStreak(0);
@@ -429,19 +378,29 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
 
       // Check win
       if (newHeight >= summitHeight) {
-        gameStateRef.current = 'won';
         setGameState('won');
         return;
       }
     } else {
       setStreak(0);
-      // Block penalty
+      // Block penalty — remove blocks on medium/hard
       const penalty = settings.blockPenalty * 40;
-      setTowerHeight((h) => Math.max(0, h - penalty));
+      const newTower = Math.max(0, towerHeight - penalty);
+      setTowerHeight(newTower);
+
+      // Lava rises on wrong answers
+      const newLava = lavaHeight + settings.lavaRise;
+      setLavaHeight(newLava);
+
+      // Check lose: lava overtakes tower
+      if (newLava >= newTower && newTower > 0) {
+        setGameState('lost');
+        return;
+      }
     }
 
     setFeedback(isCorrect ? 'correct' : 'wrong');
-  }, [streak, towerHeight, summitHeight, settings]);
+  }, [streak, towerHeight, lavaHeight, summitHeight, settings]);
 
   const advance = useCallback(() => {
     if (currentIndex + 1 >= questions.length) {
@@ -459,7 +418,6 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
         });
       } else {
         // Out of questions but didn't reach summit = lose
-        gameStateRef.current = 'lost';
         setGameState('lost');
         return;
       }
@@ -783,7 +741,7 @@ function BlockBuilderMode({ cards, setId }: BlockBuilderModeProps) {
             style={{
               height: `${Math.min(100, lavaPercent)}%`,
               background: 'linear-gradient(to top, #ff4500, #ff6b35, #ff8c42)',
-              transition: 'height 0.1s linear',
+              transition: 'height 0.5s ease-out',
             }}
           >
             {/* Wave animation */}
