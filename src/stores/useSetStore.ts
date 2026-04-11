@@ -6,12 +6,61 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 
+const LEGACY_SHARED_COPY_SUFFIX = ' (Shared copy)';
+
 function isSetVisible(set: StudySet): boolean {
   return !set.hiddenReason;
 }
 
 function sortSets(sets: StudySet[]): StudySet[] {
   return [...sets].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function getLegacySharedCopyBaseTitle(title: string): string | null {
+  return title.endsWith(LEGACY_SHARED_COPY_SUFFIX)
+    ? title.slice(0, -LEGACY_SHARED_COPY_SUFFIX.length)
+    : null;
+}
+
+export function backfillLegacyHiddenSets(allSets: StudySet[]): StudySet[] {
+  const copiesByBaseTitle = new Map<string, StudySet[]>();
+
+  for (const set of allSets) {
+    if (set.hiddenReason || !set.shareToken) continue;
+    const baseTitle = getLegacySharedCopyBaseTitle(set.title);
+    if (!baseTitle) continue;
+
+    const matches = copiesByBaseTitle.get(baseTitle) ?? [];
+    matches.push(set);
+    copiesByBaseTitle.set(baseTitle, matches);
+  }
+
+  if (copiesByBaseTitle.size === 0) return allSets;
+
+  return allSets.map((set) => {
+    if (set.hiddenReason || set.shareToken) return set;
+
+    const matchingCopies = copiesByBaseTitle.get(set.title);
+    if (!matchingCopies || matchingCopies.length !== 1) return set;
+
+    const candidateOriginals = allSets.filter((candidate) =>
+      !candidate.hiddenReason
+      && !candidate.shareToken
+      && candidate.title === set.title,
+    );
+
+    if (candidateOriginals.length !== 1 || candidateOriginals[0].id !== set.id) {
+      return set;
+    }
+
+    const replacement = matchingCopies[0];
+    return {
+      ...set,
+      hiddenReason: 'legacy-share-replaced',
+      hiddenAt: set.hiddenAt ?? replacement.updatedAt ?? Date.now(),
+      replacedBySetId: replacement.id,
+    };
+  });
 }
 
 /** Check if a folder (or any ancestor) is shared */
@@ -60,7 +109,15 @@ export const useSetStore = create<SetStore>((set, get) => ({
     set({ loading: true });
     try {
       const localSets = await getAllSets();
-      set({ sets: sortSets(localSets.filter(isSetVisible)) });
+      const hydratedSets = backfillLegacyHiddenSets(localSets);
+
+      await Promise.all(
+        hydratedSets
+          .filter((candidate, index) => candidate !== localSets[index])
+          .map((candidate) => saveSet(candidate)),
+      );
+
+      set({ sets: sortSets(hydratedSets.filter(isSetVisible)) });
     } finally {
       set({ loading: false });
     }
