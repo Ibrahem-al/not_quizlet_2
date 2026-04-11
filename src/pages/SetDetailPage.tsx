@@ -28,8 +28,10 @@ import { useFilterStore } from '@/stores/useFilterStore';
 import { useToastStore } from '@/stores/useToastStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import {
+  createLegacyShareConflictError,
   generateShareToken,
   getShareLinkErrorMessage,
+  isLegacyShareConflict,
   removeShareToken,
   syncSetToCloud,
 } from '@/lib/cloudSync';
@@ -57,10 +59,37 @@ function createEmptyCard(): Card {
   };
 }
 
+function normalizeSetForShare(set: StudySet, userId: string): StudySet {
+  if (set.userId === userId) return set;
+  return {
+    ...set,
+    userId,
+    updatedAt: Date.now(),
+  };
+}
+
+function getLegacyShareCopyTitle(title: string): string {
+  return title.endsWith(' (Shared copy)') ? title : `${title} (Shared copy)`;
+}
+
+function createLegacyShareCopy(set: StudySet, userId: string): StudySet {
+  const now = Date.now();
+  return {
+    ...set,
+    id: generateId(),
+    title: getLegacyShareCopyTitle(set.title),
+    createdAt: now,
+    updatedAt: now,
+    userId,
+    shareToken: undefined,
+  };
+}
+
 function SetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const sets = useSetStore((s) => s.sets);
+  const addSet = useSetStore((s) => s.addSet);
   const updateSet = useSetStore((s) => s.updateSet);
   const loadSets = useSetStore((s) => s.loadSets);
   const user = useAuthStore((s) => s.user);
@@ -317,22 +346,60 @@ function SetDetailPage() {
         setLocalSet(nextSet);
         addToast('info', 'Share link removed.');
       } else {
-        const syncedSet = await syncSetToCloud({ ...localSet, userId: user.id });
-        const token = await generateShareToken(syncedSet);
-        const nextSet = { ...syncedSet, shareToken: token };
-        await updateSet(nextSet);
-        setLocalSet(nextSet);
+        const normalizedSet = normalizeSetForShare(localSet, user.id);
+        if (normalizedSet !== localSet) {
+          await updateSet(normalizedSet);
+          setLocalSet(normalizedSet);
+        }
 
-        const url = `${window.location.origin}/shared/${token}`;
-        await navigator.clipboard.writeText(url).catch(() => {});
-        addToast('success', 'Share link created and copied to clipboard!');
+        try {
+          const syncedSet = await syncSetToCloud(normalizedSet);
+          const token = await generateShareToken(syncedSet);
+          const nextSet = { ...syncedSet, shareToken: token };
+          await updateSet(nextSet);
+          setLocalSet(nextSet);
+
+          const url = `${window.location.origin}/shared/${token}`;
+          await navigator.clipboard.writeText(url).catch(() => {});
+          addToast('success', 'Share link created and copied to clipboard!');
+        } catch (error) {
+          if (!isLegacyShareConflict(error)) {
+            throw error;
+          }
+
+          console.warn('Legacy share conflict detected; creating repaired copy.', {
+            setId: normalizedSet.id,
+            userId: user.id,
+            error,
+          });
+
+          const repairedCopy = createLegacyShareCopy(normalizedSet, user.id);
+
+          try {
+            const syncedCopy = await syncSetToCloud(repairedCopy);
+            const token = await generateShareToken(syncedCopy);
+            const sharedCopy = { ...syncedCopy, shareToken: token };
+            await addSet(sharedCopy);
+            setLocalSet(sharedCopy);
+
+            const url = `${window.location.origin}/shared/${token}`;
+            await navigator.clipboard.writeText(url).catch(() => {});
+            navigate(`/sets/${sharedCopy.id}`);
+            addToast('success', 'Created and shared a repaired copy of this legacy set.');
+          } catch (repairError) {
+            console.error('Legacy share repair failed.', repairError);
+            throw createLegacyShareConflictError(
+              repairError instanceof Error ? repairError.message : String(repairError),
+            );
+          }
+        }
       }
     } catch (error) {
       addToast('error', getShareLinkErrorMessage(error));
     } finally {
       setSharing(false);
     }
-  }, [localSet, user, addToast, updateSet]);
+  }, [localSet, user, addToast, addSet, navigate, updateSet]);
 
   const handleCopyShareLink = useCallback(async () => {
     if (!shareUrl) return;

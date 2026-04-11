@@ -65,6 +65,7 @@ export type CloudSyncErrorCode =
   | 'payload_too_large'
   | 'auth'
   | 'permission'
+  | 'legacy_conflict'
   | 'validation'
   | 'network'
   | 'not_synced'
@@ -121,6 +122,9 @@ async function compressImageDataUri(dataUri: string): Promise<string> {
 function classifyStorageError(error: unknown, operation: string): CloudSyncError {
   const details = error instanceof Error ? error.message : String(error);
 
+  if (/row-level security|permission denied|violates row-level security policy|not allowed/i.test(details)) {
+    return new CloudSyncError('permission', `Failed to ${operation}.`, { details });
+  }
   if (/bucket|storage/i.test(details)) {
     return new CloudSyncError('validation', `Failed to ${operation}.`, { details });
   }
@@ -274,6 +278,19 @@ function classifySupabaseError(error: PostgrestError, operation: string): CloudS
   });
 }
 
+export function isLegacyShareConflict(error: unknown): boolean {
+  return error instanceof CloudSyncError
+    && (error.code === 'permission' || error.code === 'not_synced' || error.code === 'legacy_conflict');
+}
+
+export function createLegacyShareConflictError(details?: string): CloudSyncError {
+  return new CloudSyncError(
+    'legacy_conflict',
+    'This set may belong to an older cloud copy from another account.',
+    { details },
+  );
+}
+
 export function getShareLinkErrorMessage(error: unknown): string {
   if (error instanceof CloudSyncError) {
     switch (error.code) {
@@ -283,6 +300,8 @@ export function getShareLinkErrorMessage(error: unknown): string {
         return 'Your session expired. Sign in again, then try sharing this set.';
       case 'permission':
         return 'You do not have permission to share this set.';
+      case 'legacy_conflict':
+        return 'This set appears to be tied to an older cloud copy. A repaired copy may need to be created before it can be shared.';
       case 'validation':
         return 'This set contains data that could not be synced. Review its media and try again.';
       case 'not_synced':
@@ -399,7 +418,11 @@ export async function pullSetsFromCloud(
       merged.push({ ...cloud, shareToken: cloud.shareToken ?? local.shareToken });
     } else {
       // Local is newer or equal → keep local
-      merged.push(local);
+      merged.push(
+        local.userId === cloud.userId
+          ? local
+          : { ...local, userId: cloud.userId },
+      );
       if (local.updatedAt > cloud.updatedAt) {
         toUpload.push(setToRow({ ...local, userId }));
       }

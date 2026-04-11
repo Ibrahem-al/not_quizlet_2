@@ -86,8 +86,9 @@ export const useSetStore = create<SetStore>((set, get) => ({
               // Cloud-only set not yet in store — add it
               newSets.push(s);
               await saveSet(s);
-            } else if (s.updatedAt > existing.updatedAt) {
-              // Cloud version is newer than current store — update
+            } else if (s.updatedAt > existing.updatedAt || s.userId !== existing.userId) {
+              // Cloud version is newer, or it carries ownership metadata
+              // that the local offline-first copy never persisted.
               const idx = newSets.findIndex((x) => x.id === s.id);
               if (idx !== -1) newSets[idx] = s;
               await saveSet(s);
