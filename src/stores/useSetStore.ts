@@ -1,10 +1,18 @@
 import { create } from 'zustand';
 import type { StudySet, Folder } from '@/types';
-import { getAllSets, saveSet, deleteSet } from '@/db';
+import { getAllSets, getSet, saveSet, deleteSet } from '@/db';
 import { syncSetContentToCloud, deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useFolderStore } from '@/stores/useFolderStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+
+function isSetVisible(set: StudySet): boolean {
+  return !set.hiddenReason;
+}
+
+function sortSets(sets: StudySet[]): StudySet[] {
+  return [...sets].sort((a, b) => b.updatedAt - a.updatedAt);
+}
 
 /** Check if a folder (or any ancestor) is shared */
 function isInSharedTree(folderId: string | undefined): boolean {
@@ -37,6 +45,8 @@ interface SetStore {
   loadSets: () => Promise<void>;
   addSet: (set: StudySet) => Promise<void>;
   updateSet: (set: StudySet) => Promise<void>;
+  hideLegacyOriginal: (id: string, replacementId: string) => Promise<void>;
+  restoreHiddenSet: (id: string) => Promise<void>;
   removeSet: (id: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
 }
@@ -50,8 +60,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     set({ loading: true });
     try {
       const localSets = await getAllSets();
-      localSets.sort((a, b) => b.updatedAt - a.updatedAt);
-      set({ sets: localSets });
+      set({ sets: sortSets(localSets.filter(isSetVisible)) });
     } finally {
       set({ loading: false });
     }
@@ -96,8 +105,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
             // If local is newer or equal, skip — don't overwrite
           }
 
-          newSets.sort((a, b) => b.updatedAt - a.updatedAt);
-          set({ sets: newSets });
+          set({ sets: sortSets(newSets.filter(isSetVisible)) });
         } catch {
           // Silent — offline-first, local sets already displayed
         }
@@ -107,9 +115,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
 
   addSet: async (newSet: StudySet) => {
     await saveSet(newSet);
-    const sets = [...get().sets, newSet].sort(
-      (a, b) => b.updatedAt - a.updatedAt,
-    );
+    const sets = sortSets([...get().sets, newSet].filter(isSetVisible));
     set({ sets });
 
     // Auto-sync if added to a shared folder
@@ -121,15 +127,46 @@ export const useSetStore = create<SetStore>((set, get) => ({
   updateSet: async (updated: StudySet) => {
     const oldSet = get().sets.find((s) => s.id === updated.id);
     await saveSet(updated);
-    const sets = get()
-      .sets.map((s) => (s.id === updated.id ? updated : s))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    const remaining = get().sets.filter((s) => s.id !== updated.id);
+    const sets = sortSets(
+      (isSetVisible(updated) ? [...remaining, updated] : remaining).filter(isSetVisible),
+    );
     set({ sets });
 
     // Auto-sync if set is in (or was in) a shared folder
     if (isInSharedTree(updated.folderId) || isInSharedTree(oldSet?.folderId)) {
       autoSyncSet(updated);
     }
+  },
+
+  hideLegacyOriginal: async (id: string, replacementId: string) => {
+    const target = get().sets.find((s) => s.id === id);
+    if (!target) return;
+
+    const hiddenSet: StudySet = {
+      ...target,
+      hiddenReason: 'legacy-share-replaced',
+      hiddenAt: Date.now(),
+      replacedBySetId: replacementId,
+    };
+
+    await saveSet(hiddenSet);
+    set({ sets: get().sets.filter((s) => s.id !== id) });
+  },
+
+  restoreHiddenSet: async (id: string) => {
+    const target = await getSet(id);
+    if (!target) return;
+
+    const restored: StudySet = {
+      ...target,
+      hiddenReason: undefined,
+      hiddenAt: undefined,
+      replacedBySetId: undefined,
+    };
+
+    await saveSet(restored);
+    set({ sets: sortSets([...get().sets, restored].filter(isSetVisible)) });
   },
 
   removeSet: async (id: string) => {

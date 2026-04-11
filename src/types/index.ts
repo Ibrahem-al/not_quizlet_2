@@ -33,6 +33,8 @@ export interface StudyStats {
   streakDays: number;
 }
 
+export type HiddenSetReason = 'legacy-share-replaced';
+
 export interface StudySet {
   id: string;
   title: string;
@@ -48,6 +50,9 @@ export interface StudySet {
   userId?: string;
   cardCount?: number;
   shareToken?: string; // UUID for shareable link
+  hiddenReason?: HiddenSetReason;
+  hiddenAt?: number;
+  replacedBySetId?: string;
 }
 
 export type FolderColor = 'blue' | 'green' | 'purple' | 'red' | 'orange' | 'yellow' | 'pink' | 'teal' | 'gray';

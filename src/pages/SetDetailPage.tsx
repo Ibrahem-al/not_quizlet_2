@@ -90,6 +90,7 @@ function SetDetailPage() {
   const navigate = useNavigate();
   const sets = useSetStore((s) => s.sets);
   const addSet = useSetStore((s) => s.addSet);
+  const hideLegacyOriginal = useSetStore((s) => s.hideLegacyOriginal);
   const updateSet = useSetStore((s) => s.updateSet);
   const loadSets = useSetStore((s) => s.loadSets);
   const user = useAuthStore((s) => s.user);
@@ -380,12 +381,13 @@ function SetDetailPage() {
             const token = await generateShareToken(syncedCopy);
             const sharedCopy = { ...syncedCopy, shareToken: token };
             await addSet(sharedCopy);
+            await hideLegacyOriginal(normalizedSet.id, sharedCopy.id);
             setLocalSet(sharedCopy);
 
             const url = `${window.location.origin}/shared/${token}`;
             await navigator.clipboard.writeText(url).catch(() => {});
             navigate(`/sets/${sharedCopy.id}`);
-            addToast('success', 'Created and shared a repaired copy of this legacy set.');
+            addToast('success', 'Created and shared a repaired copy. The original legacy set was archived from view.');
           } catch (repairError) {
             console.error('Legacy share repair failed.', repairError);
             throw createLegacyShareConflictError(
@@ -399,7 +401,7 @@ function SetDetailPage() {
     } finally {
       setSharing(false);
     }
-  }, [localSet, user, addToast, addSet, navigate, updateSet]);
+  }, [localSet, user, addToast, addSet, hideLegacyOriginal, navigate, updateSet]);
 
   const handleCopyShareLink = useCallback(async () => {
     if (!shareUrl) return;
