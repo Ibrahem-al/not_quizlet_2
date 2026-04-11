@@ -28,6 +28,8 @@ Single-set sync:
 supabase.from('sets').upsert(set, { onConflict: 'id' })
 ```
 
+Before the upsert, the app now validates the set shape, recompresses oversized inline/base64 images when possible, and rejects sets whose serialized payload is still too large for reliable sharing sync.
+
 ### syncSetContentToCloud(set)
 
 Same as `syncSetToCloud` but omits `share_token` from the upsert payload. Used by auto-sync in `useSetStore` to avoid accidentally clearing an individually-shared set's token when syncing content changes.
@@ -41,8 +43,8 @@ supabase.from('sets').delete().eq('id', setId)
 
 ### Share Link Operations (Sets)
 
-- **`generateShareToken(set)`** — Generates `crypto.randomUUID()`, updates `share_token` on the set row in Supabase, returns the token
-- **`removeShareToken(setId)`** — Sets `share_token` to null (stops sharing)
+- **`generateShareToken(set)`** — Generates `crypto.randomUUID()`, updates `share_token` on the already-synced set row in Supabase, and throws a classified error if the row is missing or the update is rejected
+- **`removeShareToken(setId)`** — Sets `share_token` to null (stops sharing) and throws on failure
 - **`fetchSharedSet(shareToken)`** — Fetches set by token via RPC `get_shared_set` (SECURITY DEFINER), with fallback to direct query. Works without auth.
 
 ### Folder Cloud Sync
@@ -124,7 +126,11 @@ This ensures:
 
 ## Error Handling
 
-All Supabase errors are logged to `console.error` but never thrown. Sync failures are silent -- the app continues to function with local data. This is intentional for offline-first behavior.
+Most background auto-sync errors are still logged and swallowed to preserve the offline-first experience. The explicit share-link flow is stricter:
+
+- `syncSetToCloud()` can throw classified errors for oversized payloads, auth/session failures, RLS/permission failures, validation issues, and network errors
+- `generateShareToken()` throws if the token update fails or if the set row was not present/writable after sync
+- the set detail page maps those error types to user-facing toasts instead of always showing a generic connection error
 
 ## Supabase Client
 

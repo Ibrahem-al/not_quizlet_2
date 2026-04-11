@@ -21,17 +21,21 @@ import {
   Copy,
 } from 'lucide-react';
 import type { Card, StudySet } from '@/types';
-import { generateId, stripHtml, hasTextContent, isImageOnly } from '@/lib/utils';
+import { generateId, stripHtml } from '@/lib/utils';
 import { useSetStore } from '@/stores/useSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useFilterStore } from '@/stores/useFilterStore';
 import { useToastStore } from '@/stores/useToastStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { generateShareToken, removeShareToken, syncSetToCloud } from '@/lib/cloudSync';
+import {
+  generateShareToken,
+  getShareLinkErrorMessage,
+  removeShareToken,
+  syncSetToCloud,
+} from '@/lib/cloudSync';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Input } from '@/components/ui/Input';
 import { CardList } from '@/components/CardList';
 import { GameBrowserModal } from '@/components/GameBrowserModal';
 import { PrintDialog } from '@/components/PrintDialog';
@@ -305,30 +309,30 @@ function SetDetailPage() {
     }
     setSharing(true);
 
-    if (localSet.shareToken) {
-      // Stop sharing
-      await removeShareToken(localSet.id);
-      setLocalSet(prev => prev ? { ...prev, shareToken: undefined } : prev);
-      addToast('info', 'Share link removed.');
-    } else {
-      try {
-        // Sync set to cloud first, then generate token
-        await syncSetToCloud({ ...localSet, userId: user.id });
-        const token = await generateShareToken({ ...localSet, userId: user.id });
-        if (token) {
-          setLocalSet(prev => prev ? { ...prev, shareToken: token } : prev);
-          const url = `${window.location.origin}/shared/${token}`;
-          await navigator.clipboard.writeText(url).catch(() => {});
-          addToast('success', 'Share link created and copied to clipboard!');
-        } else {
-          addToast('error', 'Failed to create share link. The set may not have synced to the cloud.');
-        }
-      } catch {
-        addToast('error', 'Failed to create share link. Check your connection and try again.');
+    try {
+      if (localSet.shareToken) {
+        await removeShareToken(localSet.id);
+        const nextSet = { ...localSet, shareToken: undefined };
+        await updateSet(nextSet);
+        setLocalSet(nextSet);
+        addToast('info', 'Share link removed.');
+      } else {
+        const syncedSet = await syncSetToCloud({ ...localSet, userId: user.id });
+        const token = await generateShareToken(syncedSet);
+        const nextSet = { ...syncedSet, shareToken: token };
+        await updateSet(nextSet);
+        setLocalSet(nextSet);
+
+        const url = `${window.location.origin}/shared/${token}`;
+        await navigator.clipboard.writeText(url).catch(() => {});
+        addToast('success', 'Share link created and copied to clipboard!');
       }
+    } catch (error) {
+      addToast('error', getShareLinkErrorMessage(error));
+    } finally {
+      setSharing(false);
     }
-    setSharing(false);
-  }, [localSet, user, addToast]);
+  }, [localSet, user, addToast, updateSet]);
 
   const handleCopyShareLink = useCallback(async () => {
     if (!shareUrl) return;

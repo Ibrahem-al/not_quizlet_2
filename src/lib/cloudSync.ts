@@ -1,6 +1,7 @@
+import type { PostgrestError } from '@supabase/supabase-js';
 import type { StudySet, Folder } from '@/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { compressBase64InHtml } from '@/lib/utils';
+import { compressBase64InHtml, compressImage } from '@/lib/utils';
 
 // ============================================================
 // Pending-delete tracking — prevents deleted items from being
@@ -49,6 +50,195 @@ interface DbRow {
   share_token: string | null;
 }
 
+const BASE64_CHAR_MULTIPLIER = 1.37;
+const MAX_EMBEDDED_MEDIA_BYTES = 500 * 1024;
+const MAX_EMBEDDED_MEDIA_CHARS = Math.floor(MAX_EMBEDDED_MEDIA_BYTES * BASE64_CHAR_MULTIPLIER);
+const MAX_SHARE_PAYLOAD_BYTES = 4 * 1024 * 1024;
+
+export type CloudSyncErrorCode =
+  | 'payload_too_large'
+  | 'auth'
+  | 'permission'
+  | 'validation'
+  | 'network'
+  | 'not_synced'
+  | 'unknown';
+
+export class CloudSyncError extends Error {
+  code: CloudSyncErrorCode;
+  causeMessage?: string;
+  details?: string;
+
+  constructor(
+    code: CloudSyncErrorCode,
+    message: string,
+    options?: { causeMessage?: string; details?: string },
+  ) {
+    super(message);
+    this.name = 'CloudSyncError';
+    this.code = code;
+    this.causeMessage = options?.causeMessage;
+    this.details = options?.details;
+  }
+}
+
+function estimateSerializedBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+function isImageDataUri(value: string): boolean {
+  return /^data:image\/[^;]+;base64,/i.test(value);
+}
+
+async function compressImageDataUri(dataUri: string): Promise<string> {
+  try {
+    const response = await fetch(dataUri);
+    const blob = await response.blob();
+    return await compressImage(blob);
+  } catch {
+    return dataUri;
+  }
+}
+
+function validateSetForCloudSync(set: StudySet): void {
+  if (!Array.isArray(set.tags)) {
+    throw new CloudSyncError('validation', 'This set has invalid tags data.');
+  }
+  if (!Array.isArray(set.cards)) {
+    throw new CloudSyncError('validation', 'This set has invalid card data.');
+  }
+  if (set.visibility !== 'private' && set.visibility !== 'public') {
+    throw new CloudSyncError('validation', 'This set has an invalid visibility value.');
+  }
+}
+
+async function prepareSetForCloudSync(set: StudySet): Promise<StudySet> {
+  validateSetForCloudSync(set);
+
+  let changed = false;
+  const preparedCards = await Promise.all(
+    set.cards.map(async (card) => {
+      let nextCard = card;
+
+      const term = await compressBase64InHtml(card.term);
+      if (term !== nextCard.term) {
+        nextCard = { ...nextCard, term };
+      }
+
+      const definition = await compressBase64InHtml(card.definition);
+      if (definition !== nextCard.definition) {
+        nextCard = { ...nextCard, definition };
+      }
+
+      if (nextCard.imageData && nextCard.imageData.length > MAX_EMBEDDED_MEDIA_CHARS && isImageDataUri(nextCard.imageData)) {
+        const compressedImage = await compressImageDataUri(nextCard.imageData);
+        if (compressedImage.length < nextCard.imageData.length) {
+          nextCard = { ...nextCard, imageData: compressedImage };
+        }
+      }
+
+      if ((nextCard.imageData?.length ?? 0) > MAX_EMBEDDED_MEDIA_CHARS) {
+        throw new CloudSyncError(
+          'payload_too_large',
+          'This set includes an image attachment that is too large to sync.',
+          { details: 'Reduce the image size or remove the attachment and try again.' },
+        );
+      }
+
+      if ((nextCard.audioData?.length ?? 0) > MAX_EMBEDDED_MEDIA_CHARS) {
+        throw new CloudSyncError(
+          'payload_too_large',
+          'This set includes an audio attachment that is too large to sync.',
+          { details: 'Remove the large audio attachment and try again.' },
+        );
+      }
+
+      if (nextCard !== card) {
+        changed = true;
+      }
+
+      return nextCard;
+    }),
+  );
+
+  const preparedSet = changed ? { ...set, cards: preparedCards } : set;
+  const payloadBytes = estimateSerializedBytes(setToRow(preparedSet));
+  if (payloadBytes > MAX_SHARE_PAYLOAD_BYTES) {
+    throw new CloudSyncError(
+      'payload_too_large',
+      'This set is too large to sync for sharing.',
+      {
+        details: `Share payload is ${(payloadBytes / (1024 * 1024)).toFixed(1)} MB after compression.`,
+      },
+    );
+  }
+
+  return preparedSet;
+}
+
+function classifySupabaseError(error: PostgrestError, operation: string): CloudSyncError {
+  const message = [error.message, error.details, error.hint].filter(Boolean).join(' ');
+
+  if (/payload too large|request entity too large|body exceeded|too large/i.test(message)) {
+    return new CloudSyncError('payload_too_large', `Failed to ${operation}.`, {
+      causeMessage: error.message,
+      details: message,
+    });
+  }
+  if (/jwt|session|token|auth/i.test(message)) {
+    return new CloudSyncError('auth', `Failed to ${operation}.`, {
+      causeMessage: error.message,
+      details: message,
+    });
+  }
+  if (/row-level security|permission denied|violates row-level security policy|not allowed/i.test(message)) {
+    return new CloudSyncError('permission', `Failed to ${operation}.`, {
+      causeMessage: error.message,
+      details: message,
+    });
+  }
+  if (/check constraint|violates|invalid input|json|malformed|not-null/i.test(message)) {
+    return new CloudSyncError('validation', `Failed to ${operation}.`, {
+      causeMessage: error.message,
+      details: message,
+    });
+  }
+  if (/network|fetch|timeout|connection|failed to fetch|load failed/i.test(message)) {
+    return new CloudSyncError('network', `Failed to ${operation}.`, {
+      causeMessage: error.message,
+      details: message,
+    });
+  }
+
+  return new CloudSyncError('unknown', `Failed to ${operation}.`, {
+    causeMessage: error.message,
+    details: message,
+  });
+}
+
+export function getShareLinkErrorMessage(error: unknown): string {
+  if (error instanceof CloudSyncError) {
+    switch (error.code) {
+      case 'payload_too_large':
+        return 'This set is too large to share. Compress or remove large images/audio and try again.';
+      case 'auth':
+        return 'Your session expired. Sign in again, then try sharing this set.';
+      case 'permission':
+        return 'You do not have permission to share this set.';
+      case 'validation':
+        return 'This set contains data that could not be synced. Review its media and try again.';
+      case 'not_synced':
+        return 'Failed to create share link. The set could not be synced to the cloud.';
+      case 'network':
+        return 'Failed to create share link. Check your connection and try again.';
+      default:
+        return 'Failed to create share link. Please try again.';
+    }
+  }
+
+  return 'Failed to create share link. Please try again.';
+}
+
 function rowToSet(row: DbRow): StudySet {
   return {
     id: row.id,
@@ -89,17 +279,21 @@ function setToRow(set: StudySet): Record<string, unknown> {
 // Sync operations
 // ============================================================
 
-export async function syncSetToCloud(set: StudySet): Promise<void> {
-  if (!isSupabaseConfigured() || !supabase) return;
+export async function syncSetToCloud(set: StudySet): Promise<StudySet> {
+  if (!isSupabaseConfigured() || !supabase) return set;
+
+  const preparedSet = await prepareSetForCloudSync(set);
 
   const { error } = await supabase
     .from('study_sets')
-    .upsert(setToRow(set), { onConflict: 'id' });
+    .upsert(setToRow(preparedSet), { onConflict: 'id' });
 
   if (error) {
     console.error('Failed to sync set:', error.message);
-    throw new Error(`Failed to sync set: ${error.message}`);
+    throw classifySupabaseError(error, 'sync this set to the cloud');
   }
+
+  return preparedSet;
 }
 
 // ============================================================
@@ -268,10 +462,11 @@ export async function deleteSetFromCloud(setId: string): Promise<void> {
 // Share link operations
 // ============================================================
 
-/** Generate a share token for a set and persist to cloud.
- *  Returns null if the update fails or matches 0 rows (set not in cloud). */
-export async function generateShareToken(set: StudySet): Promise<string | null> {
-  if (!isSupabaseConfigured() || !supabase) return null;
+/** Generate a share token for a set after it has been synced to cloud. */
+export async function generateShareToken(set: StudySet): Promise<string> {
+  if (!isSupabaseConfigured() || !supabase) {
+    throw new CloudSyncError('unknown', 'Cloud sharing is not configured.');
+  }
 
   const token = crypto.randomUUID();
 
@@ -284,13 +479,17 @@ export async function generateShareToken(set: StudySet): Promise<string | null> 
 
   if (error) {
     console.error('Failed to generate share token:', error.message);
-    return null;
+    throw classifySupabaseError(error, 'generate a share link');
   }
 
   // If no rows were updated, the set doesn't exist in cloud or RLS blocked it
   if (!data || data.length === 0) {
     console.error('Share token update matched 0 rows — set may not be synced to cloud');
-    return null;
+    throw new CloudSyncError(
+      'not_synced',
+      'Share token update matched 0 rows.',
+      { details: 'The cloud row was missing or not writable during share token generation.' },
+    );
   }
 
   return token;
@@ -298,7 +497,9 @@ export async function generateShareToken(set: StudySet): Promise<string | null> 
 
 /** Remove share token (stop sharing) */
 export async function removeShareToken(setId: string): Promise<void> {
-  if (!isSupabaseConfigured() || !supabase) return;
+  if (!isSupabaseConfigured() || !supabase) {
+    throw new CloudSyncError('unknown', 'Cloud sharing is not configured.');
+  }
 
   const { error } = await supabase
     .from('study_sets')
@@ -307,6 +508,7 @@ export async function removeShareToken(setId: string): Promise<void> {
 
   if (error) {
     console.error('Failed to remove share token:', error.message);
+    throw classifySupabaseError(error, 'remove this share link');
   }
 }
 
