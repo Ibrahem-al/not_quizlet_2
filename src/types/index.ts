@@ -16,7 +16,7 @@ export interface Card {
   id: string;
   term: string; // HTML
   definition: string; // HTML
-  imageData?: string; // base64
+  imageData?: string; // legacy base64 or migrated image URL
   audioData?: string; // base64
   difficulty: number;
   repetition: number;

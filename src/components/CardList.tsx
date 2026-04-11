@@ -18,6 +18,8 @@ import type { Card } from '@/types';
 import { EditableCard } from '@/components/EditableCard';
 
 interface CardListProps {
+  setId: string;
+  userId?: string;
   cards: Card[];
   onUpdateCard: (id: string, field: 'term' | 'definition', value: string) => void;
   onDeleteCard: (id: string) => void;
@@ -29,6 +31,8 @@ const VIRTUALIZATION_THRESHOLD = 20;
 const ESTIMATED_CARD_HEIGHT = 120;
 
 export function CardList({
+  setId,
+  userId,
   cards,
   onUpdateCard,
   onDeleteCard,
@@ -118,6 +122,8 @@ export function CardList({
                     <div className="pb-3">
                       <EditableCard
                         card={card}
+                        setId={setId}
+                        userId={userId}
                         index={virtualItem.index}
                         isActive={activeCardId === card.id}
                         dimmed={excludedCardIds?.has(card.id) ?? false}
@@ -148,6 +154,8 @@ export function CardList({
             <EditableCard
               key={card.id}
               card={card}
+              setId={setId}
+              userId={userId}
               index={i}
               isActive={activeCardId === card.id}
               dimmed={excludedCardIds?.has(card.id) ?? false}

@@ -28,7 +28,7 @@ Single-set sync:
 supabase.from('sets').upsert(set, { onConflict: 'id' })
 ```
 
-Before the upsert, the app now validates the set shape, recompresses oversized inline/base64 images when possible, and rejects sets whose serialized payload is still too large for reliable sharing sync.
+Before the upsert, the app now validates the set shape, can migrate inline/base64 images to Supabase Storage when the feature flag is enabled, and rejects sets whose serialized payload is still too large for reliable sharing sync.
 
 ### syncSetContentToCloud(set)
 
@@ -97,6 +97,25 @@ All auto-syncs are non-blocking and silently swallow errors to maintain offline-
 Scans all local sets for cards with base64 images exceeding 500 KB. Compresses them via `compressBase64InHtml()` (Canvas API — max 1024px, JPEG quality 0.7). Saves compressed cards back to IndexedDB and syncs to cloud if the user is authenticated. This fixes legacy cards that bypassed the 500 KB `compressImage()` limit.
 
 **Utility:** `compressBase64InHtml(html)` in `src/lib/utils.ts` — finds all `data:image/...;base64,...` patterns in an HTML string, re-compresses any over 500 KB via Image → Canvas → JPEG.
+
+## Storage-Backed Images
+
+**Files:** `src/lib/storageImages.ts`, `src/lib/featureFlags.ts`, `src/components/TipTapEditor.tsx`
+
+- New editor uploads can go to the public `card-images` Supabase Storage bucket instead of staying inline as base64.
+- Storage paths are namespaced by `userId/setId/cardId/...` so users can only write files under their own prefix.
+- Existing base64 images continue to render as-is; migration is lazy and only runs when the relevant code path is enabled.
+
+### Feature Flags
+
+- `VITE_STORAGE_IMAGE_UPLOADS_ENABLED` — defaults to `true`; when disabled, new image insertions fall back to the legacy base64 path
+- `VITE_LAZY_IMAGE_MIGRATION_ENABLED` — defaults to `true`; when disabled, existing sets stop rewriting inline base64 images during explicit cloud sync/share
+
+### Rollback Notes
+
+- To stop rewriting old sets, disable `VITE_LAZY_IMAGE_MIGRATION_ENABLED`
+- To stop new Storage uploads while preserving already-migrated image URLs, disable `VITE_STORAGE_IMAGE_UPLOADS_ENABLED`
+- Do not delete Storage files during early rollback; rendering supports both Storage URLs and legacy base64 images
 
 ## Conflict Resolution
 

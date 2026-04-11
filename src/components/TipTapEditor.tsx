@@ -14,6 +14,8 @@ import {
   Undo2,
   Redo2,
 } from 'lucide-react';
+import { isStorageImageUploadsEnabled } from '@/lib/featureFlags';
+import { uploadCardImage, type CardImageStorageContext } from '@/lib/storageImages';
 import { compressImage, cn } from '@/lib/utils';
 
 interface TipTapEditorProps {
@@ -21,6 +23,7 @@ interface TipTapEditorProps {
   onUpdate: (html: string) => void;
   placeholder?: string;
   className?: string;
+  imageUploadContext?: CardImageStorageContext;
 }
 
 export function TipTapEditor({
@@ -28,6 +31,7 @@ export function TipTapEditor({
   onUpdate,
   placeholder = 'Type here...',
   className,
+  imageUploadContext,
 }: TipTapEditorProps) {
   const editor = useEditor({
     extensions: [
@@ -80,16 +84,27 @@ export function TipTapEditor({
   const handleImageInsert = useCallback(
     async (file: File | Blob, view?: unknown) => {
       try {
-        const base64 = await compressImage(file);
+        let imageSrc: string;
+
+        if (imageUploadContext && isStorageImageUploadsEnabled()) {
+          try {
+            imageSrc = await uploadCardImage(file, imageUploadContext);
+          } catch {
+            imageSrc = await compressImage(file);
+          }
+        } else {
+          imageSrc = await compressImage(file);
+        }
+
         if (editor) {
-          editor.chain().focus().setImage({ src: base64 }).run();
+          editor.chain().focus().setImage({ src: imageSrc }).run();
         }
       } catch {
         // silently fail image insert
       }
       void view; // unused but required by handler signature
     },
-    [editor],
+    [editor, imageUploadContext],
   );
 
   const handleImageUpload = useCallback(() => {

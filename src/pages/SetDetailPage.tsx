@@ -765,6 +765,8 @@ function SetDetailPage() {
           )}
 
           <CardList
+            setId={localSet.id}
+            userId={user?.id}
             cards={localSet.cards}
             onUpdateCard={handleUpdateCard}
             onDeleteCard={handleDeleteCard}

@@ -1,5 +1,11 @@
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { StudySet, Folder } from '@/types';
+import { isLazyImageMigrationEnabled } from '@/lib/featureFlags';
+import {
+  migrateInlineHtmlImagesToStorage,
+  uploadBase64ImageToStorage,
+  type CardImageStorageContext,
+} from '@/lib/storageImages';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { compressBase64InHtml, compressImage } from '@/lib/utils';
 
@@ -90,6 +96,18 @@ function isImageDataUri(value: string): boolean {
   return /^data:image\/[^;]+;base64,/i.test(value);
 }
 
+function getCardImageStorageContext(
+  set: StudySet,
+  cardId: string,
+): CardImageStorageContext | null {
+  if (!set.userId) return null;
+  return {
+    userId: set.userId,
+    setId: set.id,
+    cardId,
+  };
+}
+
 async function compressImageDataUri(dataUri: string): Promise<string> {
   try {
     const response = await fetch(dataUri);
@@ -98,6 +116,19 @@ async function compressImageDataUri(dataUri: string): Promise<string> {
   } catch {
     return dataUri;
   }
+}
+
+function classifyStorageError(error: unknown, operation: string): CloudSyncError {
+  const details = error instanceof Error ? error.message : String(error);
+
+  if (/bucket|storage/i.test(details)) {
+    return new CloudSyncError('validation', `Failed to ${operation}.`, { details });
+  }
+  if (/network|fetch|timeout|connection|load failed/i.test(details)) {
+    return new CloudSyncError('network', `Failed to ${operation}.`, { details });
+  }
+
+  return new CloudSyncError('unknown', `Failed to ${operation}.`, { details });
 }
 
 function validateSetForCloudSync(set: StudySet): void {
@@ -119,21 +150,48 @@ async function prepareSetForCloudSync(set: StudySet): Promise<StudySet> {
   const preparedCards = await Promise.all(
     set.cards.map(async (card) => {
       let nextCard = card;
+      const imageContext = getCardImageStorageContext(set, card.id);
+      const shouldMigrateImages = isLazyImageMigrationEnabled() && imageContext !== null;
 
-      const term = await compressBase64InHtml(card.term);
+      let term = await compressBase64InHtml(card.term);
+      if (shouldMigrateImages) {
+        try {
+          term = await migrateInlineHtmlImagesToStorage(term, imageContext);
+        } catch (error) {
+          throw classifyStorageError(error, 'move inline card images to cloud storage');
+        }
+      }
       if (term !== nextCard.term) {
         nextCard = { ...nextCard, term };
       }
 
-      const definition = await compressBase64InHtml(card.definition);
+      let definition = await compressBase64InHtml(card.definition);
+      if (shouldMigrateImages) {
+        try {
+          definition = await migrateInlineHtmlImagesToStorage(definition, imageContext);
+        } catch (error) {
+          throw classifyStorageError(error, 'move inline card images to cloud storage');
+        }
+      }
       if (definition !== nextCard.definition) {
         nextCard = { ...nextCard, definition };
       }
 
-      if (nextCard.imageData && nextCard.imageData.length > MAX_EMBEDDED_MEDIA_CHARS && isImageDataUri(nextCard.imageData)) {
-        const compressedImage = await compressImageDataUri(nextCard.imageData);
-        if (compressedImage.length < nextCard.imageData.length) {
-          nextCard = { ...nextCard, imageData: compressedImage };
+      if (nextCard.imageData && isImageDataUri(nextCard.imageData)) {
+        if (shouldMigrateImages) {
+          try {
+            const imageUrl = await uploadBase64ImageToStorage(nextCard.imageData, imageContext);
+            if (imageUrl !== nextCard.imageData) {
+              nextCard = { ...nextCard, imageData: imageUrl };
+            }
+          } catch (error) {
+            throw classifyStorageError(error, 'move card attachments to cloud storage');
+          }
+        } else if (nextCard.imageData.length > MAX_EMBEDDED_MEDIA_CHARS) {
+          const compressedImage = await compressImageDataUri(nextCard.imageData);
+          if (compressedImage.length < nextCard.imageData.length) {
+            nextCard = { ...nextCard, imageData: compressedImage };
+          }
         }
       }
 

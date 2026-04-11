@@ -8,6 +8,8 @@ import { TipTapEditor } from '@/components/TipTapEditor';
 
 interface EditableCardProps {
   card: Card;
+  setId: string;
+  userId?: string;
   index: number;
   isActive: boolean;
   dimmed?: boolean;
@@ -23,6 +25,8 @@ function hasCardContent(content: string): boolean {
 const EditableCard = memo(
   function EditableCard({
     card,
+    setId,
+    userId,
     index,
     isActive,
     dimmed,
@@ -145,6 +149,11 @@ const EditableCard = memo(
                 content={card.term}
                 onUpdate={handleTermUpdate}
                 placeholder="Enter term"
+                imageUploadContext={
+                  userId
+                    ? { userId, setId, cardId: card.id }
+                    : undefined
+                }
               />
             ) : (
               <div
@@ -184,6 +193,11 @@ const EditableCard = memo(
                 content={card.definition}
                 onUpdate={handleDefUpdate}
                 placeholder="Enter definition"
+                imageUploadContext={
+                  userId
+                    ? { userId, setId, cardId: card.id }
+                    : undefined
+                }
               />
             ) : (
               <div
@@ -242,6 +256,8 @@ const EditableCard = memo(
   },
   (prev, next) =>
     prev.card.id === next.card.id &&
+    prev.setId === next.setId &&
+    prev.userId === next.userId &&
     prev.card.term === next.card.term &&
     prev.card.definition === next.card.definition &&
     prev.index === next.index &&
