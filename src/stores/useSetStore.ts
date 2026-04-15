@@ -127,7 +127,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     if (isSupabaseConfigured()) {
       let user = useAuthStore.getState().user;
       if (!user && useAuthStore.getState().loading) {
-        user = await new Promise<typeof user>((resolve) => {
+        user = await new Promise<ReturnType<typeof useAuthStore.getState>['user']>((resolve) => {
           const unsub = useAuthStore.subscribe((state) => {
             if (!state.loading) {
               unsub();
@@ -232,10 +232,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
 
     // Delete from cloud so pullSetsFromCloud won't resurrect it
     if (isSupabaseConfigured()) {
-      const user = useAuthStore.getState().user;
-      if (user) {
-        deleteSetFromCloud(id).catch(() => {});
-      }
+      deleteSetFromCloud(id).catch(() => {});
     }
   },
 

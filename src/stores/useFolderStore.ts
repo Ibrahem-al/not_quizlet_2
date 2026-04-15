@@ -44,7 +44,7 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
     if (isSupabaseConfigured()) {
       let user = useAuthStore.getState().user;
       if (!user && useAuthStore.getState().loading) {
-        user = await new Promise<typeof user>((resolve) => {
+        user = await new Promise<ReturnType<typeof useAuthStore.getState>['user']>((resolve) => {
           const unsub = useAuthStore.subscribe((state) => {
             if (!state.loading) {
               unsub();
@@ -133,10 +133,7 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
 
     // Delete from cloud so pullFoldersFromCloud won't resurrect it
     if (isSupabaseConfigured()) {
-      const user = useAuthStore.getState().user;
-      if (user) {
-        deleteFolderFromCloud(id).catch(() => {});
-      }
+      deleteFolderFromCloud(id).catch(() => {});
     }
   },
 

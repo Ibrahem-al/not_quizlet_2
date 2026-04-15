@@ -14,26 +14,68 @@ import { compressBase64InHtml, compressImage } from '@/lib/utils';
 // resurrected by cloud pull when the cloud delete fails.
 // ============================================================
 
-const PENDING_DELETES_KEY = 'sf_pending_deletes';
+type PendingDeleteType = 'set' | 'folder';
+type DeleteTable = 'study_sets' | 'folders';
 
-function getPendingDeletes(): Set<string> {
+const PENDING_DELETE_KEYS: Record<PendingDeleteType, string> = {
+  set: 'sf_pending_set_deletes',
+  folder: 'sf_pending_folder_deletes',
+};
+
+function getPendingDeletes(type: PendingDeleteType): Set<string> {
   try {
-    return new Set(JSON.parse(localStorage.getItem(PENDING_DELETES_KEY) || '[]'));
+    return new Set(JSON.parse(localStorage.getItem(PENDING_DELETE_KEYS[type]) || '[]'));
   } catch {
     return new Set();
   }
 }
 
-function addPendingDelete(id: string): void {
-  const pending = getPendingDeletes();
-  pending.add(id);
-  localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify([...pending]));
+function setPendingDeletes(type: PendingDeleteType, pending: Set<string>): void {
+  localStorage.setItem(PENDING_DELETE_KEYS[type], JSON.stringify([...pending]));
 }
 
-function removePendingDelete(id: string): void {
-  const pending = getPendingDeletes();
+function addPendingDelete(type: PendingDeleteType, id: string): void {
+  const pending = getPendingDeletes(type);
+  pending.add(id);
+  setPendingDeletes(type, pending);
+}
+
+function removePendingDelete(type: PendingDeleteType, id: string): void {
+  const pending = getPendingDeletes(type);
   pending.delete(id);
-  localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify([...pending]));
+  setPendingDeletes(type, pending);
+}
+
+async function confirmCloudDelete(table: DeleteTable, id: string): Promise<boolean> {
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from(table)
+    .delete()
+    .eq('id', id)
+    .select('id');
+
+  if (error) return false;
+  if ((data?.length ?? 0) > 0) return true;
+
+  const { count, error: countError } = await supabase
+    .from(table)
+    .select('id', { head: true, count: 'exact' })
+    .eq('id', id);
+
+  if (countError) return false;
+  return (count ?? 0) === 0;
+}
+
+function retryPendingDeletes(type: PendingDeleteType, table: DeleteTable, ids: Iterable<string>): void {
+  if (!supabase) return;
+
+  for (const id of ids) {
+    void confirmCloudDelete(table, id)
+      .then((confirmed) => {
+        if (confirmed) removePendingDelete(type, id);
+      });
+  }
 }
 
 // ============================================================
@@ -393,14 +435,11 @@ export async function pullSetsFromCloud(
   if (error || !cloudRows) return localSets;
 
   // Filter out items pending deletion locally — prevents resurrection
-  const pending = getPendingDeletes();
+  const pending = getPendingDeletes('set');
   const cloudSets = (cloudRows as DbRow[]).map(rowToSet).filter((s) => !pending.has(s.id));
 
   // Retry pending deletes that are still in Supabase
-  for (const id of pending) {
-    supabase.from('study_sets').delete().eq('id', id)
-      .then(({ error: e }) => { if (!e) removePendingDelete(id); });
-  }
+  retryPendingDeletes('set', 'study_sets', pending);
 
   const localMap = new Map(localSets.map((s) => [s.id, s]));
 
@@ -462,14 +501,11 @@ export async function pullFoldersFromCloud(
   if (error || !cloudRows) return localFolders;
 
   // Filter out items pending deletion locally — prevents resurrection
-  const pending = getPendingDeletes();
+  const pending = getPendingDeletes('folder');
   const cloudFolders = (cloudRows as FolderDbRow[]).map(rowToFolder).filter((f) => !pending.has(f.id));
 
   // Retry pending deletes that are still in Supabase
-  for (const id of pending) {
-    supabase.from('folders').delete().eq('id', id)
-      .then(({ error: e }) => { if (!e) removePendingDelete(id); });
-  }
+  retryPendingDeletes('folder', 'folders', pending);
 
   const localMap = new Map(localFolders.map((f) => [f.id, f]));
 
@@ -524,18 +560,14 @@ export async function syncSetContentToCloud(set: StudySet): Promise<void> {
 }
 
 export async function deleteSetFromCloud(setId: string): Promise<void> {
-  addPendingDelete(setId);
+  addPendingDelete('set', setId);
   if (!isSupabaseConfigured() || !supabase) return;
 
-  const { error } = await supabase
-    .from('study_sets')
-    .delete()
-    .eq('id', setId);
-
-  if (error) {
-    console.error('Failed to delete set from cloud:', error.message);
+  const confirmed = await confirmCloudDelete('study_sets', setId);
+  if (confirmed) {
+    removePendingDelete('set', setId);
   } else {
-    removePendingDelete(setId);
+    console.error('Failed to confirm set deletion in cloud:', setId);
   }
 }
 
@@ -719,18 +751,14 @@ export async function syncFolderToCloud(folder: Folder): Promise<void> {
 }
 
 export async function deleteFolderFromCloud(folderId: string): Promise<void> {
-  addPendingDelete(folderId);
+  addPendingDelete('folder', folderId);
   if (!isSupabaseConfigured() || !supabase) return;
 
-  const { error } = await supabase
-    .from('folders')
-    .delete()
-    .eq('id', folderId);
-
-  if (error) {
-    console.error('Failed to delete folder from cloud:', error.message);
+  const confirmed = await confirmCloudDelete('folders', folderId);
+  if (confirmed) {
+    removePendingDelete('folder', folderId);
   } else {
-    removePendingDelete(folderId);
+    console.error('Failed to confirm folder deletion in cloud:', folderId);
   }
 }
 
