@@ -855,12 +855,33 @@ export async function syncFolderTreeToCloud(
     }
   }
 
-  // Upsert all sets in those folders
-  const preparedSets = await Promise.all(
-    allSets
-      .filter((s) => s.folderId && folderIds.has(s.folderId))
-      .map((set) => prepareSetForCloudSync(set)),
+  // Upsert all sets in those folders. Prepare each set individually so a
+  // single malformed/legacy set (missing visibility, image upload failure,
+  // etc.) does not abort the entire folder share.
+  const candidateSets = allSets.filter(
+    (s) => s.folderId && folderIds.has(s.folderId),
   );
+  const preparedSets: StudySet[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  for (const set of candidateSets) {
+    try {
+      preparedSets.push(await prepareSetForCloudSync(set));
+    } catch (error) {
+      skipped.push({
+        id: set.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (skipped.length > 0) {
+    console.warn('[syncFolderTreeToCloud] skipped sets:', skipped);
+  }
+  if (preparedSets.length === 0 && candidateSets.length > 0) {
+    throw new CloudSyncError(
+      'validation',
+      'No sets in this folder could be synced to the cloud.',
+    );
+  }
   const setRows = preparedSets.map(setContentToRow);
   if (setRows.length > 0) {
     const { error } = await supabase
