@@ -811,8 +811,24 @@ export async function syncFolderTreeToCloud(
 ): Promise<void> {
   if (!isSupabaseConfigured() || !supabase) return;
 
+  const folderMap = new Map(allFolders.map((folder) => [folder.id, folder]));
+
+  // Include ancestors first so nested shared folders can be upserted
+  // without violating the parent_folder_id foreign key.
+  const ancestorIds: string[] = [];
+  let ancestorCursor = folderMap.get(folderId)?.parentFolderId;
+  while (ancestorCursor) {
+    const ancestor = folderMap.get(ancestorCursor);
+    if (!ancestor) break;
+    ancestorIds.unshift(ancestor.id);
+    ancestorCursor = ancestor.parentFolderId;
+  }
+
   // BFS to collect the folder + all descendants
   const folderIds = new Set<string>();
+  for (const ancestorId of ancestorIds) {
+    folderIds.add(ancestorId);
+  }
   const queue = [folderId];
   while (queue.length > 0) {
     const id = queue.shift()!;
@@ -825,9 +841,10 @@ export async function syncFolderTreeToCloud(
   }
 
   // Upsert all folders in the tree
-  const folderRows = allFolders
-    .filter((f) => folderIds.has(f.id))
-    .map(folderToRow);
+  const folderRows = [
+    ...ancestorIds.map((id) => folderMap.get(id)).filter((folder): folder is Folder => Boolean(folder)),
+    ...allFolders.filter((f) => folderIds.has(f.id) && !ancestorIds.includes(f.id)),
+  ].map(folderToRow);
   if (folderRows.length > 0) {
     const { error } = await supabase
       .from('folders')
