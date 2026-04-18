@@ -34,7 +34,7 @@ function SharedFolderPage() {
   const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
   const [gameBrowserSetId, setGameBrowserSetId] = useState<string | null>(null);
 
-  const fetchFolder = useCallback(() => {
+  const fetchFolder = useCallback((options?: { bypassCache?: boolean }) => {
     if (!token) {
       setError('Invalid share link.');
       setErrorType('not_found');
@@ -53,7 +53,7 @@ function SharedFolderPage() {
     setLoading(true);
 
     let cancelled = false;
-    fetchSharedFolder(token)
+    fetchSharedFolder(token, options)
       .then((result) => {
         if (cancelled) return;
         if (result) {
@@ -76,6 +76,10 @@ function SharedFolderPage() {
       cancelled = true;
     };
   }, [token]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchFolder({ bypassCache: true });
+  }, [fetchFolder]);
 
   useEffect(() => {
     return fetchFolder();
@@ -133,7 +137,7 @@ function SharedFolderPage() {
           </p>
           <div className="flex items-center justify-center gap-3">
             {errorType === 'network' && (
-              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchFolder}>
+              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={handleRefresh}>
                 Try Again
               </Button>
             )}
@@ -220,6 +224,11 @@ function SharedFolderPage() {
         {data.sets.length === 0 ? (
           <div className="py-16 text-center">
             <p style={{ color: 'var(--color-text-secondary)' }}>This folder has no sets yet.</p>
+            <div className="mt-4">
+              <Button variant="outline" icon={<RefreshCw size={16} />} onClick={handleRefresh}>
+                Refresh
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-6">

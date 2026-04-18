@@ -21,7 +21,12 @@ import { useFolderStore } from '@/stores/useFolderStore';
 import { useSetStore } from '@/stores/useSetStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { generateFolderShareToken, removeFolderShareToken, syncFolderTreeToCloud } from '@/lib/cloudSync';
+import {
+  generateFolderShareToken,
+  getFolderShareLinkErrorMessage,
+  removeFolderShareToken,
+  syncFolderTreeToCloud,
+} from '@/lib/cloudSync';
 import { useToastStore } from '@/stores/useToastStore';
 import PageTransition from '@/components/layout/PageTransition';
 import SetCard from '@/components/SetCard';
@@ -210,29 +215,28 @@ function FolderDetailPage() {
     }
     setSharing(true);
 
-    if (folder.shareToken) {
-      await removeFolderShareToken(folder.id);
-      await updateFolder({ ...folder, shareToken: undefined, updatedAt: Date.now() });
-      addToast('info', 'Share link removed.');
-    } else {
-      if (user) {
+    try {
+      if (folder.shareToken) {
+        await removeFolderShareToken(folder.id);
+        await updateFolder({ ...folder, shareToken: undefined, updatedAt: Date.now() });
+        addToast('info', 'Share link removed.');
+      } else {
         await syncFolderTreeToCloud(
           folder.id,
           folders.map((f) => ({ ...f, userId: user.id })),
           sets.map((s) => ({ ...s, userId: user.id })),
         );
-      }
-      const token = await generateFolderShareToken(user ? { ...folder, userId: user.id } : folder);
-      if (token) {
+        const token = await generateFolderShareToken({ ...folder, userId: user.id });
         await updateFolder({ ...folder, shareToken: token, updatedAt: Date.now() });
         const url = `${window.location.origin}/shared/folder/${token}`;
         await navigator.clipboard.writeText(url).catch(() => {});
         addToast('success', 'Share link created and copied to clipboard!');
-      } else {
-        addToast('error', 'Failed to create share link.');
       }
+    } catch (error) {
+      addToast('error', getFolderShareLinkErrorMessage(error));
+    } finally {
+      setSharing(false);
     }
-    setSharing(false);
   }, [folder, user, folders, sets, updateFolder, addToast]);
 
   const handleCopyShareLink = useCallback(async () => {

@@ -358,6 +358,29 @@ export function getShareLinkErrorMessage(error: unknown): string {
   return 'Failed to create share link. Please try again.';
 }
 
+export function getFolderShareLinkErrorMessage(error: unknown): string {
+  if (error instanceof CloudSyncError) {
+    switch (error.code) {
+      case 'payload_too_large':
+        return 'A set in this folder is too large to share. Compress or remove large images/audio and try again.';
+      case 'auth':
+        return 'Your session expired. Sign in again, then try sharing this folder.';
+      case 'permission':
+        return 'You do not have permission to share this folder.';
+      case 'validation':
+        return 'Some folder content could not be synced. Review the sets inside and try again.';
+      case 'not_synced':
+        return 'Failed to create the folder share link because the folder tree did not fully sync to the cloud.';
+      case 'network':
+        return 'Failed to create the folder share link. Check your connection and try again.';
+      default:
+        return 'Failed to create the folder share link. Please try again.';
+    }
+  }
+
+  return 'Failed to create the folder share link. Please try again.';
+}
+
 function rowToSet(row: DbRow): StudySet {
   return {
     id: row.id,
@@ -392,6 +415,12 @@ function setToRow(set: StudySet): Record<string, unknown> {
     folder_id: set.folderId ?? null,
     share_token: set.shareToken ?? null,
   };
+}
+
+function setContentToRow(set: StudySet): Record<string, unknown> {
+  const row = setToRow(set);
+  delete row.share_token;
+  return row;
 }
 
 // ============================================================
@@ -657,6 +686,18 @@ function setCachedData<T>(key: string, data: T): void {
   }
 }
 
+function clearCachedData(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore unavailable sessionStorage
+  }
+}
+
+export function clearSharedFolderCache(shareToken: string): void {
+  clearCachedData(SHARED_FOLDER_CACHE_PREFIX + shareToken);
+}
+
 /** Fetch a shared set by token — works without auth */
 export async function fetchSharedSet(shareToken: string): Promise<StudySet | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
@@ -791,18 +832,27 @@ export async function syncFolderTreeToCloud(
     const { error } = await supabase
       .from('folders')
       .upsert(folderRows, { onConflict: 'id' });
-    if (error) console.error('Failed to sync folder tree:', error.message);
+    if (error) {
+      console.error('Failed to sync folder tree:', error.message);
+      throw classifySupabaseError(error, 'sync this folder tree to the cloud');
+    }
   }
 
   // Upsert all sets in those folders
-  const setRows = allSets
-    .filter((s) => s.folderId && folderIds.has(s.folderId))
-    .map(setToRow);
+  const preparedSets = await Promise.all(
+    allSets
+      .filter((s) => s.folderId && folderIds.has(s.folderId))
+      .map((set) => prepareSetForCloudSync(set)),
+  );
+  const setRows = preparedSets.map(setContentToRow);
   if (setRows.length > 0) {
     const { error } = await supabase
       .from('study_sets')
       .upsert(setRows, { onConflict: 'id' });
-    if (error) console.error('Failed to sync folder sets:', error.message);
+    if (error) {
+      console.error('Failed to sync folder sets:', error.message);
+      throw classifySupabaseError(error, 'sync this folder tree to the cloud');
+    }
   }
 }
 
@@ -811,19 +861,31 @@ export async function syncFolderTreeToCloud(
 // ============================================================
 
 /** Generate a share token for a folder and persist to cloud */
-export async function generateFolderShareToken(folder: Folder): Promise<string | null> {
-  if (!isSupabaseConfigured() || !supabase) return null;
+export async function generateFolderShareToken(folder: Folder): Promise<string> {
+  if (!isSupabaseConfigured() || !supabase) {
+    throw new CloudSyncError('unknown', 'Cloud sharing is not configured.');
+  }
 
   const token = crypto.randomUUID();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('folders')
     .update({ share_token: token })
-    .eq('id', folder.id);
+    .eq('id', folder.id)
+    .select('id');
 
   if (error) {
     console.error('Failed to generate folder share token:', error.message);
-    return null;
+    throw classifySupabaseError(error, 'generate a folder share link');
+  }
+
+  if (!data || data.length === 0) {
+    console.error('Folder share token update matched 0 rows — folder tree may not be synced');
+    throw new CloudSyncError(
+      'not_synced',
+      'Folder share token update matched 0 rows.',
+      { details: 'The cloud folder row was missing or not writable during share token generation.' },
+    );
   }
 
   return token;
@@ -846,13 +908,17 @@ export async function removeFolderShareToken(folderId: string): Promise<void> {
 /** Fetch a shared folder with all subfolders and sets — works without auth */
 export async function fetchSharedFolder(
   shareToken: string,
+  options?: { bypassCache?: boolean },
 ): Promise<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] } | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
 
-  // Check sessionStorage cache first
   const cacheKey = SHARED_FOLDER_CACHE_PREFIX + shareToken;
-  const cached = getCachedData<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] }>(cacheKey);
-  if (cached) return cached;
+  if (options?.bypassCache) {
+    clearCachedData(cacheKey);
+  } else {
+    const cached = getCachedData<{ folder: Folder; subfolders: Folder[]; sets: StudySet[] }>(cacheKey);
+    if (cached) return cached;
+  }
 
   // Fetch subfolders (includes the root folder) and sets in parallel
   const [foldersRes, setsRes] = await Promise.all([

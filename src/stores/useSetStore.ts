@@ -77,6 +77,20 @@ function isInSharedTree(folderId: string | undefined): boolean {
   return false;
 }
 
+function hasIncompleteFolderChain(folderId: string | undefined): boolean {
+  if (!folderId) return false;
+  const folders = useFolderStore.getState().folders;
+  let currentId: string | undefined = folderId;
+
+  while (currentId) {
+    const folder = folders.find((f: Folder) => f.id === currentId);
+    if (!folder) return true;
+    currentId = folder.parentFolderId;
+  }
+
+  return false;
+}
+
 /** Fire-and-forget cloud sync for a set in a shared folder */
 function autoSyncSet(s: StudySet): void {
   if (!isSupabaseConfigured()) return;
@@ -84,6 +98,26 @@ function autoSyncSet(s: StudySet): void {
   if (user) {
     syncSetContentToCloud({ ...s, userId: user.id }).catch(() => {});
   }
+}
+
+function maybeAutoSyncSet(s: StudySet, folderIds: Array<string | undefined>): void {
+  const relevantFolderIds = [...new Set(folderIds.filter(Boolean))];
+  if (relevantFolderIds.some((folderId) => isInSharedTree(folderId))) {
+    autoSyncSet(s);
+    return;
+  }
+
+  if (!relevantFolderIds.some((folderId) => hasIncompleteFolderChain(folderId))) {
+    return;
+  }
+
+  void useFolderStore.getState().loadFolders()
+    .then(() => {
+      if (relevantFolderIds.some((folderId) => isInSharedTree(folderId))) {
+        autoSyncSet(s);
+      }
+    })
+    .catch(() => {});
 }
 
 interface SetStore {
@@ -176,9 +210,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     set({ sets });
 
     // Auto-sync if added to a shared folder
-    if (isInSharedTree(newSet.folderId)) {
-      autoSyncSet(newSet);
-    }
+    maybeAutoSyncSet(newSet, [newSet.folderId]);
   },
 
   updateSet: async (updated: StudySet) => {
@@ -191,9 +223,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     set({ sets });
 
     // Auto-sync if set is in (or was in) a shared folder
-    if (isInSharedTree(updated.folderId) || isInSharedTree(oldSet?.folderId)) {
-      autoSyncSet(updated);
-    }
+    maybeAutoSyncSet(updated, [updated.folderId, oldSet?.folderId]);
   },
 
   hideLegacyOriginal: async (id: string, replacementId: string) => {

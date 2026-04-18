@@ -89,6 +89,14 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       (a, b) => b.updatedAt - a.updatedAt,
     );
     set({ folders });
+
+    // Auto-sync if this new folder is created inside a shared tree.
+    if (isSupabaseConfigured() && isSharedFolder(folder, folders)) {
+      const user = useAuthStore.getState().user;
+      if (user) {
+        syncFolderToCloud({ ...folder, userId: user.id }).catch(() => {});
+      }
+    }
   },
 
   updateFolder: async (updated: Folder) => {

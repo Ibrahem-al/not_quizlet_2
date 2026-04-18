@@ -31,7 +31,7 @@ function SharedFolderStudyPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback((options?: { bypassCache?: boolean }) => {
     if (!token || !setId) {
       setError('Invalid share link.');
       setErrorType('not_found');
@@ -50,7 +50,7 @@ function SharedFolderStudyPage() {
     setLoading(true);
 
     let cancelled = false;
-    fetchSharedFolder(token)
+    fetchSharedFolder(token, options)
       .then((result) => {
         if (cancelled) return;
         if (result) {
@@ -79,6 +79,10 @@ function SharedFolderStudyPage() {
       cancelled = true;
     };
   }, [token, setId]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchData({ bypassCache: true });
+  }, [fetchData]);
 
   useEffect(() => {
     // Already have the set from navigation state
@@ -112,11 +116,9 @@ function SharedFolderStudyPage() {
             {error}
           </p>
           <div className="flex items-center justify-center gap-3">
-            {errorType === 'network' && (
-              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchData}>
-                Try Again
-              </Button>
-            )}
+            <Button variant="primary" icon={<RefreshCw size={16} />} onClick={handleRefresh}>
+              Try Again
+            </Button>
             <Button variant={errorType === 'network' ? 'outline' : 'primary'} onClick={() => navigate(backUrl)}>
               Back to Folder
             </Button>
