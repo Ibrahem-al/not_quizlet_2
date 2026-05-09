@@ -46,7 +46,7 @@ export function getEquivalentAnswers(
 }
 
 /**
- * Returns cards NOT in the same equivalence group, suitable for wrong answer options.
+ * Returns definitions of cards NOT in the same equivalence group, suitable for wrong answer options.
  */
 export function getWrongOptionPool(
   card: Card,
@@ -60,6 +60,24 @@ export function getWrongOptionPool(
   return allCards
     .filter((c) => !groupIds.has(c.id))
     .map((c) => c.definition);
+}
+
+/**
+ * Returns terms of cards NOT in the same equivalence group, suitable for wrong answer options
+ * when answering with the term (def-to-term direction).
+ */
+export function getWrongTermPool(
+  card: Card,
+  allCards: Card[],
+  groups: Map<string, Card[]>,
+): string[] {
+  const key = normalizeAnswer(card.term);
+  const group = groups.get(key) ?? [card];
+  const groupIds = new Set(group.map((c) => c.id));
+
+  return allCards
+    .filter((c) => !groupIds.has(c.id))
+    .map((c) => c.term);
 }
 
 /**

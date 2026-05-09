@@ -10,6 +10,7 @@ import {
   buildEquivalenceGroups,
   getEquivalentAnswers,
   getWrongOptionPool,
+  getWrongTermPool,
   gradeWrittenAnswer,
 } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
@@ -62,9 +63,7 @@ function buildTestQuestions(
 
     const promptHtml = isReverse ? card.definition : card.term;
     const correctAnswers = isReverse
-      ? getEquivalentAnswers(card, 'definition', groups).length > 0
-        ? [card.term]
-        : [card.term]
+      ? [card.term]
       : getEquivalentAnswers(card, 'definition', groups);
 
     if (type === 'multiple-choice') {
@@ -72,7 +71,7 @@ function buildTestQuestions(
         // Multi-answer MC: pick 2-3 correct answers from equivalents
         const allCorrect = isReverse ? [card.term] : getEquivalentAnswers(card, 'definition', groups);
         const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
+          ? getWrongTermPool(card, cards, groups)
           : getWrongOptionPool(card, cards, groups);
         const wrongs = shuffleArray(wrongPool).slice(0, Math.max(1, 4 - allCorrect.length));
         const multiCorrect = allCorrect.slice(0, Math.min(3, allCorrect.length));
@@ -88,7 +87,7 @@ function buildTestQuestions(
       } else {
         const correctDef = isReverse ? card.term : card.definition;
         const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
+          ? getWrongTermPool(card, cards, groups)
           : getWrongOptionPool(card, cards, groups);
         const wrongs = shuffleArray(wrongPool).slice(0, 3);
         if (wrongs.length < 1) {
@@ -104,7 +103,7 @@ function buildTestQuestions(
       let shownDef = isReverse ? card.term : card.definition;
       if (!isCorrect) {
         const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
+          ? getWrongTermPool(card, cards, groups)
           : getWrongOptionPool(card, cards, groups);
         if (wrongPool.length > 0) {
           shownDef = shuffleArray(wrongPool)[0];
