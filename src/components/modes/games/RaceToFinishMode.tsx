@@ -7,6 +7,7 @@ import {
   buildEquivalenceGroups,
   getEquivalentAnswers,
   getWrongOptionPool,
+  getWrongTermPool,
   gradeWrittenAnswer,
 } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
@@ -64,7 +65,7 @@ function buildRaceQuestion(
 
   if (type === 'multiple-choice') {
     const wrongPool = isReverse
-      ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
+      ? getWrongTermPool(card, cards, groups)
       : getWrongOptionPool(card, cards, groups);
     const wrongs = shuffleArray(wrongPool).slice(0, 3);
     if (wrongs.length < 1) {
@@ -80,7 +81,7 @@ function buildRaceQuestion(
     let shownDef = isReverse ? card.term : card.definition;
     if (!isCorrect) {
       const wrongPool = isReverse
-        ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
+        ? getWrongTermPool(card, cards, groups)
         : getWrongOptionPool(card, cards, groups);
       if (wrongPool.length > 0) {
         shownDef = shuffleArray(wrongPool)[0];
