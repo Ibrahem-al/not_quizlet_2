@@ -88,7 +88,14 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 export function normalizeAnswer(text: string): string {
-  return stripHtml(text).toLowerCase().trim().replace(/\s+/g, ' ');
+  const stripped = stripHtml(text).toLowerCase().trim().replace(/\s+/g, ' ');
+  if (!stripped) {
+    // Image-only content: all images strip to '' making them compare equal.
+    // Use the src attribute as identity so different images stay distinct.
+    const match = text.match(/src="([^"]+)"/);
+    if (match) return match[1];
+  }
+  return stripped;
 }
 
 export function gradeAnswer(userAnswer: string, correctAnswers: string[]): boolean {
