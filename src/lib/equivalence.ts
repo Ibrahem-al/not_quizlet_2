@@ -84,6 +84,24 @@ export function getWrongOptionPool(
 }
 
 /**
+ * Returns terms of cards NOT in the same equivalence group, suitable for wrong answer options
+ * when answering with the term (def-to-term direction).
+ */
+export function getWrongTermPool(
+  card: Card,
+  allCards: Card[],
+  groups: Map<string, Card[]>,
+): string[] {
+  const key = normalizeAnswer(card.term);
+  const group = groups.get(key) ?? [card];
+  const groupIds = new Set(group.map((c) => c.id));
+
+  return allCards
+    .filter((c) => !groupIds.has(c.id))
+    .map((c) => c.term);
+}
+
+/**
  * Grades a written answer against all correct answers using Levenshtein distance.
  */
 export function gradeWrittenAnswer(

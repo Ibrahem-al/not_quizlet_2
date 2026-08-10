@@ -88,7 +88,7 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 export function normalizeAnswer(text: string): string {
-  return stripHtml(text)
+  const stripped = stripHtml(text)
     // NFD-decompose then strip combining diacritic marks so accented answers
     // (café -> cafe, té -> te) compare equal to their unaccented forms.
     .normalize('NFD')
@@ -96,6 +96,13 @@ export function normalizeAnswer(text: string): string {
     .toLowerCase()
     .trim()
     .replace(/\s+/g, ' ');
+  if (!stripped) {
+    // Image-only content: all images strip to '' making them compare equal.
+    // Use the src attribute as identity so different images stay distinct.
+    const match = text.match(/src="([^"]+)"/);
+    if (match) return match[1];
+  }
+  return stripped;
 }
 
 export function gradeAnswer(userAnswer: string, correctAnswers: string[]): boolean {

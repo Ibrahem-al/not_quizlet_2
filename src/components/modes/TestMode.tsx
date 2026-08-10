@@ -63,9 +63,7 @@ function buildTestQuestions(
 
     const promptHtml = isReverse ? card.definition : card.term;
     const correctAnswers = isReverse
-      ? getEquivalentAnswers(card, 'definition', groups).length > 0
-        ? [card.term]
-        : [card.term]
+      ? [card.term]
       : getEquivalentAnswers(card, 'definition', groups);
 
     if (type === 'multiple-choice') {
