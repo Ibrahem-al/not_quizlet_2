@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card, QuestionType } from '@/types';
 import { useNavigate } from 'react-router-dom';
@@ -17,6 +17,7 @@ import StudyContent from '@/components/StudyContent';
 interface LearnModeProps {
   cards: Card[];
   setId: string;
+  exitUrl?: string;
 }
 
 interface Question {
@@ -118,8 +119,9 @@ function buildQuestions(cards: Card[], questionCount: number = 20): Question[] {
   return questions;
 }
 
-function LearnMode({ cards, setId }: LearnModeProps) {
+function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
   const navigate = useNavigate();
+  const exitTo = exitUrl ?? `/sets/${setId}`;
   const updateSet = useSetStore((s) => s.updateSet);
   const sets = useSetStore((s) => s.sets);
 
@@ -179,7 +181,13 @@ function LearnMode({ cards, setId }: LearnModeProps) {
       // Fire-and-forget spaced repetition
       const studySet = sets.find((s) => s.id === setId);
       if (studySet) {
-        const updatedCard = recordReview(currentQuestion.card, quality, 'learn');
+        // Base the review on the card's CURRENT store state (not the stale
+        // snapshot captured at buildQuestions time) so repeated occurrences of
+        // the same card compound SM-2 scheduling and preserve review history.
+        const base =
+          studySet.cards.find((c) => c.id === currentQuestion.card.id) ??
+          currentQuestion.card;
+        const updatedCard = recordReview(base, quality, 'learn');
         const updatedCards = studySet.cards.map((c) =>
           c.id === updatedCard.id ? updatedCard : c,
         );
@@ -336,7 +344,7 @@ function LearnMode({ cards, setId }: LearnModeProps) {
             >
               Continue Learning
             </Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
+            <Button variant="outline" onClick={() => navigate(exitTo)}>
               Exit
             </Button>
           </div>
@@ -351,7 +359,7 @@ function LearnMode({ cards, setId }: LearnModeProps) {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
           Exit
         </Button>
         <span

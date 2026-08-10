@@ -31,28 +31,49 @@ function SharedFolderStudyPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
 
-  const fetchData = useCallback((options?: { bypassCache?: boolean }) => {
-    if (!token || !setId) {
-      setError('Invalid share link.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
-    if (!isSupabaseConfigured()) {
-      setError('Cloud features are not configured.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
+  const [reloadNonce, setReloadNonce] = useState(0);
 
-    setError(null);
-    setErrorType(null);
-    setLoading(true);
+  const handleRefresh = useCallback(() => {
+    setReloadNonce((n) => n + 1);
+  }, []);
 
-    let cancelled = false;
-    fetchSharedFolder(token, options)
-      .then((result) => {
-        if (cancelled) return;
+  useEffect(() => {
+    // On first render, if we already have the set from navigation state, skip
+    // the fetch. A refresh (reloadNonce > 0) always re-fetches with a fresh copy.
+    if (stateSet && reloadNonce === 0) return;
+
+    let active = true;
+
+    const load = async () => {
+      if (!token || !setId) {
+        if (active) {
+          setError('Invalid share link.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
+      }
+      if (!isSupabaseConfigured()) {
+        if (active) {
+          setError('Cloud features are not configured.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setError(null);
+        setErrorType(null);
+        setLoading(true);
+      }
+
+      try {
+        const result = await fetchSharedFolder(
+          token,
+          reloadNonce > 0 ? { bypassCache: true } : undefined,
+        );
+        if (!active) return;
         if (result) {
           const found = result.sets.find((s) => s.id === setId);
           if (found) {
@@ -66,29 +87,20 @@ function SharedFolderStudyPage() {
           setErrorType('not_found');
         }
         setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError('Failed to load shared folder. Check your connection and try again.');
-          setErrorType('network');
-          setLoading(false);
-        }
-      });
+      } catch {
+        if (!active) return;
+        setError('Failed to load shared folder. Check your connection and try again.');
+        setErrorType('network');
+        setLoading(false);
+      }
+    };
+
+    void load();
 
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [token, setId]);
-
-  const handleRefresh = useCallback(() => {
-    void fetchData({ bypassCache: true });
-  }, [fetchData]);
-
-  useEffect(() => {
-    // Already have the set from navigation state
-    if (set) return;
-    return fetchData();
-  }, [set, fetchData]);
+  }, [token, setId, stateSet, reloadNonce]);
 
   const validCards: Card[] = useMemo(() => {
     if (!set) return [];
@@ -143,7 +155,9 @@ function SharedFolderStudyPage() {
     );
   }
 
-  const props = { cards: validCards, setId: set.id };
+  // exitUrl keeps in-session Exit/Escape/Complete on the public shared-folder
+  // route instead of ejecting anonymous viewers to a private /sets/:id page (H7).
+  const props = { cards: validCards, setId: set.id, exitUrl: backUrl };
 
   const renderMode = () => {
     switch (mode) {

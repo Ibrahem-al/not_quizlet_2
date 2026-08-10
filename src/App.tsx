@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { lazy, Suspense, useEffect } from 'react';
 import Layout from '@/components/layout/Layout';
 import RequireAuth from '@/components/RequireAuth';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { Spinner } from '@/components/ui/Spinner';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useThemeStore } from '@/stores/useThemeStore';
@@ -27,6 +28,7 @@ const SharedFolderStudyPage = lazy(() => import('@/pages/SharedFolderStudyPage')
 const LiveJoinPage = lazy(() => import('@/pages/live/LiveJoinPage'));
 const LiveHostPage = lazy(() => import('@/pages/live/LiveHostPage'));
 const LivePlayPage = lazy(() => import('@/pages/live/LivePlayPage'));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 function App() {
   const location = useLocation();
@@ -40,38 +42,41 @@ function App() {
 
   return (
     <>
-      <Suspense
-        fallback={
-          <div className="flex items-center justify-center min-h-screen">
-            <Spinner size="lg" />
-          </div>
-        }
-      >
-        <Layout>
-          <AnimatePresence mode="wait">
-            <Routes location={location} key={location.pathname}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/sets/new" element={<RequireAuth><NewSetPage /></RequireAuth>} />
-              <Route path="/sets/:id" element={<SetDetailPage />} />
-              <Route path="/sets/:id/study/:mode" element={<StudyPage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/folders/:id" element={<FolderDetailPage />} />
-              <Route path="/signin" element={<SignInPage />} />
-              <Route path="/signup" element={<SignUpPage />} />
-              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-              <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/account/settings" element={<AccountSettingsPage />} />
-              <Route path="/shared/:token" element={<SharedSetPage />} />
-              <Route path="/shared/:token/study/:mode" element={<SharedStudyPage />} />
-              <Route path="/shared/folder/:token" element={<SharedFolderPage />} />
-              <Route path="/shared/folder/:token/set/:setId/study/:mode" element={<SharedFolderStudyPage />} />
-              <Route path="/live" element={<LiveJoinPage />} />
-              <Route path="/live/host/:sessionId" element={<LiveHostPage />} />
-              <Route path="/live/play" element={<LivePlayPage />} />
-            </Routes>
-          </AnimatePresence>
-        </Layout>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center min-h-screen">
+              <Spinner size="lg" />
+            </div>
+          }
+        >
+          <Layout>
+            <AnimatePresence mode="wait">
+              <Routes location={location} key={location.pathname}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/sets/new" element={<RequireAuth><NewSetPage /></RequireAuth>} />
+                <Route path="/sets/:id" element={<SetDetailPage />} />
+                <Route path="/sets/:id/study/:mode" element={<StudyPage />} />
+                <Route path="/stats" element={<StatsPage />} />
+                <Route path="/folders/:id" element={<FolderDetailPage />} />
+                <Route path="/signin" element={<SignInPage />} />
+                <Route path="/signup" element={<SignUpPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/account/settings" element={<AccountSettingsPage />} />
+                <Route path="/shared/:token" element={<SharedSetPage />} />
+                <Route path="/shared/:token/study/:mode" element={<SharedStudyPage />} />
+                <Route path="/shared/folder/:token" element={<SharedFolderPage />} />
+                <Route path="/shared/folder/:token/set/:setId/study/:mode" element={<SharedFolderStudyPage />} />
+                <Route path="/live" element={<LiveJoinPage />} />
+                <Route path="/live/host/:sessionId" element={<LiveHostPage />} />
+                <Route path="/live/play" element={<LivePlayPage />} />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </AnimatePresence>
+          </Layout>
+        </Suspense>
+      </ErrorBoundary>
       <ToastContainer />
     </>
   );

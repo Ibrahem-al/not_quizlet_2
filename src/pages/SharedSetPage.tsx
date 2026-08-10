@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BookOpen, GraduationCap, Puzzle, ClipboardCheck, Gamepad2, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet } from '@/types';
 import { fetchSharedSet } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { hasTermContent, hasDefinitionContent } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -18,58 +19,64 @@ function SharedSetPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
   const [gameBrowserOpen, setGameBrowserOpen] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
-  const fetchSet = useCallback(() => {
-    if (!token) {
-      setError('Invalid share link.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
+  useEffect(() => {
+    let active = true;
 
-    if (!isSupabaseConfigured()) {
-      setError('Cloud features are not configured. This share link cannot be loaded.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
-
-    setError(null);
-    setErrorType(null);
-    setLoading(true);
-
-    let cancelled = false;
-    fetchSharedSet(token).then((result) => {
-      if (cancelled) return;
-      if (result) {
-        setSet(result);
-      } else {
-        setError('This study set was not found. The share link may have expired or been removed.');
-        setErrorType('not_found');
+    const load = async () => {
+      if (!token) {
+        if (active) {
+          setError('Invalid share link.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
       }
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) {
+
+      if (!isSupabaseConfigured()) {
+        if (active) {
+          setError('Cloud features are not configured. This share link cannot be loaded.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setError(null);
+        setErrorType(null);
+        setLoading(true);
+      }
+
+      try {
+        const result = await fetchSharedSet(token);
+        if (!active) return;
+        if (result) {
+          setSet(result);
+        } else {
+          setError('This study set was not found. The share link may have expired or been removed.');
+          setErrorType('not_found');
+        }
+        setLoading(false);
+      } catch {
+        if (!active) return;
         setError('Failed to load shared set. Check your connection and try again.');
         setErrorType('network');
         setLoading(false);
       }
-    });
+    };
 
-    return () => { cancelled = true; };
-  }, [token]);
+    void load();
 
-  useEffect(() => {
-    return fetchSet();
-  }, [fetchSet]);
+    return () => {
+      active = false;
+    };
+  }, [token, reloadNonce]);
 
   const validCards = useMemo(() => {
     if (!set) return [];
-    return set.cards.filter(c => {
-      const termText = c.term?.replace(/<[^>]*>/g, '').trim();
-      const defText = c.definition?.replace(/<[^>]*>/g, '').trim();
-      return (termText && termText.length > 0) || (defText && defText.length > 0);
-    });
+    return set.cards.filter((c) => hasTermContent(c) || hasDefinitionContent(c));
   }, [set]);
 
   const studyModes = useMemo(() => [
@@ -113,7 +120,11 @@ function SharedSetPage() {
           </p>
           <div className="flex items-center justify-center gap-3">
             {errorType === 'network' && (
-              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchSet}>
+              <Button
+                variant="primary"
+                icon={<RefreshCw size={16} />}
+                onClick={() => setReloadNonce((n) => n + 1)}
+              >
                 Try Again
               </Button>
             )}
@@ -219,7 +230,7 @@ function SharedSetPage() {
           >
             Cards
           </h2>
-          {set.cards.map((card, i) => (
+          {validCards.map((card, i) => (
             <div
               key={card.id}
               className="flex gap-4 p-4 rounded-xl"

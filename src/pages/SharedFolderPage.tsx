@@ -14,7 +14,7 @@ import {
 import type { StudySet, Folder } from '@/types';
 import { fetchSharedFolder } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { FOLDER_COLORS } from '@/lib/utils';
+import { FOLDER_COLORS, hasTermContent, hasDefinitionContent } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { GameBrowserModal } from '@/components/GameBrowserModal';
@@ -82,6 +82,7 @@ function SharedFolderPage() {
   }, [fetchFolder]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial shared-folder fetch synchronizes loading/error state on mount
     return fetchFolder();
   }, [fetchFolder]);
 
@@ -166,11 +167,7 @@ function SharedFolderPage() {
   );
 
   const getValidCardCount = (set: StudySet) =>
-    set.cards.filter((c) => {
-      const t = c.term?.replace(/<[^>]*>/g, '').trim();
-      const d = c.definition?.replace(/<[^>]*>/g, '').trim();
-      return (t && t.length > 0) || (d && d.length > 0);
-    }).length;
+    set.cards.filter((c) => hasTermContent(c) || hasDefinitionContent(c)).length;
 
   return (
     <PageTransition>

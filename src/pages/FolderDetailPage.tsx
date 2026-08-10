@@ -58,12 +58,18 @@ function FolderDetailPage() {
   const [newSubfolderColor, setNewSubfolderColor] = useState<FolderColor>('blue');
   const [sharing, setSharing] = useState(false);
 
+  // Seed the edit fields only when NOT editing (i.e. on mount / when the
+  // folder id changes / after a save or cancel). Depending on folder.id
+  // rather than the whole folder object means a background loadFolders sync
+  // that returns a new folder reference won't re-run this and clobber
+  // keystrokes the user is typing mid-edit.
   useEffect(() => {
-    if (folder) {
+    if (!isEditing && folder) {
       setEditName(folder.name);
       setEditDescription(folder.description);
     }
-  }, [folder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folder?.id, isEditing]);
 
   const childFolders = useMemo(() => {
     if (!id) return [];

@@ -1,5 +1,5 @@
 import type { StudySet, Card, AnswerDirection, QuestionType } from '@/types';
-import { stripHtml, shuffleArray } from '@/lib/utils';
+import { stripHtml, shuffleArray, normalizeAnswer } from '@/lib/utils';
 import { buildEquivalenceGroups, getEquivalentAnswers, getWrongOptionPool } from '@/lib/equivalence';
 
 export interface PDFConfig {
@@ -20,6 +20,22 @@ interface CardPair {
   questionImages: string[];
   answerImages: string[];
   equivalentAnswers: string[];
+  /** Which side of the card is the answer — used to pick correctly-typed MC distractors. */
+  answerSide: 'term' | 'definition';
+}
+
+/**
+ * Spreadsheet-style base-26 column label: 0->A … 25->Z, 26->AA, 27->AB, …
+ * Prevents answer letters from spilling past 'Z' into punctuation for sets > 26 items.
+ */
+function columnLabel(index: number): string {
+  let n = index;
+  let label = '';
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
 }
 
 type DocType = InstanceType<Awaited<ReturnType<typeof getJsPDF>>>;
@@ -29,7 +45,6 @@ type DocType = InstanceType<Awaited<ReturnType<typeof getJsPDF>>>;
 // ---------------------------------------------------------------------------
 
 async function getJsPDF() {
-  // @ts-ignore
   const { jsPDF } = await import('jspdf');
   return jsPDF;
 }
@@ -92,6 +107,10 @@ function buildPairs(set: StudySet, config: PDFConfig): CardPair[] {
   const groups = buildEquivalenceGroups(set.cards);
   let cards = shuffleArray(set.cards.filter((c) => stripHtml(c.term) || stripHtml(c.definition)));
 
+  // Guard: with no text-bearing cards the repeat loop below would spin forever
+  // (shuffleArray([]) never grows `repeated`). Bail out early.
+  if (cards.length === 0) return [];
+
   // If count > card count, repeat cards evenly
   if (config.count > cards.length) {
     const repeated: Card[] = [];
@@ -114,7 +133,7 @@ function buildPairs(set: StudySet, config: PDFConfig): CardPair[] {
     const eqDir = isTtD ? 'definition' : 'term';
     const eqAnswers = getEquivalentAnswers(c, eqDir, groups).map(stripHtml).filter((a) => a && a !== answer);
 
-    return { card: c, question, answer, questionImages, answerImages, equivalentAnswers: eqAnswers };
+    return { card: c, question, answer, questionImages, answerImages, equivalentAnswers: eqAnswers, answerSide: eqDir };
   });
 }
 
@@ -209,6 +228,7 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
   await registerUnicodeFont(doc);
   const groups = buildEquivalenceGroups(set.cards);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
   const types = config.questionTypes ?? ['written'];
 
   // Questions pages
@@ -273,16 +293,31 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
         y += renderImageGrid(doc, pair.questionImages, 23, y, 40, 18);
       }
 
-      // Build options: correct + 3 wrong (or more if multi-answer)
-      const wrongPool = getWrongOptionPool(pair.card, set.cards, groups).map(stripHtml).filter(Boolean);
-      const wrongOptions = shuffleArray(wrongPool).slice(0, 3);
-      const correctAnswers = [pair.answer, ...(config.multiAnswerMC ? pair.equivalentAnswers.slice(0, 1) : [])];
-      const allOptions = shuffleArray([...correctAnswers, ...wrongOptions]).slice(0, 4);
+      // Build options: reserve every correct answer first, then fill the
+      // remaining slots (up to 4 total) with distinct wrong options. This keeps
+      // the primary answer from being randomly dropped (L20) and makes distractors
+      // match the answer's type — terms for def-to-term, definitions otherwise (H4).
+      const wrongPool = getWrongOptionPool(pair.card, set.cards, groups, pair.answerSide)
+        .map(stripHtml)
+        .filter(Boolean);
+
+      // De-dupe the reserved correct answers by normalized value, cap at 4.
+      const correctSeen = new Set<string>();
+      const correctAnswers: string[] = [];
+      for (const a of [pair.answer, ...(config.multiAnswerMC ? pair.equivalentAnswers.slice(0, 1) : [])]) {
+        const norm = normalizeAnswer(a);
+        if (!norm || correctSeen.has(norm)) continue;
+        correctSeen.add(norm);
+        correctAnswers.push(a);
+      }
+      const reservedCorrect = correctAnswers.slice(0, 4);
+      const wrongOptions = shuffleArray(wrongPool).slice(0, Math.max(0, 4 - reservedCorrect.length));
+      const allOptions = shuffleArray([...reservedCorrect, ...wrongOptions]);
       const labels = ['a', 'b', 'c', 'd'];
 
-      // Find correct letters
+      // Find correct letters (key text is derived from the finalized option array)
       const correctLetters: string[] = [];
-      const correctNorm = correctAnswers.map((a) => a.toLowerCase().trim());
+      const correctNorm = reservedCorrect.map((a) => normalizeAnswer(a));
 
       allOptions.forEach((opt, oi) => {
         y = checkPage(doc, y, 7);
@@ -292,7 +327,7 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
         doc.circle(26, y - 1.2, 2);
         doc.text(`${labels[oi]})  ${opt}`, 30, y);
 
-        if (correctNorm.includes(opt.toLowerCase().trim())) {
+        if (correctNorm.includes(normalizeAnswer(opt))) {
           correctLetters.push(labels[oi]);
         }
         y += 5.5;
@@ -309,10 +344,21 @@ export async function generateTestPDF(set: StudySet, config: PDFConfig) {
 
     } else if (qType === 'true-false') {
       y = checkPage(doc, y, 22);
-      const isTrue = Math.random() > 0.5;
-      const shownAnswer = isTrue
-        ? pair.answer
-        : shuffleArray(pairs.filter((_, idx) => idx !== i).map((p) => p.answer))[0] ?? pair.answer;
+      let isTrue = Math.random() > 0.5;
+      let shownAnswer = pair.answer;
+      if (!isTrue) {
+        // Pick another pair's answer that is genuinely different from the correct
+        // one. If none exists (count === 1, or all answers normalize-equal), the
+        // "false" statement would actually be true — so flip to a true statement
+        // to keep the answer key consistent (L19).
+        const alt = shuffleArray(pairs.filter((_, idx) => idx !== i).map((p) => p.answer))
+          .find((a) => normalizeAnswer(a) !== normalizeAnswer(pair.answer));
+        if (alt) {
+          shownAnswer = alt;
+        } else {
+          isTrue = true;
+        }
+      }
 
       doc.setFontSize(10);
       doc.setFont(FONT_NAME, 'bold');
@@ -386,8 +432,8 @@ export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) 
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
   const shuffledAnswers = shuffleArray(pairs.map((p, i) => ({ answer: p.answer, origIdx: i, images: p.answerImages })));
-  const groups = buildEquivalenceGroups(set.cards);
 
   let y = header(doc, 'Line Matching Worksheet', set.title);
 
@@ -423,7 +469,7 @@ export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) 
     doc.text(leftLines, 15, y);
 
     // Right: lettered answer (shuffled)
-    const letter = String.fromCharCode(65 + i);
+    const letter = columnLabel(i);
     const rightLines = wrapText(doc, `${letter}. ${shuffledAnswers[i].answer}`, 70);
     doc.text(rightLines, 125, y);
 
@@ -463,13 +509,13 @@ export async function generateLineMatchingPDF(set: StudySet, config: PDFConfig) 
   pairs.forEach((pair, i) => {
     y = checkPage(doc, y, 7);
     const matchIdx = shuffledAnswers.findIndex((s) => s.origIdx === i);
-    const letter = String.fromCharCode(65 + matchIdx);
+    const letter = columnLabel(matchIdx);
 
     // Check for equivalent matches
     const eqLetters: string[] = [];
     shuffledAnswers.forEach((s, si) => {
       if (si !== matchIdx && pair.equivalentAnswers.includes(s.answer)) {
-        eqLetters.push(String.fromCharCode(65 + si));
+        eqLetters.push(columnLabel(si));
       }
     });
 
@@ -492,6 +538,7 @@ export async function generateFlashcardsPDF(set: StudySet, config: PDFConfig) {
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
 
   const cols = 2;
   const rows = 4;
@@ -610,6 +657,7 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
 
   const cols = 3;
   const tileW = (180 - 3 * 2) / cols; // ~58mm
@@ -638,7 +686,6 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
 
   let y = 33;
   let col = 0;
-  let row = 0;
 
   tiles.forEach((tile) => {
     if (col === 0) y = checkPage(doc, y, tileH + gapY);
@@ -697,7 +744,6 @@ export async function generateMatchingGamePDF(set: StudySet, config: PDFConfig) 
     col++;
     if (col >= cols) {
       col = 0;
-      row++;
       y += tileH + gapY;
     }
   });
@@ -724,6 +770,7 @@ export async function generateCutAndGluePDF(set: StudySet, config: PDFConfig) {
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
 
   // Section 1: Definition sheet with glue spaces
   let y = header(doc, 'Cut & Glue Activity', set.title);
@@ -891,6 +938,7 @@ export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   await registerUnicodeFont(doc);
   const pairs = buildPairs(set, config);
+  if (pairs.length === 0) return;
 
   const marginX = 12;
   const contentW = 210 - marginX * 2; // 186mm
@@ -925,7 +973,7 @@ export async function generateLiftTheFlapPDF(set: StudySet, config: PDFConfig) {
       doc.rect(marginX, y, contentW, cellH);
 
       // Glue strip (right side)
-      doc.setFillColor(230);
+      doc.setFillColor(230, 230, 230);
       doc.rect(marginX + contentW - glueStripW, y, glueStripW, cellH, 'F');
       doc.setDrawColor(180);
       doc.line(marginX + contentW - glueStripW, y, marginX + contentW - glueStripW, y + cellH);

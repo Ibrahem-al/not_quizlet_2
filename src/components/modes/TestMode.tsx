@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card, QuestionType, AnswerDirection, TestConfig } from '@/types';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +18,7 @@ import StudyContent from '@/components/StudyContent';
 interface TestModeProps {
   cards: Card[];
   setId: string;
+  exitUrl?: string;
 }
 
 type Phase = 'config' | 'test' | 'results';
@@ -70,10 +71,12 @@ function buildTestQuestions(
     if (type === 'multiple-choice') {
       if (config.multiAnswerMC) {
         // Multi-answer MC: pick 2-3 correct answers from equivalents
+        const answerSide = isReverse ? 'term' : 'definition';
         const allCorrect = isReverse ? [card.term] : getEquivalentAnswers(card, 'definition', groups);
-        const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
-          : getWrongOptionPool(card, cards, groups);
+        const correctSet = new Set(allCorrect.map(normalizeAnswer));
+        const wrongPool = getWrongOptionPool(card, cards, groups, answerSide).filter(
+          (opt) => !correctSet.has(normalizeAnswer(opt)),
+        );
         const wrongs = shuffleArray(wrongPool).slice(0, Math.max(1, 4 - allCorrect.length));
         const multiCorrect = allCorrect.slice(0, Math.min(3, allCorrect.length));
         const multiOptions = shuffleArray([...multiCorrect, ...wrongs]);
@@ -86,10 +89,14 @@ function buildTestQuestions(
           multiCorrect,
         });
       } else {
+        // M6: draw distractors from the side being answered, and never let a
+        // distractor equal (or duplicate) the correct answer.
+        const answerSide = isReverse ? 'term' : 'definition';
         const correctDef = isReverse ? card.term : card.definition;
-        const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
-          : getWrongOptionPool(card, cards, groups);
+        const correctSet = new Set(correctAnswers.map(normalizeAnswer));
+        const wrongPool = getWrongOptionPool(card, cards, groups, answerSide).filter(
+          (opt) => !correctSet.has(normalizeAnswer(opt)),
+        );
         const wrongs = shuffleArray(wrongPool).slice(0, 3);
         if (wrongs.length < 1) {
           // Fall back to written
@@ -100,12 +107,16 @@ function buildTestQuestions(
         questions.push({ card, type: 'multiple-choice', promptHtml, correctAnswers, options });
       }
     } else if (type === 'true-false') {
+      // M6: the "false" candidate comes from the answer side, excluding the
+      // correct answer(s), so a False statement can never actually be true.
+      const answerSide = isReverse ? 'term' : 'definition';
       const isCorrect = Math.random() > 0.5;
       let shownDef = isReverse ? card.term : card.definition;
       if (!isCorrect) {
-        const wrongPool = isReverse
-          ? cards.filter((c) => c.id !== card.id).map((c) => c.term)
-          : getWrongOptionPool(card, cards, groups);
+        const correctSet = new Set(correctAnswers.map(normalizeAnswer));
+        const wrongPool = getWrongOptionPool(card, cards, groups, answerSide).filter(
+          (opt) => !correctSet.has(normalizeAnswer(opt)),
+        );
         if (wrongPool.length > 0) {
           shownDef = shuffleArray(wrongPool)[0];
         }
@@ -116,8 +127,11 @@ function buildTestQuestions(
         promptHtml,
         correctAnswers,
         tfPair: {
-          term: isReverse ? card.definition : card.term,
-          definition: shownDef,
+          // M20: tfPair.term always holds a term and tfPair.definition always
+          // holds a definition, so the "Term:"/"Definition:" labels match the
+          // content even in the def-to-term (reverse) direction.
+          term: isReverse ? shownDef : card.term,
+          definition: isReverse ? card.definition : shownDef,
           isCorrect: isCorrect || correctAnswers.some((a) => normalizeAnswer(a) === normalizeAnswer(shownDef)),
         },
       });
@@ -380,15 +394,18 @@ function ResultsScreen({
   questions,
   answers,
   setId,
+  exitUrl,
   onRestart,
 }: {
   questions: TestQuestion[];
   answers: (boolean | null)[];
   setId: string;
+  exitUrl?: string;
   onRestart: () => void;
 }) {
   const navigate = useNavigate();
   const filterStore = useFilterStore();
+  const exitTo = exitUrl ?? `/sets/${setId}`;
 
   const correctCount = answers.filter((a) => a === true).length;
   const total = questions.length;
@@ -412,7 +429,8 @@ function ResultsScreen({
 
   const handleStudyMissed = () => {
     const ids = missedCards.map((c) => c.id);
-    filterStore.setFilteredCardIds(ids);
+    // CONTRACT C: scope the stored filter to this set id.
+    filterStore.setFilteredCardIds(ids, setId);
     navigate(`/sets/${setId}/study/flashcards`);
   };
 
@@ -525,7 +543,9 @@ function ResultsScreen({
         )}
 
         <div className="flex gap-3 justify-center flex-wrap">
-          {missedCards.length > 0 && (
+          {/* "Study Missed" routes into a private /sets/.../study URL, so it is
+              only offered to owners (no exitUrl); shared viewers never see it. */}
+          {!exitUrl && missedCards.length > 0 && (
             <Button variant="primary" onClick={handleStudyMissed}>
               Study Missed Cards
             </Button>
@@ -533,7 +553,7 @@ function ResultsScreen({
           <Button variant="outline" onClick={onRestart}>
             Retake Test
           </Button>
-          <Button variant="ghost" onClick={() => navigate(`/sets/${setId}`)}>
+          <Button variant="ghost" onClick={() => navigate(exitTo)}>
             Exit
           </Button>
         </div>
@@ -544,13 +564,14 @@ function ResultsScreen({
 
 // --- Main TestMode ---
 
-function TestMode({ cards, setId }: TestModeProps) {
+function TestMode({ cards, setId, exitUrl }: TestModeProps) {
   const navigate = useNavigate();
+  const exitTo = exitUrl ?? `/sets/${setId}`;
   const updateSet = useSetStore((s) => s.updateSet);
   const sets = useSetStore((s) => s.sets);
 
   const [phase, setPhase] = useState<Phase>('config');
-  const [config, setConfig] = useState<TestConfig | null>(null);
+  const [, setConfig] = useState<TestConfig | null>(null);
   const [questions, setQuestions] = useState<TestQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<(boolean | null)[]>([]);
@@ -562,6 +583,13 @@ function TestMode({ cards, setId }: TestModeProps) {
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
 
   const currentQuestion = questions[currentIndex];
+
+  const resetQuestionState = () => {
+    setUserAnswer('');
+    setSelectedOption(null);
+    setSelectedMulti(new Set());
+    setFeedback(null);
+  };
 
   const handleStart = useCallback(
     (cfg: TestConfig) => {
@@ -575,13 +603,6 @@ function TestMode({ cards, setId }: TestModeProps) {
     },
     [cards],
   );
-
-  const resetQuestionState = () => {
-    setUserAnswer('');
-    setSelectedOption(null);
-    setSelectedMulti(new Set());
-    setFeedback(null);
-  };
 
   const recordResult = useCallback(
     (isCorrect: boolean) => {
@@ -682,6 +703,7 @@ function TestMode({ cards, setId }: TestModeProps) {
         questions={questions}
         answers={answers}
         setId={setId}
+        exitUrl={exitUrl}
         onRestart={() => {
           setPhase('config');
           resetQuestionState();
@@ -698,7 +720,7 @@ function TestMode({ cards, setId }: TestModeProps) {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
           Exit
         </Button>
         <span

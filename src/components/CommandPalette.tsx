@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,10 +21,18 @@ interface FlattenedSet {
 }
 
 const MAX_RESULTS = 8;
+const MAX_SEARCH_RESULTS = 20;
 
 function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { sets } = useSetStore();
+  const [query, setQuery] = useState('');
+
+  // Reset the search when the palette closes so it reopens clean.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentionally clear the query when the controlled palette closes
+    if (!isOpen) setQuery('');
+  }, [isOpen]);
 
   const flatSets = useMemo<FlattenedSet[]>(
     () =>
@@ -61,6 +69,24 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         .slice(0, MAX_RESULTS),
     [sets],
   );
+
+  const setById = useMemo(
+    () => new Map(sets.map((s) => [s.id, s] as const)),
+    [sets],
+  );
+
+  // When searching, cmdk can only score items that are actually rendered, so
+  // drive the visible list from Fuse (which indexes the WHOLE library) rather
+  // than the 8 recents. Fall back to recents when the query is empty.
+  const trimmedQuery = query.trim();
+  const displayedSets = useMemo(() => {
+    if (!trimmedQuery) return recentSets;
+    return fuse
+      .search(trimmedQuery)
+      .slice(0, MAX_SEARCH_RESULTS)
+      .map((r) => setById.get(r.item.id))
+      .filter((s): s is StudySet => s != null);
+  }, [trimmedQuery, fuse, recentSets, setById]);
 
   const handleSelect = useCallback(
     (setId: string) => {
@@ -107,14 +133,9 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           >
             <Command
               label="Search study sets"
+              shouldFilter={false}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') onClose();
-              }}
-              filter={(value, search) => {
-                if (!search) return 1;
-                const results = fuse.search(search);
-                const match = results.find((r) => r.item.id === value);
-                return match ? 1 - (match.score ?? 0) : 0;
               }}
             >
               <div
@@ -123,6 +144,8 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               >
                 <Search size={18} style={{ color: 'var(--color-text-tertiary)' }} />
                 <Command.Input
+                  value={query}
+                  onValueChange={setQuery}
                   placeholder="Search sets, tags, terms..."
                   className="flex-1 h-12 text-base bg-transparent outline-none"
                   style={{
@@ -156,6 +179,7 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                   </p>
                 </Command.Empty>
 
+                {!trimmedQuery && (
                 <Command.Group
                   heading={
                     <span
@@ -221,19 +245,20 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                     </kbd>
                   </Command.Item>
                 </Command.Group>
+                )}
 
-                {sets.length > 0 && (
+                {displayedSets.length > 0 && (
                   <Command.Group
                     heading={
                       <span
                         className="text-xs font-semibold uppercase tracking-wider px-2"
                         style={{ color: 'var(--color-text-tertiary)' }}
                       >
-                        Study Sets
+                        {trimmedQuery ? 'Search Results' : 'Study Sets'}
                       </span>
                     }
                   >
-                    {recentSets.map((set: StudySet) => (
+                    {displayedSets.map((set: StudySet) => (
                       <Command.Item
                         key={set.id}
                         value={set.id}

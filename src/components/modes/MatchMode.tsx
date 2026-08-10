@@ -10,7 +10,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { shuffleArray, normalizeAnswer, formatTime, fairRepeatCards } from '@/lib/utils';
@@ -21,6 +21,7 @@ import StudyContent from '@/components/StudyContent';
 interface MatchModeProps {
   cards: Card[];
   setId: string;
+  exitUrl?: string;
 }
 
 interface Tile {
@@ -91,8 +92,9 @@ function DraggableDroppableTile({
   );
 }
 
-function MatchMode({ cards, setId }: MatchModeProps) {
+function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
   const navigate = useNavigate();
+  const exitTo = exitUrl ?? `/sets/${setId}`;
 
   const [pairCount, setPairCount] = useState(Math.min(6, cards.length));
   const [phase, setPhase] = useState<'setup' | 'playing' | 'complete'>('setup');
@@ -180,8 +182,8 @@ function MatchMode({ cards, setId }: MatchModeProps) {
     [timerRunning],
   );
 
-  const handleDragOver = useCallback((event: { over: { id: string } | null }) => {
-    setOverId((event.over?.id as string) ?? null);
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    setOverId(event.over ? String(event.over.id) : null);
   }, []);
 
   const handleDragEnd = useCallback(
@@ -276,7 +278,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
             <Button variant="primary" className="flex-1" onClick={startGame}>
               Start Game
             </Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
+            <Button variant="outline" onClick={() => navigate(exitTo)}>
               Exit
             </Button>
           </div>
@@ -308,7 +310,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
           <div className="flex gap-3 justify-center">
             <Button variant="primary" onClick={startGame}>Play Again</Button>
             <Button variant="outline" onClick={() => setPhase('setup')}>Change Settings</Button>
-            <Button variant="ghost" onClick={() => navigate(`/sets/${setId}`)}>Exit</Button>
+            <Button variant="ghost" onClick={() => navigate(exitTo)}>Exit</Button>
           </div>
         </motion.div>
       </div>
@@ -320,7 +322,7 @@ function MatchMode({ cards, setId }: MatchModeProps) {
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
           Exit
         </Button>
         <span className="text-sm font-medium font-mono" style={{ color: 'var(--color-text-secondary)' }}>

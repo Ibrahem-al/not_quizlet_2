@@ -6,7 +6,7 @@ export function useCommandPalette() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // Ctrl+K or Cmd+K
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsOpen((prev) => !prev);
         return;

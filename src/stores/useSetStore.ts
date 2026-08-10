@@ -172,31 +172,52 @@ export const useSetStore = create<SetStore>((set, get) => ({
       }
       if (user) {
         try {
-          const merged = await pullSetsFromCloud(user.id, get().sets);
-          // Merge cloud results into current store instead of replacing.
-          // This prevents overwriting sets that were added or edited
-          // (via debounce save) during the async cloud pull.
+          // Pass ALL local sets — including hidden legacy-share duplicates —
+          // so the sync merge can preserve their hidden markers instead of
+          // resurrecting them (they are absent from get().sets).
+          const localForPull = await getAllSets();
+          const merged = await pullSetsFromCloud(user.id, localForPull);
+
+          // Recompute the merge against the freshest store state at commit
+          // time (no awaits between read and commit) so sets added or edited
+          // via debounce save during the async pull are not clobbered.
           const currentSets = get().sets;
           const currentMap = new Map(currentSets.map((s) => [s.id, s]));
-          const newSets = [...currentSets];
+          const nextById = new Map(currentSets.map((s) => [s.id, s]));
+          const writes: StudySet[] = [];
 
           for (const s of merged) {
             const existing = currentMap.get(s.id);
             if (!existing) {
-              // Cloud-only set not yet in store — add it
-              newSets.push(s);
-              await saveSet(s);
-            } else if (s.updatedAt > existing.updatedAt || s.userId !== existing.userId) {
-              // Cloud version is newer, or it carries ownership metadata
-              // that the local offline-first copy never persisted.
-              const idx = newSets.findIndex((x) => x.id === s.id);
-              if (idx !== -1) newSets[idx] = s;
-              await saveSet(s);
+              // Not currently in the visible store (new cloud set, or a hidden
+              // set that lives only in IndexedDB). Adopt it — hidden ones are
+              // filtered out below but their markers are persisted via saveSet.
+              nextById.set(s.id, s);
+              writes.push(s);
+            } else if (s.updatedAt > existing.updatedAt) {
+              // Merged copy is strictly newer → adopt it (last-writer-wins).
+              nextById.set(s.id, s);
+              writes.push(s);
+            } else if (s.userId && existing.userId !== s.userId) {
+              // Only ownership metadata differs and the local copy is
+              // newer/equal: keep the newer local content (so a concurrent card
+              // edit is preserved instead of overwritten) but adopt the cloud
+              // userId, and the cloud share token when local has none (H1).
+              const patched = {
+                ...existing,
+                userId: s.userId,
+                shareToken: existing.shareToken ?? s.shareToken,
+              };
+              nextById.set(s.id, patched);
+              writes.push(patched);
             }
-            // If local is newer or equal, skip — don't overwrite
+            // Otherwise local is newer/equal with matching userId → keep as-is.
           }
 
-          set({ sets: sortSets(newSets.filter(isSetVisible)) });
+          set({ sets: sortSets([...nextById.values()].filter(isSetVisible)) });
+
+          // Persist to IndexedDB outside the state-commit critical section.
+          await Promise.all(writes.map((s) => saveSet(s)));
         } catch {
           // Silent — offline-first, local sets already displayed
         }

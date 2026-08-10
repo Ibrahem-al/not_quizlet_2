@@ -53,6 +53,94 @@ const DIRECTION_LABELS: { value: AnswerDirection; label: string; helper: string 
   { value: 'both', label: 'Both', helper: 'Each item randomly picks which side is the prompt.' },
 ];
 
+// Hoisted to module scope so their component identity is stable across renders.
+// (Declaring them inside PrintDialog remounted the subtree on every keystroke,
+// which blurred the number <input> after each digit. — M8)
+
+function Stepper({ value, onChange, min, max }: { value: number; onChange: (v: number) => void; min: number; max: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => onChange(Math.max(min, value - 1))}
+        disabled={value <= min}
+        className="flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer transition-colors"
+        style={{ background: 'var(--color-muted)', border: 'none', color: 'var(--color-text)', opacity: value <= min ? 0.3 : 1 }}
+      >
+        <Minus size={14} />
+      </button>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
+        }}
+        className="w-16 text-center text-sm font-medium rounded-lg"
+        style={{ background: 'var(--color-muted)', border: '1px solid var(--color-border)', color: 'var(--color-text)', padding: '6px 4px', fontFamily: 'var(--font-sans)' }}
+        min={min}
+        max={max}
+      />
+      <button
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+        className="flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer transition-colors"
+        style={{ background: 'var(--color-muted)', border: 'none', color: 'var(--color-text)', opacity: value >= max ? 0.3 : 1 }}
+      >
+        <Plus size={14} />
+      </button>
+    </div>
+  );
+}
+
+function PresetButtons({ presets: items, current, onSelect }: { presets: { label: string; value: number }[]; current: number; onSelect: (v: number) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {items.map((p) => (
+        <button
+          key={p.label}
+          onClick={() => onSelect(p.value)}
+          className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all"
+          style={{
+            background: current === p.value ? 'var(--color-primary)' : 'transparent',
+            color: current === p.value ? 'white' : 'var(--color-text-secondary)',
+            border: current === p.value ? 'none' : '1px solid var(--color-border)',
+          }}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DirectionToggle({ value, onChange, helper }: { value: AnswerDirection; onChange: (v: AnswerDirection) => void; helper: string }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+        Answer Direction
+      </label>
+      <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--color-border)' }}>
+        {DIRECTION_LABELS.map((d) => (
+          <button
+            key={d.value}
+            onClick={() => onChange(d.value)}
+            className="flex-1 px-3 py-2 text-xs font-medium cursor-pointer transition-all"
+            style={{
+              background: value === d.value ? 'var(--color-primary)' : 'transparent',
+              color: value === d.value ? 'white' : 'var(--color-text)',
+              border: 'none',
+              borderRight: '1px solid var(--color-border)',
+            }}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs mt-1.5" style={{ color: 'var(--color-text-tertiary)' }}>{helper}</p>
+    </div>
+  );
+}
+
 export function PrintDialog({ isOpen, onClose, set }: PrintDialogProps) {
   const [view, setView] = useState<'picker' | 'test-config'>('picker');
   const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
@@ -126,87 +214,6 @@ export function PrintDialog({ isOpen, onClose, set }: PrintDialogProps) {
       multiAnswerMC,
     });
   }, [testDirection, questionCount, writtenEnabled, mcEnabled, tfEnabled, multiAnswerMC, handleGenerate]);
-
-  // Stepper component
-  const Stepper = ({ value, onChange, min, max }: { value: number; onChange: (v: number) => void; min: number; max: number }) => (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => onChange(Math.max(min, value - 1))}
-        disabled={value <= min}
-        className="flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer transition-colors"
-        style={{ background: 'var(--color-muted)', border: 'none', color: 'var(--color-text)', opacity: value <= min ? 0.3 : 1 }}
-      >
-        <Minus size={14} />
-      </button>
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => {
-          const n = parseInt(e.target.value, 10);
-          if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
-        }}
-        className="w-16 text-center text-sm font-medium rounded-lg"
-        style={{ background: 'var(--color-muted)', border: '1px solid var(--color-border)', color: 'var(--color-text)', padding: '6px 4px', fontFamily: 'var(--font-sans)' }}
-        min={min}
-        max={max}
-      />
-      <button
-        onClick={() => onChange(Math.min(max, value + 1))}
-        disabled={value >= max}
-        className="flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer transition-colors"
-        style={{ background: 'var(--color-muted)', border: 'none', color: 'var(--color-text)', opacity: value >= max ? 0.3 : 1 }}
-      >
-        <Plus size={14} />
-      </button>
-    </div>
-  );
-
-  // Preset buttons component
-  const PresetButtons = ({ presets: items, current, onSelect }: { presets: { label: string; value: number }[]; current: number; onSelect: (v: number) => void }) => (
-    <div className="flex flex-wrap gap-1.5 mt-2">
-      {items.map((p) => (
-        <button
-          key={p.label}
-          onClick={() => onSelect(p.value)}
-          className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all"
-          style={{
-            background: current === p.value ? 'var(--color-primary)' : 'transparent',
-            color: current === p.value ? 'white' : 'var(--color-text-secondary)',
-            border: current === p.value ? 'none' : '1px solid var(--color-border)',
-          }}
-        >
-          {p.label}
-        </button>
-      ))}
-    </div>
-  );
-
-  // Direction toggle
-  const DirectionToggle = ({ value, onChange, helper }: { value: AnswerDirection; onChange: (v: AnswerDirection) => void; helper: string }) => (
-    <div>
-      <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-        Answer Direction
-      </label>
-      <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--color-border)' }}>
-        {DIRECTION_LABELS.map((d) => (
-          <button
-            key={d.value}
-            onClick={() => onChange(d.value)}
-            className="flex-1 px-3 py-2 text-xs font-medium cursor-pointer transition-all"
-            style={{
-              background: value === d.value ? 'var(--color-primary)' : 'transparent',
-              color: value === d.value ? 'white' : 'var(--color-text)',
-              border: 'none',
-              borderRight: '1px solid var(--color-border)',
-            }}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-xs mt-1.5" style={{ color: 'var(--color-text-tertiary)' }}>{helper}</p>
-    </div>
-  );
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="lg">

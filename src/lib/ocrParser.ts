@@ -12,12 +12,17 @@ export function parseOCRText(
 
   if (lines.length === 0) return [];
 
-  // 1. Try numbered list: "1. term - definition" or "1) term - definition"
-  const numberedRegex = /^\d+[.)]\s*(.+?)\s*[-–:]\s*(.+)$/;
+  // 1. Try numbered list: "1. term - definition" or "1) term - definition".
+  // Strip the number prefix, then split on the first space-delimited separator
+  // so hyphens/colons inside the term (e-mail, x-ray, ratio a:b) don't mis-split.
+  const numberedRegex = /^\d+[.)]\s*(.+)$/;
   const numberedPairs = lines
-    .map((line) => numberedRegex.exec(line))
-    .filter((m): m is RegExpExecArray => m !== null)
-    .map((m) => ({ term: m[1].trim(), definition: m[2].trim() }));
+    .map((line) => {
+      const m = numberedRegex.exec(line);
+      if (!m) return null;
+      return splitTermDefinition(m[1]);
+    })
+    .filter((p): p is { term: string; definition: string } => p !== null);
 
   if (numberedPairs.length >= 2) {
     return filterValid(numberedPairs);
@@ -41,33 +46,7 @@ export function parseOCRText(
 
   // 3. Try dash or colon separated: "term - definition" or "term: definition"
   const separatorPairs = lines
-    .map((line) => {
-      // Try " - " first (with spaces around dash to avoid splitting hyphenated words)
-      const dashIndex = line.indexOf(' - ');
-      if (dashIndex > 0) {
-        return {
-          term: line.slice(0, dashIndex).trim(),
-          definition: line.slice(dashIndex + 3).trim(),
-        };
-      }
-      // Try en-dash
-      const enDashIndex = line.indexOf(' – ');
-      if (enDashIndex > 0) {
-        return {
-          term: line.slice(0, enDashIndex).trim(),
-          definition: line.slice(enDashIndex + 3).trim(),
-        };
-      }
-      // Try colon
-      const colonIndex = line.indexOf(': ');
-      if (colonIndex > 0) {
-        return {
-          term: line.slice(0, colonIndex).trim(),
-          definition: line.slice(colonIndex + 2).trim(),
-        };
-      }
-      return null;
-    })
+    .map((line) => splitTermDefinition(line))
     .filter((p): p is { term: string; definition: string } => p !== null);
 
   if (separatorPairs.length >= 1) {
@@ -75,6 +54,41 @@ export function parseOCRText(
   }
 
   return [];
+}
+
+/**
+ * Splits a line into term/definition on the first space-delimited separator.
+ * Requires spaces around the dash (" - ", " – ") or a ": " colon so hyphenated
+ * or colon-bearing terms (e-mail, x-ray, ratio a:b) are not split mid-term.
+ */
+function splitTermDefinition(
+  text: string
+): { term: string; definition: string } | null {
+  // Try " - " first (spaces around the dash avoid splitting hyphenated words)
+  const dashIndex = text.indexOf(' - ');
+  if (dashIndex > 0) {
+    return {
+      term: text.slice(0, dashIndex).trim(),
+      definition: text.slice(dashIndex + 3).trim(),
+    };
+  }
+  // Try en-dash
+  const enDashIndex = text.indexOf(' – ');
+  if (enDashIndex > 0) {
+    return {
+      term: text.slice(0, enDashIndex).trim(),
+      definition: text.slice(enDashIndex + 3).trim(),
+    };
+  }
+  // Try colon ("term: definition")
+  const colonIndex = text.indexOf(': ');
+  if (colonIndex > 0) {
+    return {
+      term: text.slice(0, colonIndex).trim(),
+      definition: text.slice(colonIndex + 2).trim(),
+    };
+  }
+  return null;
 }
 
 function filterValid(

@@ -56,26 +56,35 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       if (user) {
         try {
           const merged = await pullFoldersFromCloud(user.id, get().folders);
-          // Merge cloud results into current store instead of replacing.
-          // Prevents overwriting folders added or edited during the async pull.
+
+          // Recompute the merge against the freshest store state at commit
+          // time (no awaits between read and commit) so folders added, renamed
+          // or removed during the async pull are not clobbered by a stale
+          // pre-loop snapshot.
           const currentFolders = get().folders;
           const currentMap = new Map(currentFolders.map((f) => [f.id, f]));
-          const newFolders = [...currentFolders];
+          const nextById = new Map(currentFolders.map((f) => [f.id, f]));
+          const writes: Folder[] = [];
 
           for (const f of merged) {
             const existing = currentMap.get(f.id);
             if (!existing) {
-              newFolders.push(f);
-              await saveFolder(f);
+              nextById.set(f.id, f);
+              writes.push(f);
             } else if (f.updatedAt > existing.updatedAt) {
-              const idx = newFolders.findIndex((x) => x.id === f.id);
-              if (idx !== -1) newFolders[idx] = f;
-              await saveFolder(f);
+              nextById.set(f.id, f);
+              writes.push(f);
             }
           }
 
-          newFolders.sort((a, b) => b.updatedAt - a.updatedAt);
-          set({ folders: newFolders });
+          set({
+            folders: [...nextById.values()].sort(
+              (a, b) => b.updatedAt - a.updatedAt,
+            ),
+          });
+
+          // Persist to IndexedDB outside the state-commit critical section.
+          await Promise.all(writes.map((f) => saveFolder(f)));
         } catch {
           // Silent — offline-first, local folders already displayed
         }

@@ -1,0 +1,1359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>StudyFlow — Security Assessment (STIG / CIS v8 / OWASP Top 10)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1c2230;
+    --border: #2a3140;
+    --text: #e6e9ef;
+    --muted: #9aa3b2;
+    --accent: #6366f1;
+    --pass: #22c55e;
+    --partial: #f59e0b;
+    --fail: #ef4444;
+    --na: #6b7280;
+    --code-bg: #0b0d12;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f7fb;
+      --panel: #ffffff;
+      --panel-2: #f1f2f7;
+      --border: #e2e5ec;
+      --text: #1a1d24;
+      --muted: #5b6270;
+      --code-bg: #f2f3f7;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.top {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+  }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 20px;
+    margin: 56px 0 12px;
+    padding-top: 16px;
+    border-top: 3px solid var(--accent);
+  }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 24px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .meta b { color: var(--text); font-weight: 600; }
+  code, pre { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 6px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* Framework banner */
+  .fw-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .fw-badge {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* Test card */
+  .test {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 14px 0 0;
+    position: relative;
+  }
+  .test + .test { margin-top: 22px; }
+  .test-sep {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 32px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .test-sep::before,
+  .test-sep::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .test-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }
+  .test-title { font-size: 16px; font-weight: 600; margin: 0; }
+  .test-title .num {
+    display: inline-block;
+    min-width: 42px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 14px;
+    row-gap: 4px;
+    margin: 8px 0 4px;
+    font-size: 13.5px;
+  }
+  .kv dt { color: var(--muted); font-weight: 600; }
+  .kv dd { margin: 0; }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 12px 0 4px;
+  }
+
+  /* Risk chip */
+  .risk {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .risk.pass    { background: var(--pass); }
+  .risk.partial { background: var(--partial); color: #1a1d24; }
+  .risk.fail    { background: var(--fail); }
+  .risk.na      { background: var(--na); }
+
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 12px 0 28px;
+    columns: 2;
+    column-gap: 24px;
+  }
+  .toc a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--border); }
+  .toc a:hover { border-color: var(--accent); }
+  .toc li { break-inside: avoid; margin: 4px 0; font-size: 13.5px; }
+  .toc ul { padding-left: 18px; margin: 4px 0; }
+
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .summary-table th, .summary-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .summary-table th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .summary-table tr:last-child td { border-bottom: 0; }
+
+  .callout {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 10px 0;
+    font-size: 13.5px;
+  }
+  .callout.warn { background: color-mix(in srgb, var(--fail) 10%, transparent); border-left-color: var(--fail); }
+  .callout.caveat { background: color-mix(in srgb, var(--partial) 12%, transparent); border-left-color: var(--partial); }
+
+  @media (max-width: 720px) {
+    .toc { columns: 1; }
+    .kv { grid-template-columns: 1fr; }
+    .kv dt { margin-top: 6px; }
+  }
+  @media print {
+    body { background: #fff; color: #000; font-size: 11pt; }
+    .test { break-inside: avoid; page-break-inside: avoid; }
+    a { color: #000; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>StudyFlow — Security Assessment</h1>
+  <p class="muted" style="margin:4px 0 0">
+    Application security review against three frameworks: DISA STIG (Application Security &amp; Development V4R9),
+    CIS Critical Security Controls v8, and OWASP Top 10 (2021).
+  </p>
+  <dl class="meta">
+    <div><b>Target application:</b> StudyFlow (React 19 SPA)</div>
+    <div><b>Repository:</b> github.com/Ibrahem-al/not_quizlet_2</div>
+    <div><b>Hosting:</b> Vercel (static SPA)</div>
+    <div><b>Backend:</b> Supabase (Postgres + Auth + Storage)</div>
+    <div><b>Commit tested:</b> <code>c445233</code> on <code>master</code></div>
+    <div><b>Assessment date:</b> 2026-04-24</div>
+    <div><b>Reviewer:</b> Automated code/config review (Claude)</div>
+    <div><b>Method:</b> Static source review + config inspection + dependency audit</div>
+  </dl>
+
+  <div class="callout">
+    <b>How to read this report.</b> Each framework section contains numbered tests. Every test lists
+    <i>Source, Control ID, Category, Control Description, Procedure (what I did), Evidence (what I observed),
+    Findings, Recommendations, and Risk Level</i> — the same fields as the assessor worksheet template, but
+    rendered as a compact ordered list instead of a repeated table. Tests are divided by a horizontal separator.
+    Risk levels: <span class="risk pass">Pass</span> <span class="risk partial">Partial</span>
+    <span class="risk fail">Fail</span> <span class="risk na">N/A</span>.
+  </div>
+
+  <div class="callout caveat">
+    <b>Important caveats.</b>
+    (1) This is a <b>source-code and configuration review</b>. No dynamic penetration testing, credential spraying,
+    or live exploit attempts were performed against the production deployment.
+    (2) Supabase-managed infrastructure (TLS, DB encryption-at-rest, auth token signing) was <i>not</i> audited
+    inside Supabase's console — findings about those rely on Supabase's documented defaults.
+    (3) STIG ASD V4R9 targets DoD systems; many controls are applied here as <i>industry best-practice analogs</i>,
+    since StudyFlow is a consumer study app (not a DoD ATO candidate). Controls that clearly don't apply
+    (e.g., SOAP signing, data marking for classified data, CAC auth) are omitted rather than marked N/A.
+    (4) No third security framework was supplied in <code>security/</code>; <b>OWASP Top 10 (2021)</b> was selected as the third
+    because it is the de-facto web-application baseline and complements STIG (DoD-flavored) and CIS (enterprise-flavored).
+  </div>
+
+  <h3>Scope of evidence gathered</h3>
+  <ul>
+    <li>Source tree: <code>src/</code>, <code>supabase/migrations/*.sql</code>, <code>vercel.json</code>, <code>index.html</code>, <code>package.json</code>, <code>.env.example</code>, <code>.gitignore</code>.</li>
+    <li>Auth flows: <code>src/pages/auth/{SignUp,SignIn,ForgotPassword,ResetPassword,AccountSettings}Page.tsx</code>, <code>src/stores/useAuthStore.ts</code>, <code>src/lib/supabase.ts</code>.</li>
+    <li>Data layer: <code>src/lib/cloudSync.ts</code>, Dexie IndexedDB via <code>src/db/</code>, RLS policies in migrations 001–004.</li>
+    <li>Rendering surface: <code>src/components/StudyContent.tsx</code>, <code>src/components/EditableCard.tsx</code>, <code>src/lib/pdfGenerator.ts</code>, <code>src/lib/utils.ts</code>.</li>
+    <li>Dependency posture: <code>npm audit --omit=dev</code> output captured below (recorded 2026-04-24).</li>
+  </ul>
+
+  <h3>Summary of results</h3>
+  <table class="summary-table">
+    <thead><tr><th>Framework</th><th>Tests</th><th>Pass</th><th>Partial</th><th>Fail</th><th>N/A</th></tr></thead>
+    <tbody>
+      <tr><td>STIG ASD V4R9</td><td>8</td><td>3</td><td>1</td><td>3</td><td>1</td></tr>
+      <tr><td>CIS Controls v8</td><td>8</td><td>1</td><td>4</td><td>3</td><td>0</td></tr>
+      <tr><td>OWASP Top 10 (2021)</td><td>10</td><td>0</td><td>6</td><td>3</td><td>1</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Table of contents</h3>
+  <ol class="toc">
+    <li><a href="#stig">Framework 1 — DISA STIG ASD V4R9</a>
+      <ul>
+        <li><a href="#stig-1">1. Concurrent session limit</a></li>
+        <li><a href="#stig-2">2. Clear temp storage on logoff</a></li>
+        <li><a href="#stig-3">3. 15-min idle timeout (user)</a></li>
+        <li><a href="#stig-4">4. 10-min idle timeout (admin)</a></li>
+        <li><a href="#stig-5">5. Logoff capability exists</a></li>
+        <li><a href="#stig-6">6. Explicit logoff message</a></li>
+        <li><a href="#stig-7">7. TLS confidentiality in transit</a></li>
+        <li><a href="#stig-8">8. TLS integrity in transit</a></li>
+      </ul>
+    </li>
+    <li><a href="#cis">Framework 2 — CIS Controls v8</a>
+      <ul>
+        <li><a href="#cis-1">1. C3.3 — Data access control lists</a></li>
+        <li><a href="#cis-2">2. C3.11 — Encrypt sensitive data at rest</a></li>
+        <li><a href="#cis-3">3. C4.1 — Secure configuration process</a></li>
+        <li><a href="#cis-4">4. C5.2 — Use unique passwords</a></li>
+        <li><a href="#cis-5">5. C6.5 — Require MFA for admin</a></li>
+        <li><a href="#cis-6">6. C7.1 — Vulnerability management process</a></li>
+        <li><a href="#cis-7">7. C16.10 — Secure design principles</a></li>
+        <li><a href="#cis-8">8. C16.11 — Leverage vetted modules</a></li>
+      </ul>
+    </li>
+    <li><a href="#owasp">Framework 3 — OWASP Top 10 (2021)</a>
+      <ul>
+        <li><a href="#o-1">A01 Broken Access Control</a></li>
+        <li><a href="#o-2">A02 Cryptographic Failures</a></li>
+        <li><a href="#o-3">A03 Injection</a></li>
+        <li><a href="#o-4">A04 Insecure Design</a></li>
+        <li><a href="#o-5">A05 Security Misconfiguration</a></li>
+        <li><a href="#o-6">A06 Vulnerable &amp; Outdated Components</a></li>
+        <li><a href="#o-7">A07 Identification &amp; Authentication Failures</a></li>
+        <li><a href="#o-8">A08 Software &amp; Data Integrity Failures</a></li>
+        <li><a href="#o-9">A09 Security Logging &amp; Monitoring Failures</a></li>
+        <li><a href="#o-10">A10 Server-Side Request Forgery</a></li>
+      </ul>
+    </li>
+    <li><a href="#top-recs">Prioritized recommendations</a></li>
+  </ol>
+</header>
+
+<!-- ============================================================
+     FRAMEWORK 1 — STIG
+     ============================================================ -->
+<h2 id="stig">Framework 1 — DISA STIG: Application Security &amp; Development, V4 R9</h2>
+<div class="fw-banner">
+  <span class="fw-badge">STIG</span>
+  Source file: <code>security/STIG_App_Sec_Dev v4 rel9-1.md</code> · 25 Jan 2019 · DISA · Control IDs prefixed <code>APSC-DV-*</code>.
+</div>
+
+<!-- STIG 1 -->
+<div class="test-sep">Test 1 of 8</div>
+<section class="test" id="stig-1">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-01</span>Limit concurrent logon sessions per user</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000010</code> (SRG-APP-000001, CAT II, CCI-000054)</dd>
+    <dt>Category</dt><dd>Session Management</dd>
+    <dt>Control Description</dt><dd>The application must provide a capability to limit the number of logon sessions per user, to reduce DoS risk and session-hijacking exposure.</dd>
+  </dl>
+
+  <div class="section-label">Procedure (what I did)</div>
+  <ol>
+    <li>Searched auth wiring for any concurrent-session enforcement: <code>Grep "signIn|signUp|signOut|auth\." -g "*.ts*"</code>.</li>
+    <li>Read <code>src/stores/useAuthStore.ts</code> and <code>src/pages/auth/SignInPage.tsx</code>.</li>
+    <li>Inspected Supabase migrations for any <code>active_sessions</code> / <code>single_session</code> tables or enforcement triggers.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// src/stores/useAuthStore.ts — initialize() accepts whatever session exists
+const { data: { session } } = await supabase.auth.getSession();
+set({ user: session?.user ?? null, session: session ?? null });</pre>
+  <p>No code path queries or limits concurrent sessions. Supabase Auth by default issues a refresh token per sign-in and does not cap concurrent sessions on the free tier.</p>
+
+  <div class="section-label">Findings</div>
+  <p>A single user may sign in from unlimited devices simultaneously. There is no server-side revocation of older sessions.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>If required, implement "sign out other sessions" via a Supabase Edge Function calling <code>auth.admin.signOut(user_id, scope: 'others')</code> on new sign-ins.</li>
+    <li>Document the accepted maximum (e.g., 5) in user-visible settings and reject / evict on overflow.</li>
+    <li>Add a security event emitted to <code>audit_log</code> on each new session creation.</li>
+  </ul>
+
+  <div class="section-label">How to re-test</div>
+  <ol>
+    <li>Sign in as <code>user@example.com</code> in Browser A.</li>
+    <li>Sign in with the same account in Browser B (incognito).</li>
+    <li>Confirm both sessions work (today: both remain active). Once the fix is deployed, confirm Browser A is signed out.</li>
+  </ol>
+</section>
+
+<!-- STIG 2 -->
+<div class="test-sep">Test 2 of 8</div>
+<section class="test" id="stig-2">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-02</span>Clear temporary storage and cookies on session termination</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000060</code> (SRG-APP-000295, CAT II, CCI-002361)</dd>
+    <dt>Category</dt><dd>Session Management / Client Storage</dd>
+    <dt>Control Description</dt><dd>The application must clear temporary storage (cookies, localStorage, IndexedDB) when the session is terminated.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read the logout handler: <code>signOut</code> in <code>src/stores/useAuthStore.ts</code>.</li>
+    <li>Grep for localStorage/IndexedDB references cleared at logoff.</li>
+    <li>Inspect <code>src/lib/cloudSync.ts</code> for localStorage keys (e.g., <code>sf_pending_set_deletes</code>) and the Dexie instance.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// src/stores/useAuthStore.ts
+signOut: async () => {
+  if (supabase) { await supabase.auth.signOut(); }
+  set({ user: null, session: null });
+},</pre>
+  <p>The signOut path only invalidates the Supabase session; it does <b>not</b> clear:
+    the Dexie <code>studyflow</code> IndexedDB (contains the user's full sets, cards, study history),
+    <code>localStorage</code> keys (<code>sf_pending_set_deletes</code>, <code>sf_pending_folder_deletes</code>, <code>studyflow-theme</code>),
+    or the Supabase-SDK <code>sb-&lt;project&gt;-auth-token</code> entries (SDK does clear its own token, but app data remains).</p>
+
+  <div class="section-label">Findings</div>
+  <p>On a shared device, after sign-out a subsequent visitor can browse the previous user's entire library via IndexedDB inspection (DevTools → Application → IndexedDB → <code>studyflow</code>).
+    This violates the "clear temporary storage" intent, even though it is an intentional offline-first design choice.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>On explicit sign-out, offer the user a prompt: <i>"Clear downloaded sets from this device?"</i> and, if accepted, call <code>indexedDB.deleteDatabase('studyflow')</code> and wipe the <code>sf_*</code> localStorage keys.</li>
+    <li>For a shared-device mode, always clear on sign-out.</li>
+    <li>Document the retention decision in <code>APP_SPECIFICATION.md</code> so the tradeoff is explicit.</li>
+  </ul>
+</section>
+
+<!-- STIG 3 -->
+<div class="test-sep">Test 3 of 8</div>
+<section class="test" id="stig-3">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-03</span>Auto-terminate non-privileged user session after 15 min idle</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000070</code> (SRG-APP-000295, CAT II, CCI-002361)</dd>
+    <dt>Category</dt><dd>Session Management / Idle Timeout</dd>
+    <dt>Control Description</dt><dd>The application must automatically terminate the non-privileged user session after 15 minutes of inactivity.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Grep: <code>Grep "idle|timeout|inactivity|SESSION_TIMEOUT"</code>.</li>
+    <li>Search <code>src/</code> for <code>visibilitychange</code> / activity listeners.</li>
+    <li>Inspect Supabase client options in <code>src/lib/supabase.ts</code> for explicit session-refresh config.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>All matches for <code>idle|timeout|inactivity</code> were unrelated (card-flip game timeouts, network error strings). <code>src/lib/supabase.ts</code> creates the client with default options — Supabase JWTs default to 1 hour with auto-refresh for 365 days of refresh-token validity.</p>
+
+  <div class="section-label">Findings</div>
+  <p>No idle-timeout policy exists in the app. A logged-in session persists indefinitely on the client as long as the refresh token is valid.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Implement an idle-activity watcher (mousemove / keydown / touchstart, debounced to 30&nbsp;s). On 15&nbsp;min inactivity, call <code>useAuthStore.getState().signOut()</code> and navigate to <code>/signin?reason=timeout</code>.</li>
+    <li>In Supabase Dashboard → Authentication → Providers, set "JWT expiry" to 3600&nbsp;s (default) and consider shortening refresh-token reuse interval.</li>
+    <li>If the offline-first requirement conflicts with idle lockout, scope the control to "cloud features disabled after 15&nbsp;min idle" while offline study remains available.</li>
+  </ul>
+</section>
+
+<!-- STIG 4 -->
+<div class="test-sep">Test 4 of 8</div>
+<section class="test" id="stig-4">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-04</span>Auto-terminate admin session after 10 min idle</p>
+    <span class="risk na">N/A</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000080</code> (SRG-APP-000295, CAT II, CCI-002361)</dd>
+    <dt>Category</dt><dd>Privileged Session Management</dd>
+    <dt>Control Description</dt><dd>The application must terminate admin user sessions after 10 minutes of inactivity.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Searched <code>supabase/migrations/*.sql</code> for role columns (<code>role</code>, <code>is_admin</code>).</li>
+    <li>Searched codebase for admin-only UI or routes.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>No admin role exists. The authorization model is owner-vs-anonymous enforced by Postgres RLS on <code>auth.uid()</code>. Every user is a non-privileged regular user.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Control is not applicable: no privileged user class exists in the application.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>If in the future an admin dashboard is added (e.g., for moderating public sets), apply a 10-minute idle timeout using the same mechanism from <code>S-03</code> but scoped to admin routes.</p>
+</section>
+
+<!-- STIG 5 -->
+<div class="test-sep">Test 5 of 8</div>
+<section class="test" id="stig-5">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-05</span>User-initiated logoff capability exists</p>
+    <span class="risk pass">Pass</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000090</code> (SRG-APP-000296, CAT II, CCI-002363)</dd>
+    <dt>Category</dt><dd>Session Management</dd>
+    <dt>Control Description</dt><dd>The application must provide a logoff capability for user-initiated termination of communication sessions.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read <code>src/components/layout/Layout.tsx</code> — verified a <code>LogOut</code> icon-button bound to <code>signOut</code>.</li>
+    <li>Traced to <code>useAuthStore.signOut</code> which calls <code>supabase.auth.signOut()</code> and clears local state.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// src/components/layout/Layout.tsx
+const { user, signOut } = useAuthStore();
+// ... renders a LogOut button when user is present</pre>
+
+  <div class="section-label">Findings</div>
+  <p>A logoff mechanism is present and reachable from the primary navigation on every page.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>None required for this control. Consider pairing with <code>S-02</code> (clear storage) and <code>S-06</code> (explicit message) for a more robust logoff UX.</p>
+</section>
+
+<!-- STIG 6 -->
+<div class="test-sep">Test 6 of 8</div>
+<section class="test" id="stig-6">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-06</span>Explicit logoff message to user</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000100</code> (SRG-APP-000297, CAT III, CCI-002364)</dd>
+    <dt>Category</dt><dd>Session Management / UX</dd>
+    <dt>Control Description</dt><dd>The application must display an explicit logoff message indicating reliable termination of the authenticated session.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Traced the signOut flow — it clears user state but emits no toast.</li>
+    <li>Searched for <code>addToast.*[Ss]ign.?[oO]ut</code> — no match.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>signOut: async () => {
+  if (supabase) { await supabase.auth.signOut(); }
+  set({ user: null, session: null }); // no addToast here
+},</pre>
+
+  <div class="section-label">Findings</div>
+  <p>The UI visually reflects the signed-out state (header swaps "Sign Out" for "Sign In"), but there is no explicit confirmation message telling the user "You have been signed out." A naive user cannot distinguish a successful sign-out from a UI glitch.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add <code>useToastStore.getState().addToast('success', 'Signed out successfully.')</code> inside <code>signOut()</code> after the Supabase call resolves.</li>
+    <li>Navigate to <code>/signin</code> with a banner <code>?reason=signout</code> for unambiguous confirmation.</li>
+  </ul>
+</section>
+
+<!-- STIG 7 -->
+<div class="test-sep">Test 7 of 8</div>
+<section class="test" id="stig-7">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-07</span>TLS confidentiality for remote access</p>
+    <span class="risk pass">Pass</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000160</code> (SRG-APP-000014, CAT II, CCI-000068)</dd>
+    <dt>Category</dt><dd>Cryptography / Transport</dd>
+    <dt>Control Description</dt><dd>The application must implement DoD-approved encryption to protect the confidentiality of remote-access sessions (practically: TLS 1.2+).</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Inspected <code>.env.example</code> — the Supabase URL is always <code>https://...</code>.</li>
+    <li>Reviewed hosting: Vercel auto-provisions TLS for all deployments; deployment URL <code>*.vercel.app</code> enforces HTTPS-only.</li>
+    <li>Searched the codebase for plain <code>http://</code> URLs in production code — none found (only in dev comments / localhost references).</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// .env.example
+VITE_SUPABASE_URL=https://your-project-id.supabase.co</pre>
+  <p>Vercel issues Let's Encrypt / Cloudflare certificates with HSTS-ready defaults. Supabase enforces TLS 1.2+ on all API endpoints.</p>
+
+  <div class="section-label">Findings</div>
+  <p>All production traffic (browser↔Vercel, browser↔Supabase, browser↔Google Fonts) is TLS-encrypted. Note: TLS at the transport layer does not satisfy DoD-FIPS requirements without validated modules; for consumer-grade threat model this is adequate.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add an HSTS header via <code>vercel.json</code> (<code>Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</code>) to prevent downgrade attacks — currently absent (see <code>O-05</code>).</li>
+  </ul>
+</section>
+
+<!-- STIG 8 -->
+<div class="test-sep">Test 8 of 8</div>
+<section class="test" id="stig-8">
+  <div class="test-head">
+    <p class="test-title"><span class="num">S-08</span>TLS integrity for remote access</p>
+    <span class="risk pass">Pass</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>DISA STIG ASD V4R9</dd>
+    <dt>Control ID</dt><dd><code>APSC-DV-000170</code> (SRG-APP-000015, CAT II, CCI-001453)</dd>
+    <dt>Category</dt><dd>Cryptography / Transport Integrity</dd>
+    <dt>Control Description</dt><dd>The application must implement cryptographic mechanisms to protect the integrity of remote-access sessions.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <p>Same evidence-collection path as <code>S-07</code>: TLS provides both confidentiality and integrity via the chosen AEAD cipher suite. No custom channel exists.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Integrity is provided by the Vercel-terminated TLS tunnel (modern cipher suites enforce AEAD). No custom binary protocol or signed-message channel was introduced.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>Maintain via Vercel's managed TLS. When adding external integrations (e.g., webhook handlers), insist on HMAC-signed payloads or mTLS.</p>
+</section>
+
+
+<!-- ============================================================
+     FRAMEWORK 2 — CIS v8
+     ============================================================ -->
+<h2 id="cis">Framework 2 — CIS Critical Security Controls v8</h2>
+<div class="fw-banner">
+  <span class="fw-badge">CIS v8</span>
+  Source file: <code>security/CIS_Controls_v8_v21.10-1.md</code> · May 2021 · 18 Controls, 153 Safeguards. Mapped here to Implementation Group 1/2 where applicable.
+</div>
+
+<!-- CIS 1 -->
+<div class="test-sep">Test 1 of 8</div>
+<section class="test" id="cis-1">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-01</span>C3.3 — Configure data access control lists</p>
+    <span class="risk pass">Pass</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 3.3</code> (Control 3: Data Protection, IG1)</dd>
+    <dt>Category</dt><dd>Data Protection / Access Control</dd>
+    <dt>Control Description</dt><dd>Configure data access control lists based on a user's need-to-know.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read <code>supabase/migrations/001_initial_schema.sql</code> and <code>002_folder_sharing.sql</code> to enumerate RLS policies.</li>
+    <li>Checked that every table has <code>ENABLE ROW LEVEL SECURITY</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>-- study_sets: owner has full CRUD
+CREATE POLICY "owner_select" ON study_sets FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "owner_insert" ON study_sets FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "owner_update" ON study_sets FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "owner_delete" ON study_sets FOR DELETE USING (auth.uid() = user_id);</pre>
+  <p>Every user-owned table (<code>study_sets</code>, <code>folders</code>, <code>folder_items</code>, <code>password_history</code>) enforces <code>auth.uid() = user_id</code>. Shared-read policies are scoped to "<code>share_token IS NOT NULL</code>" and rely on the token being an unguessable UUID.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Principle of least privilege is correctly applied at the data layer via Postgres RLS. The anon key alone cannot exfiltrate any owner's data without the share token.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>See <code>O-01</code> for the caveat on <code>live_game_participants</code> / <code>live_game_answers</code> policies, which use <code>USING (true)</code> and need scoping.</li>
+  </ul>
+</section>
+
+<!-- CIS 2 -->
+<div class="test-sep">Test 2 of 8</div>
+<section class="test" id="cis-2">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-02</span>C3.11 — Encrypt sensitive data at rest</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 3.11</code> (Control 3: Data Protection, IG2)</dd>
+    <dt>Category</dt><dd>Data Protection / Encryption</dd>
+    <dt>Control Description</dt><dd>Encrypt sensitive data at rest on servers, applications, and databases containing sensitive data.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Checked Supabase platform defaults (documented): Postgres data is AES-256 at rest on disk; Supabase Storage objects are encrypted at rest.</li>
+    <li>Inspected client-side Dexie schema in <code>src/db/index.ts</code> — no encryption wrapper (Dexie-encrypted / crypto-js).</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>Supabase-managed storage: encrypted at rest (vendor default, not audited). Client-side IndexedDB: plaintext. User's entire study library (terms, definitions, any pasted images as base64) is readable by any process / extension with IndexedDB access.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Server side is encrypted at rest by Supabase. Client side is not — and because the app is offline-first, the <i>primary</i> copy of data lives in the browser's IndexedDB.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>For a stricter threat model, encrypt per-user data with a key derived from the user's password (PBKDF2 / Argon2) and held only in memory. Tradeoff: breaks offline-study after sign-out, complicates password reset.</li>
+    <li>At minimum, document in <code>APP_SPECIFICATION.md</code> that IndexedDB is plaintext and advise users not to store sensitive content in flashcards.</li>
+  </ul>
+</section>
+
+<!-- CIS 3 -->
+<div class="test-sep">Test 3 of 8</div>
+<section class="test" id="cis-3">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-03</span>C4.1 — Establish &amp; maintain secure configuration process</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 4.1</code> (Control 4: Secure Configuration, IG1)</dd>
+    <dt>Category</dt><dd>Configuration Management</dd>
+    <dt>Control Description</dt><dd>Establish and maintain a secure configuration process for enterprise assets and software. Review &amp; update annually or on significant change.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read <code>vercel.json</code> — the only deployment config present.</li>
+    <li>Grepped for security headers: <code>Content-Security-Policy|X-Frame-Options|Strict-Transport|X-Content-Type</code> across the repo.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// vercel.json — sole content
+{
+  "rewrites": [
+    { "source": "/((?!assets|favicon|manifest|sw|workbox|registerSW).*)",
+      "destination": "/index.html" }
+  ]
+}</pre>
+  <p>Grep for security-header strings returned <b>zero matches</b> across the entire repository.</p>
+
+  <div class="section-label">Findings</div>
+  <p>No CSP, HSTS, Referrer-Policy, X-Content-Type-Options, X-Frame-Options, or Permissions-Policy is configured. Vercel applies sensible defaults for HTTPS redirect but does not inject a CSP for SPAs. This is the largest single misconfiguration in the app.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add a <code>headers</code> block to <code>vercel.json</code>:
+<pre>{
+  "headers": [{
+    "source": "/(.*)",
+    "headers": [
+      { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+      { "key": "X-Frame-Options", "value": "DENY" },
+      { "key": "Content-Security-Policy",
+        "value": "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co; script-src 'self'; frame-ancestors 'none'; base-uri 'self';" }
+    ]
+  }]
+}</pre>
+    </li>
+    <li>Validate with <a href="https://securityheaders.com" target="_blank" rel="noopener">securityheaders.com</a>; aim for an <b>A</b> grade.</li>
+  </ul>
+</section>
+
+<!-- CIS 4 -->
+<div class="test-sep">Test 4 of 8</div>
+<section class="test" id="cis-4">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-04</span>C5.2 — Use unique passwords (length + reuse)</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 5.2</code> (Control 5: Account Management, IG1)</dd>
+    <dt>Category</dt><dd>Identity &amp; Authentication</dd>
+    <dt>Control Description</dt><dd>Use unique passwords for all enterprise assets — min 8 char for MFA accounts, 14 char for password-only. Enforce non-reuse.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read password validation in <code>SignUpPage.tsx</code>, <code>AccountSettingsPage.tsx</code>, <code>ResetPasswordPage.tsx</code>.</li>
+    <li>Read the <code>check_password_reuse</code> Postgres function in <code>001_initial_schema.sql</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// All password entry forms enforce 12-char minimum
+if (password.length &lt; 12) {
+  setError('Password must be at least 12 characters.');
+  return;
+}</pre>
+<pre>-- supabase/migrations/001_initial_schema.sql — check_password_reuse is stubbed:
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE reused BOOLEAN := false;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM password_history
+    WHERE user_id = p_user_id
+    ORDER BY created_at DESC LIMIT 5
+  ) INTO reused;
+  -- NOTE: Real implementation needs bcrypt comparison via pgcrypto
+  RETURN reused;
+END;
+$$;</pre>
+
+  <div class="section-label">Findings</div>
+  <p>The 12-character minimum meets CIS's 14-char standard only partially (12 is close, 14 is the spec). More importantly, the <code>check_password_reuse</code> function is a <b>no-op</b>: it returns <code>true</code> whenever <i>any</i> history row exists for the user, regardless of the submitted password. This means every password change after the first one is falsely reported as "reused," or — depending on how the client interprets the missing <code>.reused</code> key — the check is silently skipped. Password-history enforcement is effectively absent.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Raise minimum length from 12 → 14 in the four client validators (<code>SignUpPage</code>, <code>AccountSettingsPage</code>, <code>ResetPasswordPage</code>; plus a shared util if extracted).</li>
+    <li>Re-implement <code>check_password_reuse</code> to actually bcrypt-compare submitted password against each stored hash:
+<pre>CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- store crypt(password, gen_salt('bf', 12)) in password_history.password_hash
+-- compare with: crypt(p_password, ph.password_hash) = ph.password_hash</pre></li>
+    <li>Alternatively, delegate reuse policy to Supabase Auth's built-in password-strength settings and remove the custom table.</li>
+  </ul>
+</section>
+
+<!-- CIS 5 -->
+<div class="test-sep">Test 5 of 8</div>
+<section class="test" id="cis-5">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-05</span>C6.5 — Require MFA for administrative access</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 6.5</code> (Control 6: Access Control Management, IG1)</dd>
+    <dt>Category</dt><dd>Identity &amp; Authentication / MFA</dd>
+    <dt>Control Description</dt><dd>Require MFA for all administrative access accounts, where supported, on all enterprise assets.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Searched auth pages for <code>TOTP</code>, <code>MFA</code>, <code>enrollMFA</code>, <code>factor</code>.</li>
+    <li>Checked Supabase Auth capability: <code>supabase.auth.mfa.*</code> is supported but requires client enrollment flow.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>No MFA enrollment screens exist (no results for <code>mfa</code> / <code>totp</code> / <code>factor</code> in <code>src/</code>). Sign-in is single-factor password only.</p>
+
+  <div class="section-label">Findings</div>
+  <p>No MFA. For a consumer study app, this is a gap but not catastrophic. For any account tied to a school / institution (given the tester's <code>@gwmail.gwu.edu</code> address, this is relevant), MFA is expected.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add an optional TOTP enrollment page using <code>supabase.auth.mfa.enroll({ factorType: 'totp' })</code> and a challenge flow at sign-in.</li>
+    <li>In Supabase Dashboard → Authentication → Providers → Multi-Factor Auth, enable TOTP globally first.</li>
+  </ul>
+</section>
+
+<!-- CIS 6 -->
+<div class="test-sep">Test 6 of 8</div>
+<section class="test" id="cis-6">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-06</span>C7.1 — Establish &amp; maintain a vulnerability management process</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 7.1</code> (Control 7: Continuous Vulnerability Management, IG1)</dd>
+    <dt>Category</dt><dd>Vulnerability Management</dd>
+    <dt>Control Description</dt><dd>Establish and maintain a documented vulnerability management process with roles, responsibilities, and cadence.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Checked for <code>.github/dependabot.yml</code>, <code>renovate.json</code>, CI workflow running <code>npm audit</code> — none exist.</li>
+    <li>Ran <code>npm audit --omit=dev</code> locally.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>$ npm audit --omit=dev
+dompurify  &lt;=3.3.3   moderate
+  (transitive via jspdf; 4 advisories — XSS bypass family)
+jspdf      &lt;=4.2.0   critical
+  (PDF Object Injection via FreeText color; HTML Injection in New Window paths)
+2 vulnerabilities (1 moderate, 1 critical)</pre>
+
+  <div class="section-label">Findings</div>
+  <p>No automated scanning, no documented patch cadence, and a <b>critical</b> CVE in <code>jspdf</code> is currently live. <code>npm audit fix</code> is offered by npm.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add <code>.github/dependabot.yml</code> (weekly) for npm + github-actions ecosystems.</li>
+    <li>Add a CI step: <code>npm audit --audit-level=high --omit=dev</code> that fails the build on high/critical advisories.</li>
+    <li>Immediately run <code>npm audit fix</code> locally, re-test the PDF export flow, commit the lockfile update.</li>
+  </ul>
+</section>
+
+<!-- CIS 7 -->
+<div class="test-sep">Test 7 of 8</div>
+<section class="test" id="cis-7">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-07</span>C16.10 — Apply secure design principles in application architecture</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 16.10</code> (Control 16: Application Software Security, IG2)</dd>
+    <dt>Category</dt><dd>Application Security / Secure Design</dd>
+    <dt>Control Description</dt><dd>Apply secure design principles (least privilege, fail-secure, defense in depth, never-trust-input) in application architectures.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Grepped for unsafe rendering surfaces: <code>dangerouslySetInnerHTML|innerHTML|eval(|new Function</code>.</li>
+    <li>Grepped for sanitization: <code>sanitize|DOMPurify|xss</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>src/components/StudyContent.tsx:13        dangerouslySetInnerHTML={{ __html: html }}
+src/components/EditableCard.tsx:167       dangerouslySetInnerHTML={{ ... }}
+src/components/EditableCard.tsx:211       dangerouslySetInnerHTML={{ ... }}
+src/lib/pdfGenerator.ts:73                div.innerHTML = html;
+src/lib/utils.ts:11,22                    div.innerHTML = html | content;
+
+Sanitize search: "sanitize|DOMPurify|xss" -&gt; No matches found</pre>
+
+  <div class="section-label">Findings</div>
+  <p>User-authored TipTap HTML (term &amp; definition) is injected into the DOM via <code>dangerouslySetInnerHTML</code> at least 3 times and parsed via <code>innerHTML</code> in utility helpers. <b>No sanitization library is imported anywhere in the codebase.</b> TipTap's StarterKit serializes to a bounded schema on <i>input</i>, but nothing prevents malicious HTML from reaching <code>StudyContent</code> — e.g., a set imported from the clipboard, pasted from an OCR result, or roundtripped through cloud sync. This is the highest-severity code issue in the app.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add <code>dompurify</code> (and <code>@types/dompurify</code>) — ironically, it's already transitively pulled in by <code>jspdf</code>, so the bundle cost is near-zero — and wrap every <code>dangerouslySetInnerHTML</code> call with <code>DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })</code>.</li>
+    <li>Create a single choke-point helper <code>src/lib/safeHtml.ts</code> that exports <code>sanitizeCardHtml(html)</code> and refactor the three call sites to use it.</li>
+    <li>After upgrading to a fixed <code>dompurify</code> (see <code>C-06</code>), keep the sanitizer centralized so future call sites cannot bypass it.</li>
+  </ul>
+</section>
+
+<!-- CIS 8 -->
+<div class="test-sep">Test 8 of 8</div>
+<section class="test" id="cis-8">
+  <div class="test-head">
+    <p class="test-title"><span class="num">C-08</span>C16.11 — Leverage vetted modules or services for app security</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>CIS Controls v8</dd>
+    <dt>Control ID</dt><dd><code>CIS 16.11</code> (Control 16: Application Software Security, IG2)</dd>
+    <dt>Category</dt><dd>Application Security / Vendor Components</dd>
+    <dt>Control Description</dt><dd>Leverage vetted modules or services for application security components (identity, encryption, audit, …).</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Audited <code>package.json</code> for security-relevant choices.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>Positive: Supabase (industry-standard managed auth &amp; Postgres RLS), React 19, TypeScript strict, <code>@supabase/supabase-js</code> 2.99. All good.</p>
+  <p>Negative: <code>jspdf</code> pulls a vulnerable <code>dompurify</code> into the bundle (<code>C-06</code>), and the app doesn't use DOMPurify explicitly despite needing it (<code>C-07</code>). The choice of Supabase for identity is sound; however its features (MFA, password reuse via <code>crypt()</code>) are not all fully wired up.</p>
+
+  <div class="section-label">Findings</div>
+  <p>The platform choices are good (vetted). The <i>usage</i> of the security primitives those platforms offer is incomplete.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Finish wiring the Supabase features already paid for: MFA, genuine password-history via pgcrypto, auth rate-limiting via the existing RPCs (<code>record_failed_login</code>, <code>is_account_locked</code>).</li>
+    <li>Either fully import DOMPurify as a direct dependency (clearer intent, pinned version) or drop <code>jspdf</code> for a PDF renderer without HTML-eval surface (e.g., <code>@react-pdf/renderer</code>).</li>
+  </ul>
+</section>
+
+
+<!-- ============================================================
+     FRAMEWORK 3 — OWASP
+     ============================================================ -->
+<h2 id="owasp">Framework 3 — OWASP Top 10 (2021)</h2>
+<div class="fw-banner">
+  <span class="fw-badge">OWASP</span>
+  Selected as the third framework (no third file was provided in <code>security/</code>). Source: owasp.org/Top10/2021 · Covers the ten most critical web-application risks.
+</div>
+
+<!-- A01 -->
+<div class="test-sep">Test 1 of 10</div>
+<section class="test" id="o-1">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-01</span>A01 — Broken Access Control</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A01:2021</code></dd>
+    <dt>Category</dt><dd>Authorization</dd>
+    <dt>Control Description</dt><dd>Access-control enforcement must prevent users from acting outside their intended permissions (vertical &amp; horizontal privilege escalation, IDOR, metadata manipulation).</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Re-read every RLS policy across migrations 001–004.</li>
+    <li>Enumerated tables where policies use <code>USING (true)</code> or <code>WITH CHECK (true)</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>-- live_game_participants: all three policies permissive
+CREATE POLICY "participants_read"   ... USING (true);
+CREATE POLICY "participants_insert" ... WITH CHECK (true);
+CREATE POLICY "participants_update" ... USING (true);
+
+-- live_game_answers: insert / read permissive
+CREATE POLICY "answers_read"   ... USING (true);
+CREATE POLICY "answers_insert" ... WITH CHECK (true);</pre>
+
+  <div class="section-label">Findings</div>
+  <p>Owner-scoped tables (study_sets, folders, folder_items, password_history) are correctly restricted by <code>auth.uid() = user_id</code>. However, the live-game tables intentionally allow anonymous reads/writes so guest players (who have no auth) can join. The side-effect: any unauthenticated client can <b>modify any participant's score</b> via <code>participants_update USING (true)</code>, and can <b>submit answers on behalf of any participant</b>. This is straight-up cheatability.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Replace <code>participants_update USING (true)</code> with a policy that checks the caller's <code>player_token</code> via a custom JWT claim or a signed nonce. Example: <code>USING (player_token = current_setting('request.headers', true)::json-&gt;&gt;'x-player-token')</code>.</li>
+    <li>Same principle for <code>answers_insert</code>: require the submitting client to present the matching <code>player_token</code>.</li>
+    <li>Game scoring / question-progression should move into <code>SECURITY DEFINER</code> RPCs that validate the player's identity and the current question index server-side, rather than letting the client write arbitrary rows.</li>
+  </ul>
+</section>
+
+<!-- A02 -->
+<div class="test-sep">Test 2 of 10</div>
+<section class="test" id="o-2">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-02</span>A02 — Cryptographic Failures</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A02:2021</code></dd>
+    <dt>Category</dt><dd>Cryptography</dd>
+    <dt>Control Description</dt><dd>Ensure data is protected at rest and in transit; use strong, up-to-date crypto; don't roll your own.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <p>Combined evidence from <code>S-07</code>, <code>S-08</code> (TLS), <code>C-02</code> (at-rest), <code>C-04</code> (password hashing).</p>
+
+  <div class="section-label">Findings</div>
+  <ul>
+    <li>In transit: ✅ TLS everywhere (Vercel + Supabase).</li>
+    <li>At rest server-side: ✅ Supabase default (AES-256).</li>
+    <li>At rest client-side: ❌ IndexedDB is plaintext (<code>C-02</code>).</li>
+    <li>Password storage: ✅ delegated to Supabase Auth (bcrypt under the hood), but the custom <code>password_history.password_hash</code> column is not used correctly (<code>C-04</code>), so if migrated to be real it must use <code>pgcrypto.crypt()</code>.</li>
+    <li>No homegrown crypto detected.</li>
+  </ul>
+
+  <div class="section-label">Recommendations</div>
+  <p>Prioritized: fix <code>check_password_reuse</code> to use real hashing (<code>C-04</code>); decide whether IndexedDB plaintext is acceptable for your threat model (<code>C-02</code>); add HSTS (<code>C-03</code>).</p>
+</section>
+
+<!-- A03 -->
+<div class="test-sep">Test 3 of 10</div>
+<section class="test" id="o-3">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-03</span>A03 — Injection (incl. XSS)</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A03:2021</code></dd>
+    <dt>Category</dt><dd>Injection</dd>
+    <dt>Control Description</dt><dd>Prevent SQL, NoSQL, LDAP, command, and cross-site-script injection by using parameterized interfaces, context-aware output encoding, and whitelisting.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Confirmed all DB access goes through <code>@supabase/supabase-js</code> which parameterizes by construction.</li>
+    <li>Looked for direct string-interpolated SQL: none (<code>supabase.rpc()</code> is used with named params).</li>
+    <li>Inspected DOM sinks — see <code>C-07</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>SQLi: effectively prevented (RPCs use named parameters; PostgREST filters are parameterized). XSS: see <code>C-07</code> — multiple <code>dangerouslySetInnerHTML</code> on user-authored HTML, no sanitization.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Injection posture is driven entirely by the XSS gap: if a user pastes (or cloud-syncs in) a card whose term contains <code>&lt;img src=x onerror=alert(1)&gt;</code>, <code>StudyContent.tsx</code> renders it. Severity: high, exploitable by any user who can create a shared set.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>See <code>C-07</code>. Additionally: verify no Supabase RPC string-concatenates user input into <code>EXECUTE</code>; current migrations do not, good.</p>
+
+  <div class="section-label">How to re-test (proof-of-concept)</div>
+  <ol>
+    <li>In the card editor, open DevTools and run
+      <code>document.execCommand('insertHTML', false, '&lt;img src=x onerror="alert(\'xss\')"&gt;')</code>
+      into a term field (TipTap may reject; if so paste via plain-HTML paste).</li>
+    <li>Save, navigate to Study mode.</li>
+    <li>If the alert fires, the control is failing. After the fix (DOMPurify wrap), the alert should not fire.</li>
+  </ol>
+</section>
+
+<!-- A04 -->
+<div class="test-sep">Test 4 of 10</div>
+<section class="test" id="o-4">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-04</span>A04 — Insecure Design</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A04:2021</code></dd>
+    <dt>Category</dt><dd>Design / Threat Modeling</dd>
+    <dt>Control Description</dt><dd>Design flaws, not implementation bugs — lack of secure-design patterns, threat models, or fail-secure defaults.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <p>Reviewed architectural decisions documented in <code>CLAUDE.md</code>, <code>APP_SPECIFICATION.md</code>, and the RLS + sharing model.</p>
+
+  <div class="section-label">Findings</div>
+  <ul>
+    <li><b>Good:</b> Share-by-UUID is well-reasoned — unguessable tokens, policy comments explain the intent, RPC <code>get_shared_set</code> is <code>SECURITY DEFINER</code>.</li>
+    <li><b>Concerning:</b> The live-game "anyone can update any row" design (<code>O-01</code>) looks like a convenience shortcut that became the permanent policy.</li>
+    <li><b>Concerning:</b> The <code>check_password_reuse</code> stub (<code>C-04</code>) has been in production without the "Real implementation needs bcrypt comparison" TODO being resolved.</li>
+    <li><b>Minor:</b> No rate-limit on share-token generation — a user could rapidly generate / regenerate tokens, though this has limited blast radius.</li>
+  </ul>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Write a lightweight threat-model (STRIDE) in <code>structure/THREAT_MODEL.md</code> covering: signed-in user, guest-link viewer, guest game player, unauthenticated internet. Use it to re-examine every <code>USING (true)</code> policy.</li>
+    <li>Promote existing TODO comments (<code>-- NOTE: Real implementation needs bcrypt comparison</code>) into GitHub issues so they don't rot.</li>
+  </ul>
+</section>
+
+<!-- A05 -->
+<div class="test-sep">Test 5 of 10</div>
+<section class="test" id="o-5">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-05</span>A05 — Security Misconfiguration</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A05:2021</code></dd>
+    <dt>Category</dt><dd>Configuration</dd>
+    <dt>Control Description</dt><dd>Missing hardening, unnecessary features enabled, default accounts/passwords, verbose error messages, missing security headers.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <p>See <code>C-03</code> — grep for headers, read <code>vercel.json</code>.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Zero security headers. Any XSS gap (see <code>O-03</code>) becomes dramatically more severe without a CSP. No <code>Referrer-Policy</code> means outbound clicks leak the full current URL.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>Apply the full <code>headers</code> block from <code>C-03</code>. This is the single highest-ROI change in the report.</p>
+</section>
+
+<!-- A06 -->
+<div class="test-sep">Test 6 of 10</div>
+<section class="test" id="o-6">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-06</span>A06 — Vulnerable and Outdated Components</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A06:2021</code></dd>
+    <dt>Category</dt><dd>Dependencies</dd>
+    <dt>Control Description</dt><dd>Identify, track, and patch vulnerable components in use.</dd>
+  </dl>
+
+  <div class="section-label">Procedure / Evidence / Findings / Recommendations</div>
+  <p>See <code>C-06</code>. <b>1 critical</b> (<code>jspdf</code>, PDF Object Injection) and <b>1 moderate</b> (<code>dompurify</code>, XSS bypass) advisories active at assessment time. Fix path: <code>npm audit fix</code> + commit lockfile; add Dependabot + CI gate.</p>
+</section>
+
+<!-- A07 -->
+<div class="test-sep">Test 7 of 10</div>
+<section class="test" id="o-7">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-07</span>A07 — Identification and Authentication Failures</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A07:2021</code></dd>
+    <dt>Category</dt><dd>Authentication</dd>
+    <dt>Control Description</dt><dd>Credential stuffing protection, brute-force defense, no default/weak passwords, secure recovery, session rotation.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Read sign-in RPC wiring: <code>check_account_lockout</code>, <code>record_failed_login</code>.</li>
+    <li>Read the Postgres functions <code>is_account_locked</code>, <code>record_failed_login</code>, <code>can_request_password_reset</code>.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>Good: lockout at 5 fails/30 min is implemented at the DB level; forgot-password is rate-limited at 5/hour; 12-char minimum password.</p>
+  <p>Gaps: the client calls <code>check_account_lockout</code> (plural style) but the migration defines <code>is_account_locked</code> — the RPC name mismatch means the client's lockout check <b>silently falls through its try/catch</b>. Separately, the client's forgot-password path calls <code>check_password_reset_rate_limit</code> but the migration defines <code>can_request_password_reset</code>. Both lockout and reset-rate-limit enforcement are therefore currently <b>not enforced</b> end-to-end, despite the SQL functions existing.</p>
+
+  <div class="section-label">Findings</div>
+  <p>Significant design effort went into rate-limiting, but a naming-convention mismatch between the Postgres layer and the TypeScript caller quietly disables it. Confirm by reading:</p>
+<pre>// SignInPage.tsx calls:
+await supabase.rpc('check_account_lockout', { p_email: email });
+// Migration 001 defines:
+CREATE OR REPLACE FUNCTION is_account_locked(p_email TEXT) ...</pre>
+  <p>Same issue in <code>ForgotPasswordPage.tsx</code> (<code>check_password_reset_rate_limit</code> vs <code>can_request_password_reset</code>).</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Rename either side. Easier: create Postgres aliases <code>check_account_lockout</code> and <code>check_password_reset_rate_limit</code> in a new migration that call the existing functions and return <code>{ locked: boolean }</code> / <code>{ limited: boolean }</code> matching what the client expects.</li>
+    <li>Also call <code>record_failed_login</code> only when the lockout RPC reports "not locked" — currently on every auth failure, so even a locked account keeps recording attempts, which can't lift.</li>
+    <li>Add integration tests that assert <i>both</i> sides agree: e.g., simulate 6 bad logins and assert the 7th returns "locked".</li>
+  </ul>
+</section>
+
+<!-- A08 -->
+<div class="test-sep">Test 8 of 10</div>
+<section class="test" id="o-8">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-08</span>A08 — Software and Data Integrity Failures</p>
+    <span class="risk partial">Partial</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A08:2021</code></dd>
+    <dt>Category</dt><dd>Integrity</dd>
+    <dt>Control Description</dt><dd>Unsigned/unverified updates, untrusted CI/CD pipelines, missing integrity verification on external resources.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Inspected <code>index.html</code> for third-party script tags and SRI (<code>integrity</code> attributes).</li>
+    <li>Reviewed CI/CD: Vercel auto-deploys from <code>master</code>; no branch-protection audited here.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <pre>// index.html — Google Fonts loaded without SRI (stylesheet; SRI is unconventional for Fonts CSS)
+&lt;link href="https://fonts.googleapis.com/css2?family=Space+Grotesk..." rel="stylesheet"/&gt;</pre>
+
+  <div class="section-label">Findings</div>
+  <p>Google Fonts CSS cannot usefully carry SRI (contents change per user-agent). Bundled assets are built by Vite and served from the same origin (Vercel CDN), so integrity is implicit. No runtime script loaded from third-party CDNs. CI pipeline not reviewed (outside the security folder scope).</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Enable "Require pull-request reviews before merging" and "Require status checks" on <code>master</code> via GitHub branch protection.</li>
+    <li>If third-party scripts are added later (analytics, Sentry), include SRI hashes and pin the version.</li>
+    <li>Optionally self-host the two Google Fonts families to eliminate the <code>fonts.googleapis.com</code> dependency from the CSP <code>connect-src</code> / <code>style-src</code>.</li>
+  </ul>
+</section>
+
+<!-- A09 -->
+<div class="test-sep">Test 9 of 10</div>
+<section class="test" id="o-9">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-09</span>A09 — Security Logging and Monitoring Failures</p>
+    <span class="risk fail">Fail</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A09:2021</code></dd>
+    <dt>Category</dt><dd>Observability</dd>
+    <dt>Control Description</dt><dd>Insufficient logging of security-relevant events; no monitoring / alerting; no incident response hooks.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Searched for <code>audit_log</code>, Sentry, monitoring, <code>console.error</code> patterns for security events.</li>
+  </ol>
+
+  <div class="section-label">Evidence</div>
+  <p>The <code>failed_login_attempts</code> table exists but is only read for lockout; it is not surfaced to any admin dashboard or alerting. No <code>audit_log</code> table. No Sentry, PostHog, or equivalent client-side error/monitoring SDK. Supabase project-level logs are available in the dashboard but no runbook references them.</p>
+
+  <div class="section-label">Findings</div>
+  <p>The app cannot detect that an attack is in progress. Breach response depends on the user noticing weird behavior.</p>
+
+  <div class="section-label">Recommendations</div>
+  <ul>
+    <li>Add an <code>audit_log</code> table (<code>id, user_id, event_type, metadata jsonb, created_at</code>) and insert rows at: sign-in (success + fail), sign-out, password change, share-token create/revoke.</li>
+    <li>Enable Supabase Log Drains or add a Sentry SDK (client + Edge Function) to capture errors and spike-alerts.</li>
+    <li>Define a simple incident-response runbook in <code>structure/INCIDENT_RESPONSE.md</code>: who owns what, how to invalidate all share tokens, how to force-signout a compromised account.</li>
+  </ul>
+</section>
+
+<!-- A10 -->
+<div class="test-sep">Test 10 of 10</div>
+<section class="test" id="o-10">
+  <div class="test-head">
+    <p class="test-title"><span class="num">O-10</span>A10 — Server-Side Request Forgery</p>
+    <span class="risk na">N/A</span>
+  </div>
+  <dl class="kv">
+    <dt>Source</dt><dd>OWASP Top 10 2021</dd>
+    <dt>Control ID</dt><dd><code>A10:2021</code></dd>
+    <dt>Category</dt><dd>Server-Side Networking</dd>
+    <dt>Control Description</dt><dd>Application fetches a remote resource using a user-controlled URL without validation.</dd>
+  </dl>
+
+  <div class="section-label">Procedure</div>
+  <ol>
+    <li>Searched for server-side HTTP clients: no Edge Functions deployed in <code>supabase/functions/</code> (directory does not exist).</li>
+    <li>All network calls are browser-side to Supabase's own API and to Google Fonts.</li>
+  </ol>
+
+  <div class="section-label">Findings</div>
+  <p>There is no server-side code that fetches user-supplied URLs. The OCR flow uses the Google Vision API with a fixed endpoint and a server-held API key (per <code>.env.example</code>), not user-controlled URLs.</p>
+
+  <div class="section-label">Recommendations</div>
+  <p>If Edge Functions are later added (e.g., link-preview, webhook ingestor), validate URLs against an allowlist and block RFC1918 / link-local ranges.</p>
+</section>
+
+
+<!-- ============================================================
+     RECOMMENDATIONS ROLLUP
+     ============================================================ -->
+<h2 id="top-recs">Prioritized recommendations</h2>
+
+<ol>
+  <li>
+    <b>Add security headers to <code>vercel.json</code></b> (addresses <code>C-03</code>, <code>O-05</code>; partially mitigates <code>C-07</code>/<code>O-03</code> via CSP).
+    Blast radius of any future XSS drops dramatically once a restrictive <code>script-src 'self'</code> CSP is in place. Highest ROI, ~10 minutes of work.
+  </li>
+  <li>
+    <b>Centralize HTML sanitization for <code>dangerouslySetInnerHTML</code></b> sinks (addresses <code>C-07</code>, <code>O-03</code>).
+    Wrap all three call sites with <code>DOMPurify.sanitize</code>. Add <code>dompurify</code> as a direct dependency pinned to a fixed version.
+  </li>
+  <li>
+    <b>Run <code>npm audit fix</code></b> to patch <code>jspdf</code> (critical) and <code>dompurify</code> (moderate) (addresses <code>C-06</code>, <code>O-06</code>). Add Dependabot and a CI audit gate.
+  </li>
+  <li>
+    <b>Fix the RPC name mismatches</b> so client-side lockout and reset-rate-limit actually enforce (addresses <code>O-07</code>). Either rename the Postgres functions or introduce alias functions returning the expected JSON shape.
+  </li>
+  <li>
+    <b>Tighten live-game RLS policies</b> (addresses <code>O-01</code>): replace <code>USING (true)</code> on <code>live_game_participants</code> / <code>live_game_answers</code> with <code>player_token</code>-scoped checks, or move writes into <code>SECURITY DEFINER</code> RPCs.
+  </li>
+  <li>
+    <b>Implement password reuse check properly</b> (addresses <code>C-04</code>): enable <code>pgcrypto</code>, store bcrypt digests in <code>password_history.password_hash</code>, and compare with <code>crypt(p_password, stored_hash) = stored_hash</code>.
+  </li>
+  <li>
+    <b>Add explicit sign-out UX</b> (addresses <code>S-06</code>): toast + redirect to <code>/signin</code>.
+  </li>
+  <li>
+    <b>Add idle-session timeout</b> (addresses <code>S-03</code>): 15-min activity watcher that triggers sign-out; keep offline-study intact by only gating cloud-sync features.
+  </li>
+  <li>
+    <b>Document offline-first data-at-rest tradeoff</b> (addresses <code>C-02</code>, <code>S-02</code>): either offer a "clear device data on sign-out" option or document the retention.
+  </li>
+  <li>
+    <b>Add a lightweight audit log and error monitoring</b> (addresses <code>O-09</code>): Sentry + an <code>audit_log</code> table populated at auth and share-management events.
+  </li>
+  <li>
+    <b>Enable Supabase TOTP MFA</b> (addresses <code>C-05</code>). Optional for consumer accounts, recommended for any institutional use.
+  </li>
+</ol>
+
+<div class="callout">
+  <b>Re-assessment cadence.</b> Re-run this assessment after each of the above is landed. STIG/CIS/OWASP all expect
+  annual review + review-on-significant-change. Keep this file at <code>security/security_assessment.html</code> and
+  version it alongside the code.
+</div>
+
+<p class="muted" style="margin-top:32px; font-size:12px;">
+  Generated 2026-04-24 from commit <code>c445233</code>. Scope restricted to <code>security/</code>; no code outside this folder was modified.
+</p>
+
+</div>
+</body>
+</html>

@@ -13,10 +13,13 @@ function NewSetPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [titleError, setTitleError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      if (submitting) return;
 
       const trimmedTitle = title.trim();
       if (!trimmedTitle) {
@@ -43,10 +46,18 @@ function NewSetPage() {
         visibility: 'private',
       };
 
-      await addSet(newSet);
-      navigate(`/sets/${id}`);
+      setSubmitting(true);
+      setSubmitError('');
+      try {
+        await addSet(newSet);
+        navigate(`/sets/${id}`);
+      } catch (err) {
+        console.error('Failed to create set', err);
+        setSubmitError('Failed to create set. Please try again.');
+        setSubmitting(false);
+      }
     },
-    [title, description, addSet, navigate],
+    [title, description, addSet, navigate, submitting],
   );
 
   return (
@@ -79,14 +90,21 @@ function NewSetPage() {
             onChange={(e) => setDescription(e.target.value)}
           />
 
+          {submitError && (
+            <p className="text-sm" style={{ color: 'var(--color-danger)' }}>
+              {submitError}
+            </p>
+          )}
+
           <div className="flex items-center gap-3 mt-2">
-            <Button type="submit" variant="primary">
-              Create Set
+            <Button type="submit" variant="primary" disabled={submitting}>
+              {submitting ? 'Creating...' : 'Create Set'}
             </Button>
             <Button
               type="button"
               variant="secondary"
               onClick={() => navigate(-1)}
+              disabled={submitting}
             >
               Cancel
             </Button>

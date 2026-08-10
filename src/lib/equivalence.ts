@@ -2,8 +2,9 @@ import type { Card } from '@/types';
 import { normalizeAnswer, gradeAnswer } from '@/lib/utils';
 
 /**
- * Groups cards by normalized term content.
+ * Groups cards by normalized TERM content.
  * Cards with identical normalized terms are in the same equivalence group.
+ * (Keyed by term — consumers such as MatchMode look up a group via the card's term.)
  */
 export function buildEquivalenceGroups(cards: Card[]): Map<string, Card[]> {
   const groups = new Map<string, Card[]>();
@@ -24,42 +25,62 @@ export function buildEquivalenceGroups(cards: Card[]): Map<string, Card[]> {
 }
 
 /**
- * Returns all valid plain-text answers from a card's equivalence group.
- * If direction is 'term', returns all definitions from equivalent cards.
- * If direction is 'definition', returns all terms from equivalent cards.
+ * Returns all valid plain-text answers equivalent to this card's answer.
+ * If direction is 'definition' (the definition is the answer), returns every
+ * definition among cards that share this card's TERM.
+ * If direction is 'term' (the term is the answer), returns every term among
+ * cards that share this card's DEFINITION.
  */
 export function getEquivalentAnswers(
   card: Card,
   direction: 'term' | 'definition',
   groups: Map<string, Card[]>,
 ): string[] {
-  const key = normalizeAnswer(card.term);
-  const group = groups.get(key) ?? [card];
-
-  if (direction === 'term') {
-    // Asking for the term -> all terms in the group are valid
-    return group.map((c) => c.term);
+  if (direction === 'definition') {
+    // Asking for the definition -> every definition of cards sharing the term.
+    const key = normalizeAnswer(card.term);
+    const group = groups.get(key) ?? [card];
+    return group.map((c) => c.definition);
   }
 
-  // Asking for the definition -> all definitions in the group are valid
-  return group.map((c) => c.definition);
+  // direction === 'term': asking for the term -> every term of cards sharing the
+  // definition. The term-keyed `groups` map can't answer this directly, so derive
+  // the card pool from the group values and match on normalized definition.
+  const defKey = normalizeAnswer(card.definition);
+  if (!defKey) return [card.term];
+  const allCards = Array.from(groups.values()).flat();
+  const matches = allCards.filter((c) => normalizeAnswer(c.definition) === defKey);
+  return (matches.length > 0 ? matches : [card]).map((c) => c.term);
 }
 
 /**
- * Returns cards NOT in the same equivalence group, suitable for wrong answer options.
+ * Returns plain-text options suitable as WRONG answers for `card`, drawn from the
+ * requested answer side. Excludes cards in the same (term) equivalence group,
+ * excludes any option whose normalized value equals the card's own correct answer,
+ * and de-dupes by normalized value.
  */
 export function getWrongOptionPool(
   card: Card,
   allCards: Card[],
   groups: Map<string, Card[]>,
+  answerSide: 'term' | 'definition' = 'definition',
 ): string[] {
   const key = normalizeAnswer(card.term);
   const group = groups.get(key) ?? [card];
   const groupIds = new Set(group.map((c) => c.id));
+  const correctNorm = normalizeAnswer(card[answerSide]);
 
-  return allCards
-    .filter((c) => !groupIds.has(c.id))
-    .map((c) => c.definition);
+  const seen = new Set<string>();
+  const pool: string[] = [];
+  for (const c of allCards) {
+    if (groupIds.has(c.id)) continue;
+    const candidate = c[answerSide];
+    const norm = normalizeAnswer(candidate);
+    if (!norm || norm === correctNorm || seen.has(norm)) continue;
+    seen.add(norm);
+    pool.push(candidate);
+  }
+  return pool;
 }
 
 /**

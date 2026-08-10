@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:electron": "electron .",
     "build": "vite build",
+    "build:electron": "vite build && electron-builder",
+    "build:electron:win": "vite build && electron-builder --win",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -45,6 +49,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.6.0",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -54,5 +60,29 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^6.3.5",
     "vite-plugin-pwa": "^1.2.0"
+  },
+  "build": {
+    "appId": "com.studyflow.app",
+    "productName": "StudyFlow",
+    "files": [
+      "dist/**/*",
+      "electron/main.js",
+      "electron/preload.js",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -1,5 +1,6 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 interface StudyContentProps {
   html: string;
@@ -7,10 +8,11 @@ interface StudyContentProps {
 }
 
 function StudyContentInner({ html, className }: StudyContentProps) {
+  const safeHtml = useMemo(() => sanitizeHtml(html), [html]);
   return (
     <div
       className={cn('study-content', className)}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
     />
   );
 }

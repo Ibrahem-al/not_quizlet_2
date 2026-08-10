@@ -5,23 +5,27 @@ import { useSetStore } from '@/stores/useSetStore';
 import { formatDuration } from '@/lib/utils';
 import type { ReviewLog } from '@/types';
 
-/** Animate a number counting up from 0 to target. */
+/** Animate a number counting up to target. */
 function useAnimatedCounter(target: number, duration = 800): number {
   const [value, setValue] = useState(0);
   const rafRef = useRef<number>(0);
+  // Tracks the last committed value so the animation runs entirely through
+  // requestAnimationFrame — no synchronous setState is ever performed in the
+  // effect body (which would trigger a cascading re-render / lint error).
+  const fromRef = useRef(0);
 
   useEffect(() => {
-    if (target === 0) {
-      setValue(0);
-      return;
-    }
+    const from = fromRef.current;
+    if (from === target) return; // already settled — nothing to animate
     const start = performance.now();
     function tick(now: number) {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
       // ease-out quad
       const eased = 1 - (1 - progress) * (1 - progress);
-      setValue(Math.round(eased * target));
+      const current = Math.round(from + (target - from) * eased);
+      fromRef.current = current;
+      setValue(current);
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(tick);
       }
@@ -239,7 +243,7 @@ function StatsPage() {
                 gridTemplateRows: 'repeat(7, 1fr)',
               }}
             >
-              {heatmapData.map((cell, i) => (
+              {heatmapData.map((cell) => (
                 <div
                   key={cell.date}
                   className="aspect-square rounded-sm cursor-default"

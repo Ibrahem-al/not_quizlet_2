@@ -71,7 +71,7 @@ export function PhotoImportModal({ isOpen, onClose, onImportCards }: PhotoImport
     setStatusText('Loading OCR engine...');
 
     try {
-      // @ts-ignore - tesseract.js types loaded at runtime
+      // @ts-expect-error - tesseract.js is an optional runtime-only dependency (not installed / no types)
       const Tesseract = await import(/* @vite-ignore */ 'tesseract.js');
       setStatusText('Recognizing text...');
 

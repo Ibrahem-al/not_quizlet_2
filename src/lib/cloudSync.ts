@@ -482,17 +482,31 @@ export async function pullSetsFromCloud(
       // Cloud-only → pull down
       merged.push(cloud);
     } else if (cloud.updatedAt > local.updatedAt) {
-      // Cloud is newer → use cloud (preserve local shareToken if cloud has none)
-      merged.push({ ...cloud, shareToken: cloud.shareToken ?? local.shareToken });
+      // Cloud is newer → use cloud, but preserve markers the cloud row does
+      // not carry: a local share token (when the cloud has none) and the
+      // local "hidden" dedup markers (hiddenReason/hiddenAt/replacedBySetId),
+      // which never round-trip through DbRow/rowToSet.
+      merged.push({
+        ...cloud,
+        shareToken: cloud.shareToken ?? local.shareToken,
+        hiddenReason: local.hiddenReason,
+        hiddenAt: local.hiddenAt,
+        replacedBySetId: local.replacedBySetId,
+      });
     } else {
-      // Local is newer or equal → keep local
-      merged.push(
-        local.userId === cloud.userId
+      // Local is newer or equal → keep local, but adopt the cloud share token
+      // when the local copy has none (a share link created on another device
+      // that this device has not pulled yet).
+      const shareToken = local.shareToken ?? cloud.shareToken;
+      const mergedLocal: StudySet =
+        local.userId === cloud.userId && local.shareToken === shareToken
           ? local
-          : { ...local, userId: cloud.userId },
-      );
+          : { ...local, userId: cloud.userId, shareToken };
+      merged.push(mergedLocal);
       if (local.updatedAt > cloud.updatedAt) {
-        toUpload.push(setToRow({ ...local, userId }));
+        // Upload local content WITHOUT overwriting the cloud share_token
+        // (mirrors setContentToRow / syncSetContentToCloud).
+        toUpload.push(setContentToRow({ ...mergedLocal, userId }));
       }
     }
     localMap.delete(cloud.id);
@@ -546,11 +560,20 @@ export async function pullFoldersFromCloud(
     if (!local) {
       merged.push(cloud);
     } else if (cloud.updatedAt > local.updatedAt) {
-      merged.push(cloud);
+      // Cloud is newer → use cloud, but preserve a local-only share token.
+      merged.push({ ...cloud, shareToken: cloud.shareToken ?? local.shareToken });
     } else {
-      merged.push(local);
+      // Local is newer or equal → keep local, but adopt the cloud share token
+      // when the local copy has none (a folder share link created on another
+      // device that this device has not pulled yet).
+      const shareToken = local.shareToken ?? cloud.shareToken;
+      const mergedLocal: Folder =
+        local.shareToken === shareToken ? local : { ...local, shareToken };
+      merged.push(mergedLocal);
       if (local.updatedAt > cloud.updatedAt) {
-        toUpload.push(folderToRow({ ...local, userId }));
+        // Upload content WITHOUT overwriting the cloud share_token
+        // (mirrors setContentToRow).
+        toUpload.push(folderContentToRow({ ...mergedLocal, userId }));
       }
     }
     localMap.delete(cloud.id);
@@ -773,6 +796,14 @@ function folderToRow(folder: Folder): Record<string, unknown> {
     updated_at: folder.updatedAt,
     share_token: folder.shareToken ?? null,
   };
+}
+
+/** Like folderToRow but omits share_token so an upsert preserves whatever
+ *  token already exists in the cloud (mirrors setContentToRow). */
+function folderContentToRow(folder: Folder): Record<string, unknown> {
+  const row = folderToRow(folder);
+  delete row.share_token;
+  return row;
 }
 
 // ============================================================
@@ -1104,9 +1135,12 @@ export async function migrateOversizedImages(): Promise<void> {
     if (migrated > 0) {
       console.log(`Image migration: compressed images in ${migrated} set(s)`);
     }
+
+    // Only mark the one-time migration complete after the loop finishes
+    // without throwing, so a partial failure is retried on the next launch
+    // instead of leaving un-migrated sets permanently skipped.
+    localStorage.setItem(MIGRATE_KEY, '1');
   } catch (err) {
     console.error('Image migration failed:', err);
   }
-
-  localStorage.setItem(MIGRATE_KEY, '1');
 }

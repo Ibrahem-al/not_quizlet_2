@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
@@ -9,10 +9,12 @@ import StudyContent from '@/components/StudyContent';
 interface FlashcardModeProps {
   cards: Card[];
   setId: string;
+  exitUrl?: string;
 }
 
-function FlashcardMode({ cards, setId }: FlashcardModeProps) {
+function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
   const navigate = useNavigate();
+  const exitTo = exitUrl ?? `/sets/${setId}`;
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -55,13 +57,20 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
 
   const handleProgressiveReveal = useCallback(() => {
     const words = getDefinitionWords();
-    if (words.length === 0) return;
 
     if (!isFlipped) {
+      // Flip first so image-only / empty-definition cards still flip on Space.
       setIsFlipped(true);
-      setIsRevealing(true);
-      setRevealedWords(1);
-    } else if (isRevealing) {
+      if (words.length > 0) {
+        setIsRevealing(true);
+        setRevealedWords(1);
+      }
+      return;
+    }
+
+    if (words.length === 0) return;
+
+    if (isRevealing) {
       setRevealedWords((prev) => Math.min(prev + 1, words.length));
     } else {
       setIsRevealing(true);
@@ -90,14 +99,14 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
           handleNext();
           break;
         case 'Escape':
-          navigate(`/sets/${setId}`);
+          navigate(exitTo);
           break;
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sessionComplete, handleProgressiveReveal, handlePrev, handleNext, navigate, setId]);
+  }, [sessionComplete, handleProgressiveReveal, handlePrev, handleNext, navigate, exitTo]);
 
   const getRevealedContent = useCallback(() => {
     if (!isRevealing) return currentCard?.definition ?? '';
@@ -148,7 +157,7 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
             >
               Restart
             </Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
+            <Button variant="outline" onClick={() => navigate(exitTo)}>
               Exit
             </Button>
           </div>
@@ -165,7 +174,7 @@ function FlashcardMode({ cards, setId }: FlashcardModeProps) {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
           Exit
         </Button>
         <span

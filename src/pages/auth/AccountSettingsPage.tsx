@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Settings, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, Settings, CheckCircle, Loader2 } from 'lucide-react';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,13 +23,18 @@ export default function AccountSettingsPage() {
 
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
   const addToast = useToastStore((s) => s.addToast);
 
+  // Subscribe to the auth loading slice so the redirect re-runs once the
+  // session check resolves. Without `authLoading` in the deps, a hard refresh
+  // that starts `loading=true, user=null` never re-evaluates after the store
+  // flips loading off, leaving the page permanently blank.
   useEffect(() => {
-    if (!user && !useAuthStore.getState().loading) {
-      navigate('/signin');
+    if (!authLoading && !user) {
+      navigate('/signin', { replace: true });
     }
-  }, [user, navigate]);
+  }, [authLoading, user, navigate]);
 
   function getConfirmError(): string {
     if (confirmPassword && confirmPassword !== newPassword) {
@@ -113,6 +118,20 @@ export default function AccountSettingsPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (authLoading) {
+    return (
+      <PageTransition>
+        <div className="min-h-[80vh] flex items-center justify-center px-4">
+          <Loader2
+            size={32}
+            className="animate-spin"
+            style={{ color: 'var(--color-primary)' }}
+          />
+        </div>
+      </PageTransition>
+    );
   }
 
   if (!user) {

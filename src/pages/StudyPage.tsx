@@ -37,11 +37,15 @@ function StudyPage() {
 
   // Snapshot the filter once on mount, then clear the store so stale filters
   // don't leak into future sessions (fixes games ending after 1 question).
-  const snapshotRef = useRef<string[] | null>(useFilterStore.getState().filteredCardIds);
+  const snapshotRef = useRef<{ ids: string[] | null; setId: string | null }>({
+    ids: useFilterStore.getState().filteredCardIds,
+    setId: useFilterStore.getState().filterSetId,
+  });
   useEffect(() => {
     useFilterStore.getState().setFilteredCardIds(null);
   }, []);
-  const filteredCardIds = snapshotRef.current;
+  const filteredCardIds = snapshotRef.current.ids;
+  const filterSetId = snapshotRef.current.setId;
 
   useEffect(() => {
     if (sets.length === 0) {
@@ -86,10 +90,16 @@ function StudyPage() {
     (card) => hasTermContent(card) && hasDefinitionContent(card),
   );
 
-  // Apply active card filter from store
-  if (filteredCardIds && filteredCardIds.length > 0) {
+  // Apply active card filter from store, but only when it was created for THIS
+  // set (filterSetId match) AND at least one filtered id maps to a valid card.
+  // If the intersection is empty, fall back to all valid cards so we never block
+  // the mode to zero on a leaked/stale filter (H5 / M10).
+  if (filterSetId === id && filteredCardIds && filteredCardIds.length > 0) {
     const idSet = new Set(filteredCardIds);
-    validCards = validCards.filter((c) => idSet.has(c.id));
+    const filtered = validCards.filter((c) => idSet.has(c.id));
+    if (filtered.length > 0) {
+      validCards = filtered;
+    }
   }
 
   const studyMode = mode as StudyMode;

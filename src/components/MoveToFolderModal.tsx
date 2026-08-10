@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Folder, FolderMinus, FolderPlus, Check } from 'lucide-react';
 import type { Folder as FolderType, FolderColor } from '@/types';
 import { useFolderStore } from '@/stores/useFolderStore';
@@ -76,6 +76,17 @@ function MoveToFolderModal({ isOpen, onClose, setId, currentFolderId }: MoveToFo
 
   const rootFolders = folders.filter((f) => !f.parentFolderId);
 
+  // Reset inline-create state whenever the modal is closed so a stale
+  // half-typed folder name / open create form never leaks into the next open.
+  useEffect(() => {
+    if (!isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentionally reset transient create-form state when the controlled modal closes
+      setIsCreating(false);
+      setNewName('');
+      setNewColor('blue');
+    }
+  }, [isOpen]);
+
   const handleSelect = useCallback(
     async (folderId: string) => {
       const set = sets.find((s) => s.id === setId);
@@ -95,9 +106,8 @@ function MoveToFolderModal({ isOpen, onClose, setId, currentFolderId }: MoveToFo
     const set = sets.find((s) => s.id === setId);
     if (!set) return;
 
-    const { folderId: _, ...rest } = set;
     await updateSet({
-      ...rest,
+      ...set,
       folderId: undefined,
       updatedAt: Date.now(),
     });

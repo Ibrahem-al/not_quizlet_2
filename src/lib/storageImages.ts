@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { compressImage } from '@/lib/utils';
 
@@ -35,11 +36,17 @@ function buildCardImagePath(
   ].join('/');
 }
 
-function requireStorage(): void {
+function requireStorage(): SupabaseClient {
   if (!isSupabaseConfigured() || !supabase) {
     throw new Error('Supabase Storage is not configured.');
   }
+  return supabase;
 }
+
+// Formats whose visual data is destroyed by re-encoding to opaque JPEG:
+// PNG (alpha channel), GIF/WEBP (animation + alpha). These are uploaded
+// as-is so transparency and animation survive.
+const FORMAT_PRESERVING_MIME = /image\/(png|gif|webp)/i;
 
 export function hasInlineBase64Images(html: string): boolean {
   return /data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/.test(html);
@@ -49,26 +56,40 @@ export async function uploadCardImage(
   file: File | Blob,
   context: CardImageStorageContext,
 ): Promise<string> {
-  requireStorage();
+  const client = requireStorage();
 
-  const compressedDataUri = await compressImage(file);
-  const blob = await dataUriToBlob(compressedDataUri);
-  const extension = fileExtensionFromMimeType(blob.type || 'image/jpeg');
+  const sourceType = file.type || 'image/jpeg';
+
+  // Preserve PNG transparency / GIF (and animated WEBP) rather than flatten
+  // them onto an opaque white JPEG. compressImage() always re-encodes to
+  // JPEG, so we only route lossy-safe formats through it.
+  let blob: Blob;
+  let contentType: string;
+  if (FORMAT_PRESERVING_MIME.test(sourceType)) {
+    blob = file;
+    contentType = sourceType;
+  } else {
+    const compressedDataUri = await compressImage(file);
+    blob = await dataUriToBlob(compressedDataUri);
+    contentType = blob.type || 'image/jpeg';
+  }
+
+  const extension = fileExtensionFromMimeType(contentType);
   const path = buildCardImagePath(context, extension);
 
-  const { error } = await supabase.storage
+  const { error } = await client.storage
     .from(CARD_IMAGE_BUCKET)
     .upload(path, blob, {
       cacheControl: '3600',
       upsert: false,
-      contentType: blob.type || 'image/jpeg',
+      contentType,
     });
 
   if (error) {
     throw new Error(`Failed to upload card image: ${error.message}`);
   }
 
-  const { data } = supabase.storage
+  const { data } = client.storage
     .from(CARD_IMAGE_BUCKET)
     .getPublicUrl(path);
 

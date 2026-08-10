@@ -50,6 +50,21 @@ This file tracks improvements, corrections, and lessons learned during developme
 | 2026-03-16 | Spinner text too small and animation glitchy | Direct SVG rotation with will-change hint; bigger 360px wheel; adaptive font size and truncation |
 | 2026-03-16 | T/F questions marked equivalent definitions as wrong | Fixed isCorrect check in all 4 question modes to compare against all correctAnswers via normalizeAnswer |
 | 2026-03-16 | No way to filter cards before studying | Added card filter panel on SetDetailPage with checkboxes, min-2 guard, Apply/Clear buttons; filter persists in store across all modes until manually cleared |
+| 2026-07-11 | Full codebase bug audit | Documented 62 verified bugs in BUG_REPORT.md (1 critical, 13 high, 21 medium, 27 low) via multi-agent review + adversarial verification |
+| 2026-07-12 | Fixed all 62 audited bugs + game visual overhaul | See "2026-07-12" section below. All fixes verified: tsc clean, 0 ESLint errors, vite build passes, all 4 games render with 0 console errors |
+
+## 2026-07-12: Full Bug Audit Fixes + Game Visual Overhaul
+
+Fixed all 62 bugs from BUG_REPORT.md. Highlights:
+- **Security**: Added `src/lib/sanitize.ts` (dependency-free, default-deny HTML allowlist) — StudyContent now sanitizes all sharer HTML, closing the stored-XSS hole on shared pages (H8). New Supabase migration `005_security_hardening.sql` drops the enumerable RLS policies that leaked every shared set/folder + their share_tokens to anon (H11/H12), pins `search_path` on SECURITY DEFINER funcs (M18), rewrites `check_password_reuse` (M17), and revokes anon EXECUTE on the rate-limit RPCs (L26). Electron gets a CSP + window-open/navigation guards (M16).
+- **Data-loss / sync**: cloud pull no longer nulls a set/folder `share_token` (H1/M2), no longer overwrites newer concurrent edits (H2), no longer resurrects hidden legacy dupes (M1); store merges recompute against fresh state (M3/L25). Uploads preserve PNG/GIF format (L3).
+- **Crashes / robustness**: killed the image-only-set print infinite loop (C1); added an `ErrorBoundary` (chunk-load self-heal) + a `NotFoundPage` catch-all route (H10/L22).
+- **Correctness**: `formatTime` %60 fix (H3); direction-aware, deduped MC distractors (H4/M6); Block Builder winnable at low counts (M7); SRS no longer under-records repeated Learn cards (H13); filter scoped per-set so it no longer leaks across sets (H5/M10); shared-study Exit returns to the shared view instead of a dead "Set not found" (H6/H7); command palette searches the whole library (H9).
+- **Game visual/animation overhaul** (all 4): framer-motion spring animations, `useReducedMotion` support, canvas-confetti celebrations, aurora backgrounds, consistent stat pills, and polished results screens.
+  - **Spinner** → conic-gradient wheel with curved labels, bouncing pointer, glowing hub.
+  - **Memory** → 3D perspective card flips, glossy card backs, match sparkle/streak combo.
+  - **Block Builder** → spring-dropped blocks, rising animated lava, scaled summit marker.
+  - **Race to Finish** → asphalt racetrack with checkered finish, lane markings, animated racers. (Resolves Known Issue #8.)
 
 ## Future Improvements
 - [ ] Implement full Live Multiplayer with Supabase Realtime

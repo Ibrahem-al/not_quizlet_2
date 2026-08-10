@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet, Card } from '@/types';
@@ -25,49 +25,59 @@ function SharedStudyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'not_found' | 'network' | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
-  const fetchSet = useCallback(() => {
-    if (!token) {
-      setError('Invalid share link.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
-    if (!isSupabaseConfigured()) {
-      setError('Cloud features are not configured.');
-      setErrorType('not_found');
-      setLoading(false);
-      return;
-    }
+  useEffect(() => {
+    let active = true;
 
-    setError(null);
-    setErrorType(null);
-    setLoading(true);
-
-    let cancelled = false;
-    fetchSharedSet(token).then((result) => {
-      if (cancelled) return;
-      if (result) {
-        setSet(result);
-      } else {
-        setError('Shared set not found.');
-        setErrorType('not_found');
+    const load = async () => {
+      if (!token) {
+        if (active) {
+          setError('Invalid share link.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
       }
-      setLoading(false);
-    }).catch(() => {
-      if (!cancelled) {
+      if (!isSupabaseConfigured()) {
+        if (active) {
+          setError('Cloud features are not configured.');
+          setErrorType('not_found');
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setError(null);
+        setErrorType(null);
+        setLoading(true);
+      }
+
+      try {
+        const result = await fetchSharedSet(token);
+        if (!active) return;
+        if (result) {
+          setSet(result);
+        } else {
+          setError('Shared set not found.');
+          setErrorType('not_found');
+        }
+        setLoading(false);
+      } catch {
+        if (!active) return;
         setError('Failed to load shared set. Check your connection and try again.');
         setErrorType('network');
         setLoading(false);
       }
-    });
+    };
 
-    return () => { cancelled = true; };
-  }, [token]);
+    void load();
 
-  useEffect(() => {
-    return fetchSet();
-  }, [fetchSet]);
+    return () => {
+      active = false;
+    };
+  }, [token, reloadNonce]);
 
   const validCards: Card[] = useMemo(() => {
     if (!set) return [];
@@ -92,7 +102,11 @@ function SharedStudyPage() {
           <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>{error}</p>
           <div className="flex items-center justify-center gap-3">
             {errorType === 'network' && (
-              <Button variant="primary" icon={<RefreshCw size={16} />} onClick={fetchSet}>
+              <Button
+                variant="primary"
+                icon={<RefreshCw size={16} />}
+                onClick={() => setReloadNonce((n) => n + 1)}
+              >
                 Try Again
               </Button>
             )}
@@ -122,8 +136,11 @@ function SharedStudyPage() {
 
   // Note: setId is passed as set.id but spaced repetition recording
   // will be a no-op for shared sets since there's no local copy.
+  // exitUrl keeps in-session Exit/Escape/Complete on the public /shared route
+  // instead of dumping anonymous viewers on a private /sets/:id page (H6).
   const setId = set.id;
-  const props = { cards: validCards, setId };
+  const exitUrl = `/shared/${token}`;
+  const props = { cards: validCards, setId, exitUrl };
 
   const renderMode = () => {
     switch (mode) {

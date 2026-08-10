@@ -10,7 +10,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, helperText, error, icon, className, id, ...props }, ref) => {
+  ({ label, helperText, error, icon, className, id, onFocus, onBlur, ...props }, ref) => {
     const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
     return (
@@ -54,12 +54,16 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                 e.target.style.borderColor = 'var(--color-primary)';
                 e.target.style.boxShadow = 'var(--shadow-focus)';
               }
+              onFocus?.(e);
             }}
             onBlur={(e) => {
+              // Reset the imperatively-set focus glow FIRST, then run any
+              // consumer-supplied onBlur so a passed handler never clobbers it.
               e.target.style.borderColor = error
                 ? 'var(--color-danger)'
                 : 'var(--color-border)';
               e.target.style.boxShadow = '';
+              onBlur?.(e);
             }}
             {...props}
           />

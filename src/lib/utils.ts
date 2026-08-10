@@ -56,7 +56,7 @@ export function formatDuration(ms: number): string {
 
 export function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 10);
+  const s = Math.floor(seconds % 60);
   const t = Math.floor((seconds % 1) * 10);
   return `${m}:${String(s).padStart(2, '0')}.${t}`;
 }
@@ -88,7 +88,14 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 export function normalizeAnswer(text: string): string {
-  return stripHtml(text).toLowerCase().trim().replace(/\s+/g, ' ');
+  return stripHtml(text)
+    // NFD-decompose then strip combining diacritic marks so accented answers
+    // (café -> cafe, té -> te) compare equal to their unaccented forms.
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 export function gradeAnswer(userAnswer: string, correctAnswers: string[]): boolean {

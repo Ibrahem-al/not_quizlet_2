@@ -107,20 +107,37 @@ function SetDetailPage() {
   const [sharing, setSharing] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const storedFilterIds = useFilterStore((s) => s.filteredCardIds);
+  const storedFilterSetId = useFilterStore((s) => s.filterSetId);
   const setFilteredCardIds = useFilterStore((s) => s.setFilteredCardIds);
   const addToast = useToastStore((s) => s.addToast);
 
-  // Restore filter visual state from store on mount
-  const [excludedCardIds, setExcludedCardIds] = useState<Set<string>>(() => {
-    if (!storedFilterIds) return new Set();
-    // We'll rebuild excludedCardIds once we have localSet — handled below
-    return new Set();
-  });
-  const [filterApplied, setFilterApplied] = useState(!!storedFilterIds);
+  // Restore filter visual state from store on mount — but only when the stored
+  // filter actually belongs to THIS set (else it is a leaked filter from another
+  // set and must be ignored). H5.
+  const filterBelongsToThisSet = !!storedFilterIds && storedFilterSetId === id;
+  const [excludedCardIds, setExcludedCardIds] = useState<Set<string>>(new Set());
+  const [filterApplied, setFilterApplied] = useState(filterBelongsToThisSet);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localSetRef = useRef<StudySet | null>(null);
   localSetRef.current = localSet;
+
+  // Snapshot of the title as it was when the user started editing, used to
+  // revert if they blank it out entirely (L11).
+  const editStartTitleRef = useRef('');
+
+  // Track whether an active filter for THIS set is applied, for the unmount
+  // cleanup that clears the global store when leaving without one (H5).
+  const filterAppliedRef = useRef(filterApplied);
+  filterAppliedRef.current = filterApplied;
+
+  // Resolve the set during render so the "Set not found" screen is only shown
+  // for genuinely-missing sets — never as a one-frame flash while an effect
+  // populates localSet (L13).
+  const found = useMemo(
+    () => sets.find((s) => s.id === id) ?? null,
+    [sets, id],
+  );
 
   // Load sets on mount if needed
   useEffect(() => {
@@ -131,25 +148,36 @@ function SetDetailPage() {
     }
   }, [sets.length, loadSets]);
 
-  // Restore excluded card IDs from filter store when set loads
+  // Adopt the resolved set into the local working copy once available.
   useEffect(() => {
-    if (!localSet || !storedFilterIds) return;
+    if (loaded && found && !localSet) {
+      setLocalSet(found);
+    }
+  }, [loaded, found, localSet]);
+
+  // Restore excluded card IDs from filter store when set loads — only when the
+  // stored filter belongs to this set (H5).
+  useEffect(() => {
+    if (!localSet || !storedFilterIds || storedFilterSetId !== localSet.id) return;
     const includedSet = new Set(storedFilterIds);
     const excluded = new Set(localSet.cards.filter((c) => !includedSet.has(c.id)).map((c) => c.id));
     if (excluded.size > 0) {
       setExcludedCardIds(excluded);
       setFilterApplied(true);
     }
-  }, [localSet?.id, storedFilterIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [localSet?.id, storedFilterIds, storedFilterSetId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Find set from store
+  // On unmount, clear the global filter unless it is an active filter for THIS
+  // set (which study modes launched from here should still pick up). Prevents
+  // the filter leaking to a different set (H5).
   useEffect(() => {
-    if (!loaded) return;
-    const found = sets.find((s) => s.id === id);
-    if (found && !localSet) {
-      setLocalSet(found);
-    }
-  }, [id, sets, loaded, localSet]);
+    return () => {
+      const state = useFilterStore.getState();
+      if (!(filterAppliedRef.current && state.filterSetId === id)) {
+        state.setFilteredCardIds(null);
+      }
+    };
+  }, [id]);
 
   const toggleCardExclusion = useCallback((cardId: string) => {
     setExcludedCardIds((prev) => {
@@ -179,7 +207,7 @@ function SetDetailPage() {
     const selectedIds = localSet.cards
       .filter((c) => !excludedCardIds.has(c.id))
       .map((c) => c.id);
-    setFilteredCardIds(selectedIds);
+    setFilteredCardIds(selectedIds, localSet.id);
     setFilterApplied(true);
     setFilterOpen(false);
     addToast('success', `Filter applied: ${selectedIds.length} of ${localSet.cards.length} cards selected`);
@@ -197,6 +225,9 @@ function SetDetailPage() {
     setSaveStatus('unsaved');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      // Null the ref before saving so the unmount cleanup (which uses it as its
+      // "unsaved changes" guard) doesn't perform a redundant save (L10).
+      saveTimerRef.current = null;
       const current = localSetRef.current;
       if (current) {
         setSaveStatus('saving');
@@ -208,7 +239,10 @@ function SetDetailPage() {
   }, [updateSet]);
 
   const handleManualSave = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     const current = localSetRef.current;
     if (current) {
       setSaveStatus('saving');
@@ -231,28 +265,42 @@ function SetDetailPage() {
     };
   }, [updateSet]);
 
-  const handleTitleBlur = useCallback(
-    (e: React.FocusEvent<HTMLInputElement>) => {
-      setEditingTitle(false);
-      if (!localSet) return;
-      const val = e.target.value.trim() || localSet.title;
+  // Controlled title/description: every keystroke updates the working copy and
+  // schedules a save, so an un-blurred edit is never lost on navigation (L11).
+  const handleTitleChange = useCallback(
+    (val: string) => {
       setLocalSet((prev) => (prev ? { ...prev, title: val } : prev));
       scheduleSave();
     },
-    [localSet, scheduleSave],
+    [scheduleSave],
   );
 
-  const handleDescBlur = useCallback(
-    (e: React.FocusEvent<HTMLInputElement>) => {
-      setEditingDesc(false);
-      if (!localSet) return;
-      setLocalSet((prev) =>
-        prev ? { ...prev, description: e.target.value.trim() } : prev,
-      );
+  const handleTitleBlur = useCallback(() => {
+    setEditingTitle(false);
+    setLocalSet((prev) => {
+      if (!prev) return prev;
+      const trimmed = prev.title.trim();
+      // Revert to the pre-edit title if the field was blanked out entirely.
+      return { ...prev, title: trimmed || editStartTitleRef.current };
+    });
+    scheduleSave();
+  }, [scheduleSave]);
+
+  const handleDescChange = useCallback(
+    (val: string) => {
+      setLocalSet((prev) => (prev ? { ...prev, description: val } : prev));
       scheduleSave();
     },
-    [localSet, scheduleSave],
+    [scheduleSave],
   );
+
+  const handleDescBlur = useCallback(() => {
+    setEditingDesc(false);
+    setLocalSet((prev) =>
+      prev ? { ...prev, description: (prev.description ?? '').trim() } : prev,
+    );
+    scheduleSave();
+  }, [scheduleSave]);
 
   const handleAddTag = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -423,8 +471,9 @@ function SetDetailPage() {
     [],
   );
 
-  // Not found state
-  if (loaded && !localSet) {
+  // Not found state — gated on the derived `found` so a valid set never flashes
+  // the error screen while localSet is being populated (L13).
+  if (loaded && !found) {
     return (
       <PageTransition>
         <div className="max-w-3xl mx-auto px-4 py-16 text-center">
@@ -504,7 +553,8 @@ function SetDetailPage() {
           {editingTitle ? (
             <input
               autoFocus
-              defaultValue={localSet.title}
+              value={localSet.title}
+              onChange={(e) => handleTitleChange(e.target.value)}
               onBlur={handleTitleBlur}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur();
@@ -525,7 +575,10 @@ function SetDetailPage() {
                 color: 'var(--color-text)',
                 fontFamily: 'var(--font-sans)',
               }}
-              onClick={() => setEditingTitle(true)}
+              onClick={() => {
+                editStartTitleRef.current = localSet.title;
+                setEditingTitle(true);
+              }}
               title="Click to edit title"
             >
               {localSet.title}
@@ -538,7 +591,8 @@ function SetDetailPage() {
           {editingDesc ? (
             <input
               autoFocus
-              defaultValue={localSet.description}
+              value={localSet.description ?? ''}
+              onChange={(e) => handleDescChange(e.target.value)}
               onBlur={handleDescBlur}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur();

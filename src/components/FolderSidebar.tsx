@@ -151,7 +151,7 @@ function FolderSidebar() {
     setNewName('');
     setNewColor('blue');
     setIsCreating(false);
-  }, [newName, newColor, addFolder]);
+  }, [newName, newColor, addFolder, selectedFolderId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

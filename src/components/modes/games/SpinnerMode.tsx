@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
+import confetti from 'canvas-confetti';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { stripHtml, cn } from '@/lib/utils';
@@ -9,6 +10,7 @@ import StudyContent from '@/components/StudyContent';
 interface SpinnerModeProps {
   cards: Card[];
   setId: string;
+  exitUrl?: string;
 }
 
 /** Extract first base64 image src from HTML content */
@@ -50,8 +52,74 @@ function getDisplaySide(card: Card): { html: string; imageSrc: string | null; te
   return { html: card.term, imageSrc: null, text: termText };
 }
 
-function SpinnerMode({ cards, setId }: SpinnerModeProps) {
+/** Token-derived segment hue: rotate around the indigo brand hue for a cohesive wheel. */
+function segmentColor(i: number, count: number): string {
+  const hue = Math.round((i * 360) / count + 239) % 360;
+  const light = i % 2 === 0 ? 60 : 53;
+  return `hsl(${hue}deg 68% ${light}%)`;
+}
+
+/** Soft animated aurora background — GPU-friendly (transform/opacity only). */
+function Aurora({ reduce }: { reduce: boolean }) {
+  const blobs = [
+    { color: 'var(--color-primary)', className: 'w-72 h-72 -top-16 -left-10' },
+    { color: 'var(--color-success)', className: 'w-80 h-80 top-1/3 -right-16' },
+    { color: 'var(--color-warning)', className: 'w-64 h-64 -bottom-10 left-1/4' },
+  ];
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+      {blobs.map((b, i) => (
+        <motion.div
+          key={i}
+          className={cn('absolute rounded-full', b.className)}
+          style={{ background: b.color, opacity: 0.14, filter: 'blur(64px)', willChange: 'transform' }}
+          animate={
+            reduce
+              ? undefined
+              : { x: [0, 28, -18, 0], y: [0, -24, 18, 0], scale: [1, 1.14, 0.94, 1] }
+          }
+          transition={
+            reduce
+              ? undefined
+              : { duration: 15 + i * 3, repeat: Infinity, ease: 'easeInOut', delay: i * 1.4 }
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Rounded stat pill used in the header. */
+function StatChip({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div
+      className="flex flex-col items-center px-4 py-1.5"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border-light)',
+        borderRadius: 'var(--radius-full)',
+        boxShadow: 'var(--shadow-xs)',
+      }}
+    >
+      <span className="text-sm font-bold tabular-nums leading-none" style={{ color: accent ?? 'var(--color-text)' }}>
+        {value}
+      </span>
+      <span className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/** Fire a celebratory confetti burst (reduced-motion aware handled by caller). */
+function fireConfetti() {
+  confetti({ particleCount: 70, spread: 72, startVelocity: 42, origin: { x: 0.5, y: 0.42 }, scalar: 0.9 });
+}
+
+function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   const navigate = useNavigate();
+  const reduce = useReducedMotion() ?? false;
+  const exitTo = exitUrl ?? `/sets/${setId}`;
 
   const [remainingCards, setRemainingCards] = useState<Card[]>(() => [...cards]);
   const [rotationDeg, setRotationDeg] = useState(0);
@@ -60,6 +128,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [skippedCount, setSkippedCount] = useState(0);
   const [doneCount, setDoneCount] = useState(0);
+  const [landedIndex, setLandedIndex] = useState<number | null>(null);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRotationRef = useRef(0);
 
@@ -70,6 +139,27 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
       if (spinTimeoutRef.current) clearTimeout(spinTimeoutRef.current);
     };
   }, []);
+
+  // Celebrate when every card has been completed.
+  useEffect(() => {
+    if (remainingCards.length === 0 && totalCards > 0 && !reduce) {
+      const t1 = setTimeout(() => {
+        confetti({ particleCount: 90, spread: 65, startVelocity: 45, origin: { x: 0.3, y: 0.5 } });
+        confetti({ particleCount: 90, spread: 65, startVelocity: 45, origin: { x: 0.7, y: 0.5 } });
+      }, 150);
+      return () => clearTimeout(t1);
+    }
+  }, [remainingCards.length, totalCards, reduce]);
+
+  // Close the selected-card modal with Escape (does not exit the game).
+  useEffect(() => {
+    if (!selectedCard) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedCard(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedCard]);
 
   const handleSpin = useCallback(() => {
     if (isSpinning || remainingCards.length === 0) return;
@@ -84,73 +174,122 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     const bonusRotations = (5 + Math.floor(Math.random() * 4)) * 360;
     const totalRotation = prevRotationRef.current + bonusRotations + landingAngle + (360 - (prevRotationRef.current % 360));
 
+    setLandedIndex(null);
     setIsSpinning(true);
     setRotationDeg(totalRotation);
     prevRotationRef.current = totalRotation;
 
-    spinTimeoutRef.current = setTimeout(() => {
+    const settle = () => {
       setIsSpinning(false);
+      setLandedIndex(randomIndex);
       setSelectedCard(remainingCards[randomIndex]);
       setIsFlipped(false);
-    }, 4000);
-  }, [isSpinning, remainingCards]);
+      if (!reduce) fireConfetti();
+    };
+
+    if (reduce) {
+      // Skip the long decelerating animation for reduced motion.
+      spinTimeoutRef.current = setTimeout(settle, 300);
+    } else {
+      spinTimeoutRef.current = setTimeout(settle, 4000);
+    }
+  }, [isSpinning, remainingCards, reduce]);
 
   const handleGotIt = useCallback(() => {
     if (!selectedCard) return;
     setRemainingCards((prev) => prev.filter((c) => c.id !== selectedCard.id));
     setDoneCount((d) => d + 1);
     setSelectedCard(null);
+    setLandedIndex(null);
   }, [selectedCard]);
 
   const handleSkip = useCallback(() => {
     setSkippedCount((s) => s + 1);
     setSelectedCard(null);
+    setLandedIndex(null);
   }, []);
 
   const handleReset = useCallback(() => {
+    // L9: clear any pending spin timeout and reset spinning state so a stale
+    // callback from a pre-reset spin can't fire after a fresh start.
+    if (spinTimeoutRef.current) {
+      clearTimeout(spinTimeoutRef.current);
+      spinTimeoutRef.current = null;
+    }
+    setIsSpinning(false);
     setRemainingCards([...cards]);
     setDoneCount(0);
     setSkippedCount(0);
     setRotationDeg(0);
     prevRotationRef.current = 0;
     setSelectedCard(null);
+    setLandedIndex(null);
   }, [cards]);
+
+  const containerVariants: Variants = {
+    hidden: {},
+    show: { transition: { staggerChildren: 0.08, delayChildren: 0.04 } },
+  };
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: reduce ? 0 : 18 },
+    show: {
+      opacity: 1,
+      y: 0,
+      transition: reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 240, damping: 22 },
+    },
+  };
 
   // All done
   if (remainingCards.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl p-8 text-center"
-          style={{
-            background: 'var(--color-surface)',
-            boxShadow: 'var(--shadow-card)',
-            borderRadius: 'var(--radius-xl)',
-          }}
-        >
-          <h2
-            className="text-2xl font-bold mb-4"
-            style={{ color: 'var(--color-text)' }}
+      <div className="relative min-h-[70vh]">
+        <Aurora reduce={reduce} />
+        <div className="relative max-w-2xl mx-auto px-4 py-16">
+          <motion.div
+            initial={{ opacity: 0, scale: reduce ? 1 : 0.92, y: reduce ? 0 : 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 220, damping: 20 }}
+            className="p-8 text-center"
+            style={{
+              background: 'var(--color-surface)',
+              boxShadow: 'var(--shadow-modal)',
+              borderRadius: 'var(--radius-xl)',
+              border: '1px solid var(--color-border-light)',
+            }}
           >
-            All Done!
-          </h2>
-          <p className="text-lg mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-            You completed all {totalCards} cards
-          </p>
-          <p className="text-sm mb-6" style={{ color: 'var(--color-text-tertiary)' }}>
-            {skippedCount > 0 && `Skipped ${skippedCount} time(s) along the way`}
-          </p>
-          <div className="flex gap-3 justify-center">
-            <Button variant="primary" onClick={handleReset}>
-              Play Again
-            </Button>
-            <Button variant="outline" onClick={() => navigate(`/sets/${setId}`)}>
-              Exit
-            </Button>
-          </div>
-        </motion.div>
+            <motion.div
+              className="text-6xl mb-4"
+              initial={{ scale: reduce ? 1 : 0, rotate: reduce ? 0 : -30 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }}
+            >
+              🎉
+            </motion.div>
+            <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+              All Done!
+            </h2>
+            <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
+              You spun through all {totalCards} cards
+            </p>
+
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <StatChip label="Completed" value={`${totalCards}`} accent="var(--color-success)" />
+              <StatChip label="Spins" value={`${totalCards + skippedCount}`} />
+              {skippedCount > 0 && (
+                <StatChip label="Skipped" value={`${skippedCount}`} accent="var(--color-warning)" />
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-center">
+              <Button variant="primary" onClick={handleReset}>
+                Play Again
+              </Button>
+              <Button variant="outline" onClick={() => navigate(exitTo)}>
+                Exit
+              </Button>
+            </div>
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -179,8 +318,8 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
         ? `M ${centerX} ${centerY - wheelRadius} A ${wheelRadius} ${wheelRadius} 0 1 1 ${centerX - 0.01} ${centerY - wheelRadius} Z`
         : `M ${centerX} ${centerY} L ${x1} ${y1} A ${wheelRadius} ${wheelRadius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
 
-    const hue = Math.round((i * 360) / count);
-    const color = `hsl(${hue}, 70%, 60%)`;
+    const color = segmentColor(i, count);
+    const isLanded = i === landedIndex;
 
     // Label position (midpoint of arc)
     const midAngle = ((i + 0.5) * segmentAngle - 90) * (Math.PI / 180);
@@ -203,8 +342,14 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     const clipId = `clip-seg-${i}`;
 
     return (
-      <g key={card.id}>
-        <path d={pathD} fill={color} stroke="#fff" strokeWidth="2" />
+      <g key={card.id} style={{ filter: isLanded ? 'brightness(1.12) saturate(1.1)' : undefined }}>
+        <path
+          d={pathD}
+          fill={color}
+          stroke={isLanded ? '#ffffff' : 'rgba(255,255,255,0.85)'}
+          strokeWidth={isLanded ? 4 : 2}
+          strokeLinejoin="round"
+        />
         {display.imageSrc ? (
           <>
             <defs>
@@ -231,7 +376,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
             textAnchor="middle"
             dominantBaseline="middle"
             transform={`rotate(${labelRotation}, ${labelX}, ${labelY})`}
-            fill="#fff"
+            fill="#ffffff"
             fontSize={fontSize}
             fontWeight="600"
             fontFamily="var(--font-sans)"
@@ -244,57 +389,129 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
     );
   });
 
+  const progress = totalCards > 0 ? doneCount / totalCards : 0;
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/sets/${setId}`)}>
-          Exit
-        </Button>
-        <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-          {doneCount} / {totalCards} done
-          {skippedCount > 0 && ` (${skippedCount} skipped)`}
-        </span>
-        <Button variant="ghost" size="sm" onClick={handleReset}>
-          Reset
-        </Button>
-      </div>
+    <div className="relative min-h-[70vh]">
+      <Aurora reduce={reduce} />
 
-      {/* Wheel */}
-      <div className="flex flex-col items-center">
-        {/* Pointer triangle */}
-        <svg width="30" height="20" viewBox="0 0 30 20" className="mb-[-4px] z-10 relative">
-          <polygon points="0,0 30,0 15,20" fill="#fff" stroke="var(--color-text)" strokeWidth="2" />
-        </svg>
+      <motion.div
+        className="relative max-w-2xl mx-auto px-4 py-8"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+      >
+        {/* Header */}
+        <motion.div variants={itemVariants} className="mb-5">
+          <div className="flex items-center justify-between mb-4">
+            <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
+              Exit
+            </Button>
+            <div className="flex items-center gap-2">
+              <StatChip label="Done" value={`${doneCount}/${totalCards}`} accent="var(--color-success)" />
+              <StatChip label="Left" value={`${count}`} accent="var(--color-primary)" />
+              {skippedCount > 0 && (
+                <StatChip label="Skipped" value={`${skippedCount}`} accent="var(--color-warning)" />
+              )}
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleReset}>
+              Reset
+            </Button>
+          </div>
 
-        <motion.svg
-          width={wheelSize}
-          height={wheelSize}
-          viewBox={`0 0 ${wheelSize} ${wheelSize}`}
-          animate={{ rotate: rotationDeg }}
-          transition={
-            isSpinning
-              ? { duration: 4, ease: [0.17, 0.67, 0.12, 0.99] }
-              : { duration: 0 }
-          }
-          style={{ willChange: isSpinning ? 'transform' : 'auto' }}
-        >
-          {segments}
-          {/* Center circle */}
-          <circle cx={centerX} cy={centerY} r="22" fill="var(--color-surface)" stroke="#fff" strokeWidth="3" />
-        </motion.svg>
+          {/* Progress bar (transform-based for perf) */}
+          <div
+            className="h-1.5 w-full overflow-hidden"
+            style={{ background: 'var(--color-muted)', borderRadius: 'var(--radius-full)' }}
+            aria-hidden="true"
+          >
+            <motion.div
+              className="h-full origin-left"
+              style={{ background: 'var(--color-primary)', borderRadius: 'var(--radius-full)' }}
+              initial={false}
+              animate={{ scaleX: progress }}
+              transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 200, damping: 30 }}
+            />
+          </div>
+        </motion.div>
 
-        {/* Spin button */}
-        <Button
-          variant="primary"
-          size="lg"
-          className="mt-4"
-          onClick={handleSpin}
-          disabled={isSpinning}
-        >
-          {isSpinning ? 'Spinning...' : 'SPIN!'}
-        </Button>
-      </div>
+        {/* Wheel */}
+        <motion.div variants={itemVariants} className="flex flex-col items-center">
+          {/* Pointer triangle (nudges/ticks while spinning) */}
+          <motion.svg
+            width="34"
+            height="24"
+            viewBox="0 0 34 24"
+            className="mb-[-6px] z-10 relative"
+            style={{ transformOrigin: '17px 0px', filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}
+            animate={isSpinning && !reduce ? { rotate: [0, -13, 0] } : { rotate: 0 }}
+            transition={isSpinning && !reduce ? { duration: 0.11, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+          >
+            <polygon
+              points="4,0 30,0 17,22"
+              fill="var(--color-primary)"
+              stroke="var(--color-surface)"
+              strokeWidth="2.5"
+              strokeLinejoin="round"
+            />
+          </motion.svg>
+
+          {/* Wheel + glow ring */}
+          <div className="relative flex items-center justify-center w-full max-w-[360px]">
+            <motion.div
+              className="absolute rounded-full pointer-events-none"
+              style={{ inset: '-4px' }}
+              animate={{
+                boxShadow: isSpinning
+                  ? '0 0 44px 4px var(--color-primary-ring)'
+                  : landedIndex !== null
+                    ? '0 0 52px 6px var(--color-primary-ring)'
+                    : '0 0 22px 0px var(--color-primary-ring)',
+              }}
+              transition={{ duration: 0.4, ease: 'easeOut' }}
+            />
+            <motion.svg
+              width={wheelSize}
+              height={wheelSize}
+              viewBox={`0 0 ${wheelSize} ${wheelSize}`}
+              className="w-full h-auto relative"
+              animate={{ rotate: rotationDeg }}
+              transition={
+                isSpinning && !reduce
+                  ? { duration: 4, ease: [0.17, 0.67, 0.12, 0.99] }
+                  : { duration: 0 }
+              }
+              style={{ willChange: isSpinning ? 'transform' : 'auto' }}
+            >
+              {/* Outer rim */}
+              <circle
+                cx={centerX}
+                cy={centerY}
+                r={wheelRadius + 3}
+                fill="none"
+                stroke="var(--color-surface)"
+                strokeWidth="6"
+                opacity="0.9"
+              />
+              {segments}
+              {/* Center hub */}
+              <circle cx={centerX} cy={centerY} r="26" fill="var(--color-surface)" stroke="var(--color-primary)" strokeWidth="4" />
+              <circle cx={centerX} cy={centerY} r="9" fill="var(--color-primary)" />
+            </motion.svg>
+          </div>
+
+          {/* Spin button */}
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-6 min-w-[160px]"
+            onClick={handleSpin}
+            disabled={isSpinning}
+          >
+            {isSpinning ? 'Spinning…' : 'SPIN!'}
+          </Button>
+        </motion.div>
+      </motion.div>
 
       {/* Modal overlay for selected card */}
       <AnimatePresence>
@@ -304,19 +521,29 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: 'rgba(0,0,0,0.5)' }}
+            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
+            onClick={() => setSelectedCard(null)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-md"
+              initial={{ scale: reduce ? 1 : 0.9, opacity: 0, y: reduce ? 0 : 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: reduce ? 1 : 0.92, opacity: 0 }}
+              transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 300, damping: 26 }}
+              className="w-full max-w-md overflow-hidden"
               style={{
                 background: 'var(--color-surface)',
                 borderRadius: 'var(--radius-xl)',
-                boxShadow: 'var(--shadow-card)',
+                boxShadow: 'var(--shadow-modal)',
+                border: '1px solid var(--color-border-light)',
               }}
+              onClick={(e) => e.stopPropagation()}
             >
+              {/* Accent bar */}
+              <div
+                className="h-1.5 w-full"
+                style={{ background: 'linear-gradient(90deg, var(--color-primary), var(--color-success))' }}
+              />
+
               {/* Flipcard */}
               <div
                 className="relative cursor-pointer select-none"
@@ -326,14 +553,14 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
                 <div style={{ transformStyle: 'preserve-3d', position: 'relative', minHeight: 240 }}>
                   {/* Front */}
                   <motion.div
-                    className="absolute inset-0 flex items-center justify-center p-8 rounded-t-2xl"
+                    className="absolute inset-0 flex items-center justify-center p-8"
                     style={{
                       background: 'var(--color-surface)',
                       backfaceVisibility: 'hidden',
                       minHeight: 240,
                     }}
                     animate={{ rotateY: isFlipped ? 180 : 0 }}
-                    transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+                    transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 280, damping: 26 }}
                   >
                     <div className="text-center w-full">
                       <div
@@ -348,14 +575,14 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
 
                   {/* Back */}
                   <motion.div
-                    className="absolute inset-0 flex items-center justify-center p-8 rounded-t-2xl"
+                    className="absolute inset-0 flex items-center justify-center p-8"
                     style={{
                       background: 'var(--color-surface)',
                       backfaceVisibility: 'hidden',
                       minHeight: 240,
                     }}
                     animate={{ rotateY: isFlipped ? 0 : -180 }}
-                    transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+                    transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 280, damping: 26 }}
                   >
                     <div className="text-center w-full">
                       <div
@@ -371,7 +598,7 @@ function SpinnerMode({ cards, setId }: SpinnerModeProps) {
               </div>
 
               {/* Action buttons */}
-              <div className="flex gap-3 p-4">
+              <div className="flex gap-3 p-4" style={{ borderTop: '1px solid var(--color-border-light)' }}>
                 <Button variant="primary" className="flex-1" onClick={handleGotIt}>
                   Got it
                 </Button>
