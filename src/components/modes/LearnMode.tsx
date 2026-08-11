@@ -134,6 +134,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
   const presets = [5, 10, 20, 50].filter((n) => n <= cards.length * 3);
 
   const currentQuestion = questions[currentIndex];
+  // Review-round answers don't change the score — the score reflects first
+  // attempts only, so a missed-then-reviewed question isn't double-counted.
+  const inReviewRound = reviewStartIndex !== null && currentIndex >= reviewStartIndex;
 
   const checkAnswer = useCallback(
     (answer: string) => {
@@ -141,9 +144,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
 
       const isCorrect = gradeWrittenAnswer(answer, currentQuestion.correctAnswers);
       setFeedback(isCorrect ? 'correct' : 'wrong');
-      if (isCorrect) setCorrectCount((c) => c + 1);
+      if (isCorrect && !inReviewRound) setCorrectCount((c) => c + 1);
     },
-    [feedback, currentQuestion],
+    [feedback, currentQuestion, inReviewRound],
   );
 
   const checkMC = useCallback(
@@ -156,9 +159,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
         (a) => normalizeAnswer(a) === normalizedOption,
       );
       setFeedback(isCorrect ? 'correct' : 'wrong');
-      if (isCorrect) setCorrectCount((c) => c + 1);
+      if (isCorrect && !inReviewRound) setCorrectCount((c) => c + 1);
     },
-    [feedback, currentQuestion],
+    [feedback, currentQuestion, inReviewRound],
   );
 
   const checkTF = useCallback(
@@ -167,9 +170,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
 
       const isCorrect = answer === currentQuestion.tfPair?.isCorrect;
       setFeedback(isCorrect ? 'correct' : 'wrong');
-      if (isCorrect) setCorrectCount((c) => c + 1);
+      if (isCorrect && !inReviewRound) setCorrectCount((c) => c + 1);
     },
-    [feedback, currentQuestion],
+    [feedback, currentQuestion, inReviewRound],
   );
 
   const recordAndAdvance = useCallback(
@@ -324,7 +327,11 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
   }
 
   if (sessionComplete) {
-    const accuracy = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+    // Score against the main round only — the appended review round re-asks
+    // missed questions and must not inflate the denominator.
+    const mainTotal = reviewStartIndex ?? questions.length;
+    const accuracy = mainTotal > 0 ? Math.round((correctCount / mainTotal) * 100) : 0;
+    const reviewedCount = reviewStartIndex !== null ? questions.length - reviewStartIndex : 0;
 
     return (
       <div className="max-w-2xl mx-auto px-4 py-8">
@@ -344,9 +351,15 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
           >
             Session Complete
           </h2>
-          <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
-            You got {correctCount} out of {questions.length} correct ({accuracy}%)
+          <p className="text-lg mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+            You got {correctCount} out of {mainTotal} correct ({accuracy}%)
           </p>
+          {reviewedCount > 0 && (
+            <p className="text-sm mb-6" style={{ color: 'var(--color-text-tertiary)' }}>
+              Plus a review round of {reviewedCount} missed {reviewedCount === 1 ? 'question' : 'questions'}
+            </p>
+          )}
+          {reviewedCount === 0 && <div className="mb-4" />}
 
           <div className="flex gap-3 justify-center">
             <Button

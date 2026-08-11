@@ -427,15 +427,11 @@ function setContentToRow(set: StudySet): Record<string, unknown> {
 // Sync operations
 // ============================================================
 
-/** Best-effort preparation for background sync: migrate/compress card media
- *  when possible, but fall back to the original set instead of throwing so a
- *  single oversized image does not block the whole push. */
+/** Preparation for background sync: migrate/compress card media. Throws a
+ *  classified CloudSyncError on failure so the sync queue retries the whole
+ *  push (re-running preparation) instead of uploading raw base64 payloads. */
 export async function prepareSetForAutoSync(set: StudySet): Promise<StudySet> {
-  try {
-    return await prepareSetForCloudSync(set);
-  } catch {
-    return set;
-  }
+  return prepareSetForCloudSync(set);
 }
 
 /** Upsert a set's content row (share_token preserved). Throws a classified
@@ -450,14 +446,16 @@ export async function upsertSetContent(set: StudySet): Promise<void> {
   if (error) throw classifySupabaseError(error, 'sync this set to the cloud');
 }
 
-/** Upsert a folder's content row (share_token preserved). Throws a classified
+/** Upsert one or more folder content rows in a single ordered statement
+ *  (share_token preserved). Callers pass ancestors before descendants so the
+ *  parent_folder_id FK is satisfied within the statement. Throws a classified
  *  CloudSyncError on failure so callers can retry. */
-export async function upsertFolderContent(folder: Folder): Promise<void> {
-  if (!isSupabaseConfigured() || !supabase) return;
+export async function upsertFolderContents(folders: Folder[]): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase || folders.length === 0) return;
 
   const { error } = await supabase
     .from('folders')
-    .upsert(folderContentToRow(folder), { onConflict: 'id' });
+    .upsert(folders.map(folderContentToRow), { onConflict: 'id' });
 
   if (error) throw classifySupabaseError(error, 'sync this folder to the cloud');
 }
@@ -834,18 +832,6 @@ function folderContentToRow(folder: Folder): Record<string, unknown> {
 // Folder sync operations
 // ============================================================
 
-export async function syncFolderToCloud(folder: Folder): Promise<void> {
-  if (!isSupabaseConfigured() || !supabase) return;
-
-  const { error } = await supabase
-    .from('folders')
-    .upsert(folderToRow(folder), { onConflict: 'id' });
-
-  if (error) {
-    console.error('Failed to sync folder:', error.message);
-  }
-}
-
 export async function deleteFolderFromCloud(folderId: string): Promise<void> {
   addPendingDelete('folder', folderId);
   if (!isSupabaseConfigured() || !supabase) return;
@@ -1030,12 +1016,12 @@ export async function fetchSharedFolder(
   const rootFolder = allFolders.find((f) => f.shareToken === shareToken) ?? allFolders[0];
   const subfolders = allFolders.filter((f) => f.id !== rootFolder.id);
 
-  const sets: StudySet[] = setsRes.error || !setsRes.data
-    ? []
-    : (setsRes.data as DbRow[]).map(rowToSet);
+  const setsFailed = Boolean(setsRes.error) || !setsRes.data;
+  const sets: StudySet[] = setsFailed ? [] : (setsRes.data as DbRow[]).map(rowToSet);
 
   const result = { folder: rootFolder, subfolders, sets };
-  setCachedData(cacheKey, result);
+  // A transient sets-RPC failure must not be cached as "this folder is empty".
+  if (!setsFailed) setCachedData(cacheKey, result);
   return result;
 }
 

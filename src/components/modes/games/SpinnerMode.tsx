@@ -187,7 +187,10 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   }, [selectedCard]);
 
   const handleSpin = useCallback(() => {
-    if (isSpinning || remainingCards.length === 0) return;
+    // spinTimeoutRef is non-null during the post-land pause while the modal
+    // open is pending — spinning then would pop the previous card's modal
+    // over the new spin, so the button stays inert for that beat.
+    if (isSpinning || spinTimeoutRef.current !== null || remainingCards.length === 0) return;
 
     // Re-sample the wheel every spin so all cards cycle through large sets.
     const spinWheel = sampleWheelCards(remainingCards);
@@ -224,6 +227,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
       playSound('land');
       // Brief pause so the landed-segment pulse can read before the modal opens.
       spinTimeoutRef.current = setTimeout(() => {
+        spinTimeoutRef.current = null;
         setSelectedCard(spinWheel[randomIndex]);
         setIsFlipped(false);
       }, reduce ? 150 : 550);

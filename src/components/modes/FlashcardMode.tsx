@@ -27,6 +27,17 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
 
   const currentCard = deck[currentIndex];
 
+  // Resync the deck when the cards prop changes (cross-device pull, image
+  // migration writeback) so the visible deck never goes stale; keep the
+  // current position clamped to the new length.
+  useEffect(() => {
+    setDeck((prev) => {
+      if (prev === cards) return prev;
+      return isShuffled ? shuffleArray(cards) : cards;
+    });
+    setCurrentIndex((i) => Math.max(0, Math.min(i, cards.length - 1)));
+  }, [cards, isShuffled]);
+
   const toggleShuffle = useCallback(() => {
     setDeck(isShuffled ? cards : shuffleArray(cards));
     setIsShuffled((prev) => !prev);

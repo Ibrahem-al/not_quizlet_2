@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { StudySet } from '@/types';
 import { getAllSets, getSet, saveSet, deleteSet } from '@/db';
 import { deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
-import { queueSetSync } from '@/lib/syncEngine';
+import { queueSetSync, cancelSync } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -227,6 +227,9 @@ export const useSetStore = create<SetStore>((set, get) => ({
   },
 
   removeSet: async (id: string) => {
+    // Drop any queued cloud push first so it cannot re-create the row
+    // after the delete lands.
+    cancelSync('set', id);
     await deleteSet(id);
     set({ sets: get().sets.filter((s) => s.id !== id) });
 

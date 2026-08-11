@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Folder } from '@/types';
 import { getAllFolders, saveFolder, deleteFolder } from '@/db';
 import { pullFoldersFromCloud, deleteFolderFromCloud } from '@/lib/cloudSync';
-import { queueFolderSync } from '@/lib/syncEngine';
+import { queueFolderSync, cancelSync } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -109,6 +109,9 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
   },
 
   removeFolder: async (id: string) => {
+    // Drop any queued cloud push first so it cannot re-create the row
+    // after the delete lands.
+    cancelSync('folder', id);
     const folder = get().folders.find((f) => f.id === id);
     const parentId = folder?.parentFolderId ?? undefined;
 
