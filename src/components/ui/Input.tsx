@@ -1,4 +1,4 @@
-import { forwardRef, type ReactNode, type InputHTMLAttributes } from 'react';
+import { forwardRef, useId, type ReactNode, type InputHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -11,7 +11,10 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, helperText, error, icon, className, id, onFocus, onBlur, ...props }, ref) => {
-    const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+    // useId keeps label/input pairing collision-free when two inputs share a
+    // label text (the old slug-from-label scheme collided).
+    const generatedId = useId();
+    const inputId = id ?? (label ? generatedId : undefined);
 
     return (
       <div className="flex flex-col gap-1.5">

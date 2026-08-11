@@ -35,32 +35,25 @@ function buildQuestions(cards: Card[], questionCount: number = 20): Question[] {
   const sessionCards = fairRepeatCards(cards, questionCount);
   const questions: Question[] = [];
 
+  // Interleave types (2×MC, 2×written, 1×T/F per 5 questions) so the session
+  // mixes recall styles throughout instead of serving them in blocks.
+  const TYPE_PATTERN: QuestionType[] = [
+    'multiple-choice',
+    'written',
+    'multiple-choice',
+    'written',
+    'true-false',
+  ];
+
   for (let i = 0; i < sessionCards.length; i++) {
     const card = sessionCards[i];
-    let type: QuestionType;
-    const roll = i / sessionCards.length;
-    if (roll < 0.4) {
-      type = 'multiple-choice';
-    } else if (roll < 0.8) {
-      type = 'written';
-    } else {
-      type = 'true-false';
-    }
+    const type: QuestionType = TYPE_PATTERN[i % TYPE_PATTERN.length];
 
     const correctAnswers = getEquivalentAnswers(card, 'definition', groups);
 
     if (type === 'multiple-choice') {
       const wrongPool = getWrongOptionPool(card, cards, groups);
       const wrongs = shuffleArray(wrongPool).slice(0, 3);
-      // If not enough wrong options, fall back to written
-      if (wrongs.length < 3 && cards.length > 1) {
-        // Pad with available wrongs or fall back
-        const allWrongs = shuffleArray(wrongPool);
-        while (wrongs.length < 3 && wrongs.length < allWrongs.length) {
-          // Already handled by the slice above; just use what we have
-          break;
-        }
-      }
       if (wrongs.length < 1) {
         // Not enough options, switch to written
         questions.push({
@@ -134,6 +127,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
   const [sessionComplete, setSessionComplete] = useState(false);
+  // Missed questions get one review round appended to the end of the session.
+  const [missedQuestions, setMissedQuestions] = useState<Question[]>([]);
+  const [reviewStartIndex, setReviewStartIndex] = useState<number | null>(null);
 
   const presets = [5, 10, 20, 50].filter((n) => n <= cards.length * 3);
 
@@ -194,9 +190,24 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
         updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() });
       }
 
+      // Missed questions (quality 1 = answered wrong) queue up for one
+      // review round, appended after the main session ends.
+      const missed = quality <= 1 ? [...missedQuestions, currentQuestion] : missedQuestions;
+      if (quality <= 1) setMissedQuestions(missed);
+
       // Advance
       if (currentIndex + 1 >= questions.length) {
-        setSessionComplete(true);
+        if (missed.length > 0 && reviewStartIndex === null) {
+          setReviewStartIndex(questions.length);
+          setQuestions([...questions, ...shuffleArray(missed)]);
+          setMissedQuestions([]);
+          setCurrentIndex(currentIndex + 1);
+          setUserAnswer('');
+          setSelectedOption(null);
+          setFeedback(null);
+        } else {
+          setSessionComplete(true);
+        }
       } else {
         setCurrentIndex((prev) => prev + 1);
         setUserAnswer('');
@@ -204,7 +215,7 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
         setFeedback(null);
       }
     },
-    [currentQuestion, currentIndex, questions.length, sets, setId, updateSet],
+    [currentQuestion, currentIndex, questions, missedQuestions, reviewStartIndex, sets, setId, updateSet],
   );
 
   const handleWrittenSubmit = useCallback(
@@ -300,6 +311,8 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
               setFeedback(null);
               setCorrectCount(0);
               setSessionComplete(false);
+              setMissedQuestions([]);
+              setReviewStartIndex(null);
               setPhase('learning');
             }}
           >
@@ -366,7 +379,9 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
           className="text-sm font-medium"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          Question {currentIndex + 1} of {questions.length}
+          {reviewStartIndex !== null && currentIndex >= reviewStartIndex
+            ? `Review ${currentIndex - reviewStartIndex + 1} of ${questions.length - reviewStartIndex}`
+            : `Question ${currentIndex + 1} of ${questions.length}`}
         </span>
         <div className="w-16" />
       </div>

@@ -34,18 +34,14 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
-      // Check account lockout if RPC is available
-      try {
-        const { data: lockoutData } = await supabase.rpc('check_account_lockout', {
-          p_email: email,
-        });
-        if (lockoutData?.locked) {
-          setError('Account is temporarily locked due to too many failed attempts. Please try again later.');
-          setLoading(false);
-          return;
-        }
-      } catch {
-        // RPC not available, skip lockout check
+      // Best-effort lockout check; errors mean the RPC is unavailable — skip.
+      const { data: locked } = await supabase.rpc('is_account_locked', {
+        p_email: email,
+      });
+      if (locked === true) {
+        setError('Account is temporarily locked due to too many failed attempts. Please try again later.');
+        setLoading(false);
+        return;
       }
 
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -54,12 +50,8 @@ export default function SignInPage() {
       });
 
       if (signInError) {
-        // Record failed login attempt if RPC is available
-        try {
-          await supabase.rpc('record_failed_login', { p_email: email });
-        } catch {
-          // RPC not available, skip
-        }
+        // Failed-attempt accounting happens server-side; the client-side
+        // record_failed_login RPC was revoked in migration 005 (L26).
         setError(signInError.message);
         return;
       }

@@ -51,8 +51,8 @@ const GAMES: GameEntry[] = [
     id: 'race-to-finish',
     name: 'Race to Finish',
     icon: <Flag size={28} />,
-    description: 'Race against the clock to answer all cards',
-    category: 'Timed',
+    description: 'Race a bot or friends up the track by answering questions',
+    category: 'Multiplayer',
     minCards: 4,
   },
 ];

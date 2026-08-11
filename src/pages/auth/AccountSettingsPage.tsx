@@ -86,18 +86,16 @@ export default function AccountSettingsPage() {
         return;
       }
 
-      // Check password reuse if RPC is available
-      try {
-        const { data: reuseData } = await supabase.rpc('check_password_reuse', {
-          p_password: newPassword,
-        });
-        if (reuseData?.reused) {
-          setError('This password has been used recently. Please choose a different password.');
-          setLoading(false);
-          return;
-        }
-      } catch {
-        // RPC not available, skip reuse check
+      // Best-effort reuse check — returns a scalar boolean; RPC errors
+      // (unavailable / empty history) mean no reuse detected.
+      const { data: reused } = await supabase.rpc('check_password_reuse', {
+        p_user_id: user.id,
+        p_password: newPassword,
+      });
+      if (reused === true) {
+        setError('This password has been used recently. Please choose a different password.');
+        setLoading(false);
+        return;
       }
 
       const { error: updateError } = await supabase.auth.updateUser({

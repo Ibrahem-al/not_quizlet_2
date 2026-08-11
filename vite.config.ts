@@ -14,8 +14,8 @@ export default defineConfig({
       manifest: {
         name: 'StudyFlow',
         short_name: 'StudyFlow',
-        description: 'Offline-first flashcard and study application',
-        theme_color: '#6366f1',
+        description: 'Flashcards, study games, and spaced repetition that sync to the cloud and keep working offline',
+        theme_color: '#1b6ca8',
         background_color: '#ffffff',
         display: 'standalone',
         icons: [

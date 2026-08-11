@@ -87,7 +87,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     return (
       <div
         role="alert"
-        className="flex flex-col items-center justify-center min-h-screen px-6 text-center"
+        className="flex flex-col items-center justify-center min-h-dvh px-6 text-center"
         style={{ background: 'var(--color-bg)', color: 'var(--color-text)' }}
       >
         <div

@@ -71,7 +71,7 @@ function HomePage() {
 
   return (
     <PageTransition>
-      <div className="flex min-h-[calc(100vh-112px)]">
+      <div className="flex min-h-[calc(100dvh-7rem)]">
         {/* Sidebar — desktop only */}
         {sidebarOpen && (
           <div className="hidden md:block flex-shrink-0">

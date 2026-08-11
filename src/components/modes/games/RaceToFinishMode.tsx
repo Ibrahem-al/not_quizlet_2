@@ -13,6 +13,8 @@ import {
 } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
+import { playSound } from '@/lib/gameSounds';
+import { SoundToggle } from '@/components/SoundToggle';
 
 interface RaceToFinishModeProps {
   cards: Card[];
@@ -25,15 +27,18 @@ interface RaceConfig {
   pathLength: number;
   direction: AnswerDirection;
   questionTypes: QuestionType[];
+  raceBot: boolean;
 }
 
 interface Player {
   id: number;
+  name: string;
   emoji: string;
   color: string;
   position: number;
   correctCount: number;
   totalCount: number;
+  isBot?: boolean;
 }
 
 interface RaceQuestion {
@@ -46,10 +51,31 @@ interface RaceQuestion {
 }
 
 const PLAYER_EMOJIS = ['🚀', '🔥', '🌿', '⚡'];
-const PLAYER_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b'];
+const BOT_EMOJI = '🤖';
+
+// Board/track game-art palette. Intentionally theme-independent: the dark
+// asphalt racetrack, checker flag, GO strip, nitro accents, racer hues, and
+// canvas confetti particles keep these fixed colors in both light and dark
+// themes. UI chrome outside the board uses design tokens instead.
+const TRACK_PALETTE = {
+  roadTop: '#3a4658',
+  roadMid: '#273244',
+  roadBottom: '#1b2433',
+  checkerDark: '#0f172a',
+  line: '#ffffff',
+  shadow: '#000000',
+  go: '#16a34a',
+  nitro: '#06b6d4',
+  nitroBright: '#22d3ee',
+  bot: '#ec4899',
+  players: ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b'],
+  confetti: ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#ffffff'],
+};
+
+const PLAYER_COLORS = TRACK_PALETTE.players;
 
 // Confetti celebration colors (canvas particles — fixed hues are intentional).
-const CONFETTI_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#ffffff'];
+const CONFETTI_COLORS = TRACK_PALETTE.confetti;
 
 // Decorative, GPU-friendly animations. All continuous motion is disabled under
 // prefers-reduced-motion via the media query at the bottom.
@@ -187,11 +213,13 @@ function ConfigScreen({
 }) {
   const reduce = useReducedMotion();
   const [playerCount, setPlayerCount] = useState(1);
+  const [raceBot, setRaceBot] = useState(true);
   const [pathLength, setPathLength] = useState(15);
   const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
   const [types, setTypes] = useState<QuestionType[]>(['multiple-choice', 'written']);
 
-  const pathPresets = [10, 15, 20, 30, 50, 75, 100];
+  // Capped at 30 — longer tracks render an unusably tall SVG board.
+  const pathPresets = [10, 15, 20, 30];
 
   const tap = reduce ? {} : { whileTap: { scale: 0.95 }, whileHover: { y: -1 } };
 
@@ -204,7 +232,7 @@ function ConfigScreen({
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-dvh overflow-hidden">
       <RaceBackground reduce={!!reduce} />
       <div className="relative z-10 max-w-lg mx-auto px-4 py-10">
         <motion.div
@@ -258,6 +286,17 @@ function ConfigScreen({
                 </motion.button>
               ))}
             </div>
+            {playerCount === 1 && (
+              <label className="flex items-center gap-2 cursor-pointer text-sm mt-3" style={{ color: 'var(--color-text)' }}>
+                <input
+                  type="checkbox"
+                  checked={raceBot}
+                  onChange={(e) => setRaceBot(e.target.checked)}
+                  style={{ accentColor: 'var(--color-primary)' }}
+                />
+                {BOT_EMOJI} Race against a bot
+              </label>
+            )}
           </div>
 
           {/* Path length */}
@@ -292,7 +331,7 @@ function ConfigScreen({
               ))}
               <motion.button
                 {...tap}
-                onClick={() => setPathLength((l) => l + 5)}
+                onClick={() => setPathLength((l) => Math.min(30, l + 5))}
                 className="rtf-focusable w-8 h-8 text-lg font-bold cursor-pointer"
                 style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', borderRadius: 'var(--radius-md)' }}
               >
@@ -350,7 +389,7 @@ function ConfigScreen({
             </div>
           </div>
 
-          <Button variant="primary" className="w-full rtf-focusable" onClick={() => onStart({ playerCount, pathLength, direction, questionTypes: types })}>
+          <Button variant="primary" className="w-full rtf-focusable" onClick={() => onStart({ playerCount, pathLength, direction, questionTypes: types, raceBot: playerCount === 1 && raceBot })}>
             {'🚦'} Start Race
           </Button>
         </motion.div>
@@ -381,7 +420,16 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
   const [diceRoll, setDiceRoll] = useState<number | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [showShortcut, setShowShortcut] = useState(false);
+  // Monotonic serial for the question card's AnimatePresence key — the old
+  // `${playerIndex}-${questionIndexRef.current}` key read a ref during render
+  // and could collide across turns, dropping exit transitions.
+  const [questionSerial, setQuestionSerial] = useState(0);
+  // Solo-mode bot turn status (null while a human is answering).
+  const [botStatus, setBotStatus] = useState<'thinking' | 'answered-correct' | 'answered-wrong' | null>(null);
+  // First Escape mid-race arms this banner; a second within 2s exits.
+  const [escArmed, setEscArmed] = useState(false);
 
+  const escTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const questionIndexRef = useRef(0);
   const boardRef = useRef<HTMLDivElement>(null);
   const moveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -392,6 +440,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
   useEffect(() => {
     return () => {
       if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
+      if (escTimeoutRef.current) clearTimeout(escTimeoutRef.current);
       for (const t of moveTimeoutsRef.current) clearTimeout(t);
       moveTimeoutsRef.current.clear();
       confetti.reset();
@@ -413,6 +462,25 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     frame();
     return () => { cancelled = true; };
   }, [phase, winner, reduce]);
+
+  // Escape exits the game. Mid-race the first Escape only arms a
+  // "Press Esc again to quit" banner (auto-dismisses after 2s); a second
+  // Escape within that window exits. The results screen keeps single-Escape.
+  useEffect(() => {
+    if (phase === 'config') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (phase === 'playing' && !escArmed) {
+        setEscArmed(true);
+        if (escTimeoutRef.current) clearTimeout(escTimeoutRef.current);
+        escTimeoutRef.current = setTimeout(() => setEscArmed(false), 2000);
+        return;
+      }
+      navigate(exitTo);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase, escArmed, navigate, exitTo]);
 
   // Generate shortcuts for paths >= 15
   const generateShortcuts = useCallback((pathLen: number) => {
@@ -446,6 +514,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     for (let i = 0; i < cfg.playerCount; i++) {
       newPlayers.push({
         id: i,
+        name: `Player ${i + 1}`,
         emoji: PLAYER_EMOJIS[i],
         color: PLAYER_COLORS[i],
         position: 0,
@@ -453,10 +522,25 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
         totalCount: 0,
       });
     }
+    // Solo mode: add an automated opponent so it is an actual race.
+    if (cfg.playerCount === 1 && cfg.raceBot) {
+      newPlayers.push({
+        id: 1,
+        name: 'Turbo Bot',
+        emoji: BOT_EMOJI,
+        color: TRACK_PALETTE.bot,
+        position: 0,
+        correctCount: 0,
+        totalCount: 0,
+        isBot: true,
+      });
+    }
     setConfig(cfg);
     setPlayers(newPlayers);
     setCurrentPlayerIndex(0);
     setWinner(null);
+    setBotStatus(null);
+    setEscArmed(false);
     setShortcuts(generateShortcuts(cfg.pathLength));
     questionIndexRef.current = 0;
     setPhase('playing');
@@ -466,6 +550,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     const type = cfg.questionTypes[0];
     const q = buildRaceQuestion(card, cards, groups, type, cfg.direction, 0);
     setCurrentQuestion(q);
+    setQuestionSerial((s) => s + 1);
     resetQuestionState();
   }, [cards, groups, generateShortcuts]);
 
@@ -485,14 +570,19 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     let step = from;
     const interval = setInterval(() => {
       step++;
+      playSound('move');
       setPlayers((prev) =>
         prev.map((p, i) => i === playerIdx ? { ...p, position: step } : p),
       );
-      // Auto-scroll to current player position
-      if (boardRef.current) {
-        const node = boardRef.current.querySelector(`[data-cell="${step}"]`);
+      // Auto-scroll ONLY the track's own scroll container to the current
+      // cell — the page itself must never move (scrollIntoView hijacked it).
+      const container = boardRef.current;
+      if (container) {
+        const node = container.querySelector(`[data-cell="${step}"]`);
         if (node) {
-          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const cellTop =
+            node.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+          container.scrollTo({ top: cellTop - container.clientHeight / 2, behavior: 'smooth' });
         }
       }
       if (step >= to) {
@@ -501,11 +591,19 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
         setIsAnimating(false);
         onDone();
       }
-    }, 350);
+    }, 180);
     moveIntervalRef.current = interval;
   }, []);
 
-  const processCorrectAnswer = useCallback((playerIdx: number) => {
+  // The turn-flow helpers below are plain function declarations (hoisted)
+  // because the bot turn creates a call cycle (processCorrectAnswer →
+  // checkWinAndAdvance → advanceTurn → runBotTurn → processCorrectAnswer)
+  // that useCallback dependency ordering cannot express. Each threads the
+  // freshly-computed players array through as a parameter so async steps
+  // never read a stale `players` snapshot (the stored winner's stats were
+  // previously one answer behind).
+
+  function processCorrectAnswer(playerIdx: number, playersNow: Player[]) {
     if (!config) return;
 
     // Dice roll animation
@@ -514,95 +612,140 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
 
     const t1 = setTimeout(() => {
       moveTimeoutsRef.current.delete(t1);
-      const player = players[playerIdx];
+      const player = playersNow[playerIdx];
       const newPos = Math.min(config.pathLength, player.position + roll);
 
       animateMove(playerIdx, player.position, newPos, () => {
         // Check shortcut
         if (shortcuts.has(newPos)) {
           const dest = shortcuts.get(newPos)!;
+          playSound('land');
           setShowShortcut(true);
           const t2 = setTimeout(() => {
             moveTimeoutsRef.current.delete(t2);
             animateMove(playerIdx, newPos, dest, () => {
               setShowShortcut(false);
-              checkWinAndAdvance(playerIdx, dest);
+              checkWinAndAdvance(playerIdx, dest, playersNow);
             });
-          }, 800);
+          }, 450);
           moveTimeoutsRef.current.add(t2);
         } else {
-          checkWinAndAdvance(playerIdx, newPos);
+          checkWinAndAdvance(playerIdx, newPos, playersNow);
         }
       });
-    }, 600);
+    }, 300);
     moveTimeoutsRef.current.add(t1);
-  }, [config, players, shortcuts, animateMove]);
+  }
 
-  const checkWinAndAdvance = useCallback((playerIdx: number, finalPos: number) => {
+  function checkWinAndAdvance(playerIdx: number, finalPos: number, playersNow: Player[]) {
     if (!config) return;
 
+    const moved = playersNow.map((p, i) => (i === playerIdx ? { ...p, position: finalPos } : p));
+
     if (finalPos >= config.pathLength) {
-      const winningPlayer = { ...players[playerIdx], position: finalPos };
-      setWinner(winningPlayer);
+      playSound(moved[playerIdx].isBot ? 'lose' : 'win');
+      setPlayers(moved);
+      setWinner(moved[playerIdx]);
       setPhase('results');
       return;
     }
 
-    // Next player
-    const nextPlayer = (playerIdx + 1) % (config?.playerCount ?? 1);
-    setCurrentPlayerIndex(nextPlayer);
-    setCurrentQuestion(generateQuestion());
-    resetQuestionState();
-  }, [config, players, generateQuestion]);
+    advanceTurn(moved, playerIdx);
+  }
 
-  const handleAnswer = useCallback((isCorrect: boolean) => {
-    const playerIdx = currentPlayerIndex;
-    setPlayers((prev) =>
-      prev.map((p, i) =>
-        i === playerIdx
+  function advanceTurn(playersNow: Player[], fromIdx: number) {
+    const nextIdx = (fromIdx + 1) % playersNow.length;
+    setCurrentPlayerIndex(nextIdx);
+    if (playersNow[nextIdx]?.isBot) {
+      runBotTurn(playersNow, nextIdx);
+      return;
+    }
+    setBotStatus(null);
+    setCurrentQuestion(generateQuestion());
+    setQuestionSerial((s) => s + 1);
+    resetQuestionState();
+  }
+
+  function runBotTurn(playersNow: Player[], botIdx: number) {
+    // The bot never sees a question card — it "thinks" briefly, answers
+    // correctly 65% of the time, and on success rolls the same d6 and
+    // animates exactly like a human racer.
+    setBotStatus('thinking');
+    resetQuestionState();
+    const t = setTimeout(() => {
+      moveTimeoutsRef.current.delete(t);
+      const isCorrect = Math.random() < 0.65;
+      const next = playersNow.map((p, i) =>
+        i === botIdx
           ? { ...p, totalCount: p.totalCount + 1, correctCount: p.correctCount + (isCorrect ? 1 : 0) }
           : p,
-      ),
+      );
+      setPlayers(next);
+      if (isCorrect) {
+        playSound('correct');
+        setBotStatus('answered-correct');
+        processCorrectAnswer(botIdx, next);
+      } else {
+        playSound('wrong');
+        setBotStatus('answered-wrong');
+        const t2 = setTimeout(() => {
+          moveTimeoutsRef.current.delete(t2);
+          advanceTurn(next, botIdx);
+        }, 1200);
+        moveTimeoutsRef.current.add(t2);
+      }
+    }, 800);
+    moveTimeoutsRef.current.add(t);
+  }
+
+  function handleAnswer(isCorrect: boolean) {
+    const playerIdx = currentPlayerIndex;
+    // Compute the next players array synchronously so downstream steps (dice,
+    // move, win check) see the just-recorded answer instead of stale state.
+    const next = players.map((p, i) =>
+      i === playerIdx
+        ? { ...p, totalCount: p.totalCount + 1, correctCount: p.correctCount + (isCorrect ? 1 : 0) }
+        : p,
     );
+    setPlayers(next);
 
     if (isCorrect) {
+      playSound('correct');
       setFeedback('correct');
-      processCorrectAnswer(playerIdx);
+      processCorrectAnswer(playerIdx, next);
     } else {
+      playSound('wrong');
       setFeedback('wrong');
       // Skip turn after delay (registered so unmount cleanup can clear it)
       const t = setTimeout(() => {
         moveTimeoutsRef.current.delete(t);
-        const nextPlayer = (playerIdx + 1) % (config?.playerCount ?? 1);
-        setCurrentPlayerIndex(nextPlayer);
-        setCurrentQuestion(generateQuestion());
-        resetQuestionState();
+        advanceTurn(next, playerIdx);
       }, 1500);
       moveTimeoutsRef.current.add(t);
     }
-  }, [currentPlayerIndex, config, processCorrectAnswer, generateQuestion]);
+  }
 
-  const checkWritten = useCallback((e: React.FormEvent) => {
+  const checkWritten = (e: React.FormEvent) => {
     e.preventDefault();
     if (feedback || !userAnswer.trim() || !currentQuestion) return;
     const isCorrect = gradeWrittenAnswer(userAnswer, currentQuestion.correctAnswers);
     handleAnswer(isCorrect);
-  }, [feedback, userAnswer, currentQuestion, handleAnswer]);
+  };
 
-  const checkMC = useCallback((option: string) => {
+  const checkMC = (option: string) => {
     if (feedback || !currentQuestion) return;
     setSelectedOption(option);
     const isCorrect = currentQuestion.correctAnswers.some(
       (a) => normalizeAnswer(a) === normalizeAnswer(option),
     );
     handleAnswer(isCorrect);
-  }, [feedback, currentQuestion, handleAnswer]);
+  };
 
-  const checkTF = useCallback((answer: boolean) => {
+  const checkTF = (answer: boolean) => {
     if (feedback || !currentQuestion) return;
     const isCorrect = answer === currentQuestion.tfPair?.isCorrect;
     handleAnswer(isCorrect);
-  }, [feedback, currentQuestion, handleAnswer]);
+  };
 
   if (phase === 'config') {
     return <ConfigScreen cardCount={cards.length} onStart={handleStart} />;
@@ -613,7 +756,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     const sortedPlayers = [...players].sort((a, b) => b.position - a.position);
 
     return (
-      <div className="relative min-h-screen overflow-hidden">
+      <div className="relative min-h-dvh overflow-hidden">
         <RaceBackground reduce={!!reduce} />
         <div className="relative z-10 max-w-2xl mx-auto px-4 py-10">
           <motion.div
@@ -647,7 +790,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
               {winner ? '🏁' : '🏆'}
             </motion.div>
             <h2 className="text-3xl font-black mb-1" style={{ color: 'var(--color-text)' }}>
-              {winner ? `Player ${winner.id + 1} Wins!` : 'Race Over!'}
+              {winner ? `${winner.name} Wins!` : 'Race Over!'}
             </h2>
             <p className="text-base mb-6" style={{ color: 'var(--color-text-secondary)' }}>
               {winner ? `${winner.emoji} crossed the finish line first!` : 'Great racing!'}
@@ -678,7 +821,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
                     <span className="text-xl">{player.emoji}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-                        <span>Player {player.id + 1}</span>
+                        <span>{player.name}</span>
                         <span style={{ color: 'var(--color-text-secondary)' }}>{player.position}/{config.pathLength}</span>
                       </div>
                       <div className="mt-1.5 h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
@@ -723,8 +866,10 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
   const pathLen = config.pathLength;
 
   // Lane layout for racer tokens (purely presentational — position is vertical).
-  const laneGap = config.playerCount <= 1 ? 0 : Math.min(22, 66 / config.playerCount);
-  const laneX = (id: number) => 62 + (id - (config.playerCount - 1) / 2) * laneGap;
+  // Uses players.length, not config.playerCount, so the solo bot gets a lane.
+  const racerCount = players.length;
+  const laneGap = racerCount <= 1 ? 0 : Math.min(22, 66 / racerCount);
+  const laneX = (id: number) => 62 + (id - (racerCount - 1) / 2) * laneGap;
 
   const containerV: Variants = {
     hidden: {},
@@ -735,8 +880,36 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
     : { hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 240, damping: 22 } } };
 
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    // 100dvh minus the 4rem app header — min-h-dvh here guaranteed a stray
+    // outer scrollbar inside the Layout.
+    <div className="relative min-h-[calc(100dvh-4rem)] overflow-hidden">
       <RaceBackground reduce={!!reduce} />
+
+      {/* Esc-confirm banner: first Escape arms, second within 2s quits */}
+      <div className="fixed top-4 left-0 right-0 flex justify-center pointer-events-none" style={{ zIndex: 50 }}>
+        <AnimatePresence>
+          {escArmed && (
+            <motion.div
+              key="esc-confirm"
+              role="status"
+              className="px-4 py-2 text-sm font-semibold"
+              style={{
+                background: 'var(--color-surface-raised)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border-light)',
+                borderRadius: 'var(--radius-full)',
+                boxShadow: 'var(--shadow-modal)',
+              }}
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
+              transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 400, damping: 28 }}
+            >
+              Press Esc again to quit
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Shortcut / nitro flash overlay */}
       <AnimatePresence>
@@ -758,7 +931,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
               <div className="text-7xl">{'⚡'}</div>
               <div
                 className="px-5 py-2 text-2xl font-black"
-                style={{ background: '#06b6d4', color: '#ffffff', borderRadius: 'var(--radius-full)', boxShadow: 'var(--shadow-lg)' }}
+                style={{ background: TRACK_PALETTE.nitro, color: '#ffffff', borderRadius: 'var(--radius-full)', boxShadow: 'var(--shadow-lg)' }}
               >
                 NITRO BOOST!
               </div>
@@ -775,9 +948,12 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
       >
         {/* Header: exit + racer chips */}
         <motion.div variants={itemV} className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <Button variant="ghost" size="sm" className="rtf-focusable" onClick={() => navigate(exitTo)}>
-            {'←'} Exit
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="rtf-focusable" onClick={() => navigate(exitTo)}>
+              {'←'} Exit
+            </Button>
+            <SoundToggle />
+          </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {players.map((p) => {
               const active = p.id === currentPlayerIndex;
@@ -834,12 +1010,52 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
               }}
             >
               <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>{currentPlayer.emoji}</span>
-              Player {currentPlayer.id + 1}'s turn {'—'} go go go!
+              {currentPlayer.name}'s turn {'—'} go go go!
             </div>
 
             <AnimatePresence mode="wait">
+              {currentPlayer.isBot ? (
               <motion.div
-                key={`${currentPlayerIndex}-${questionIndexRef.current}`}
+                key={`bot-${questionSerial}`}
+                initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, x: -24 }}
+                transition={{ duration: reduce ? 0.15 : 0.28 }}
+                className="relative p-6 overflow-hidden text-center"
+                style={{
+                  background: 'var(--color-surface)',
+                  boxShadow: 'var(--shadow-card)',
+                  borderRadius: 'var(--radius-xl)',
+                  border: '1px solid var(--color-border)',
+                }}
+                role="status"
+              >
+                <div className="text-4xl mb-3">{BOT_EMOJI}</div>
+                {botStatus === 'answered-correct' ? (
+                  <div className="flex items-center justify-center gap-2 font-semibold" style={{ color: 'var(--color-success)' }}>
+                    {diceRoll !== null && (
+                      <span
+                        className="flex items-center justify-center font-black"
+                        style={{ width: 32, height: 32, background: 'var(--color-success)', color: '#ffffff', borderRadius: 'var(--radius-md)', fontSize: '1.05rem' }}
+                      >
+                        {diceRoll}
+                      </span>
+                    )}
+                    <span>Turbo Bot got it!{diceRoll !== null && ` Boost ${diceRoll} spaces!`}</span>
+                  </div>
+                ) : botStatus === 'answered-wrong' ? (
+                  <p className="font-semibold" style={{ color: 'var(--color-danger)' }}>
+                    Turbo Bot spun out {'—'} skip turn
+                  </p>
+                ) : (
+                  <p className="font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+                    Turbo Bot is answering{'…'}
+                  </p>
+                )}
+              </motion.div>
+              ) : (
+              <motion.div
+                key={questionSerial}
                 initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
                 animate={
                   feedback === 'wrong' && !reduce
@@ -1017,6 +1233,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
                   )}
                 </div>
               </motion.div>
+              )}
             </AnimatePresence>
           </motion.div>
 
@@ -1043,35 +1260,35 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
               >
                 <defs>
                   <linearGradient id="rtf-road" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor="#3a4658" />
-                    <stop offset="0.5" stopColor="#273244" />
-                    <stop offset="1" stopColor="#1b2433" />
+                    <stop offset="0" stopColor={TRACK_PALETTE.roadTop} />
+                    <stop offset="0.5" stopColor={TRACK_PALETTE.roadMid} />
+                    <stop offset="1" stopColor={TRACK_PALETTE.roadBottom} />
                   </linearGradient>
                   <filter id="rtf-shadow" x="-60%" y="-60%" width="220%" height="220%">
-                    <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor="#000000" floodOpacity="0.4" />
+                    <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor={TRACK_PALETTE.shadow} floodOpacity="0.4" />
                   </filter>
                   <pattern id="rtf-checker" width="12" height="12" patternUnits="userSpaceOnUse">
-                    <rect width="12" height="12" fill="#ffffff" />
-                    <rect width="6" height="6" fill="#0f172a" />
-                    <rect x="6" y="6" width="6" height="6" fill="#0f172a" />
+                    <rect width="12" height="12" fill={TRACK_PALETTE.line} />
+                    <rect width="6" height="6" fill={TRACK_PALETTE.checkerDark} />
+                    <rect x="6" y="6" width="6" height="6" fill={TRACK_PALETTE.checkerDark} />
                   </pattern>
                   <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-                    <polygon points="0 0, 6 2, 0 4" fill="#06b6d4" />
+                    <polygon points="0 0, 6 2, 0 4" fill={TRACK_PALETTE.nitro} />
                   </marker>
                 </defs>
 
                 {/* Road surface */}
                 <rect x={16} y={10} width={92} height={pathLen * 60 + 60} rx={12} fill="url(#rtf-road)" />
                 {/* Edge lines */}
-                <line x1={20} y1={16} x2={20} y2={pathLen * 60 + 64} stroke="#ffffff" strokeWidth="2" opacity="0.22" />
-                <line x1={104} y1={16} x2={104} y2={pathLen * 60 + 64} stroke="#ffffff" strokeWidth="2" opacity="0.22" />
+                <line x1={20} y1={16} x2={20} y2={pathLen * 60 + 64} stroke={TRACK_PALETTE.line} strokeWidth="2" opacity="0.22" />
+                <line x1={104} y1={16} x2={104} y2={pathLen * 60 + 64} stroke={TRACK_PALETTE.line} strokeWidth="2" opacity="0.22" />
                 {/* Center dashed lane line */}
                 <line
                   x1={62}
                   y1={16}
                   x2={62}
                   y2={pathLen * 60 + 64}
-                  stroke="#ffffff"
+                  stroke={TRACK_PALETTE.line}
                   strokeWidth="3"
                   strokeDasharray="10 14"
                   opacity="0.5"
@@ -1093,24 +1310,24 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
                       {isFinish ? (
                         <>
                           <rect x={16} y={cy - 15} width={92} height={30} fill="url(#rtf-checker)" opacity="0.95" />
-                          <rect x={16} y={cy - 15} width={92} height={30} fill="none" stroke="#ffffff" strokeWidth="1.5" opacity="0.4" />
+                          <rect x={16} y={cy - 15} width={92} height={30} fill="none" stroke={TRACK_PALETTE.line} strokeWidth="1.5" opacity="0.4" />
                         </>
                       ) : isStart ? (
                         <>
-                          <rect x={16} y={cy - 13} width={92} height={26} rx={6} fill="#16a34a" opacity="0.9" />
-                          <text x={62} y={cy} textAnchor="middle" dominantBaseline="central" fill="#ffffff" fontSize="12" fontWeight="800" fontFamily="var(--font-sans)">GO</text>
+                          <rect x={16} y={cy - 13} width={92} height={26} rx={6} fill={TRACK_PALETTE.go} opacity="0.9" />
+                          <text x={62} y={cy} textAnchor="middle" dominantBaseline="central" fill={TRACK_PALETTE.line} fontSize="12" fontWeight="800" fontFamily="var(--font-sans)">GO</text>
                         </>
                       ) : isShortcut ? (
                         <>
-                          <rect x={16} y={cy - 12} width={92} height={24} rx={6} fill="#06b6d4" opacity="0.18" />
-                          <line x1={20} y1={cy} x2={104} y2={cy} stroke="#22d3ee" strokeWidth="2" strokeDasharray="5 4" />
+                          <rect x={16} y={cy - 12} width={92} height={24} rx={6} fill={TRACK_PALETTE.nitro} opacity="0.18" />
+                          <line x1={20} y1={cy} x2={104} y2={cy} stroke={TRACK_PALETTE.nitroBright} strokeWidth="2" strokeDasharray="5 4" />
                           <text x={62} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="12">{'⚡'}</text>
                           {/* Boost arrow to destination */}
-                          <line x1={112} y1={cy} x2={112} y2={destCy + 6} stroke="#06b6d4" strokeWidth="2" strokeDasharray="4 3" markerEnd="url(#arrowhead)" />
+                          <line x1={112} y1={cy} x2={112} y2={destCy + 6} stroke={TRACK_PALETTE.nitro} strokeWidth="2" strokeDasharray="4 3" markerEnd="url(#arrowhead)" />
                         </>
                       ) : (
                         <>
-                          <line x1={22} y1={cy} x2={102} y2={cy} stroke="#ffffff" strokeWidth="1" opacity="0.07" />
+                          <line x1={22} y1={cy} x2={102} y2={cy} stroke={TRACK_PALETTE.line} strokeWidth="1" opacity="0.07" />
                           <text x={117} y={cy} textAnchor="middle" dominantBaseline="central" fill="var(--color-text-tertiary)" fontSize="8" fontFamily="var(--font-sans)">{idx}</text>
                         </>
                       )}
@@ -1131,7 +1348,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
                             )}
                             <g className={active && !reduce ? 'rtf-active-racer' : undefined} filter="url(#rtf-shadow)">
                               {active && <circle cx={x} cy={cy} r="15" fill={p.color} opacity="0.25" />}
-                              <circle cx={x} cy={cy} r="11" fill={p.color} stroke="#ffffff" strokeWidth="2" />
+                              <circle cx={x} cy={cy} r="11" fill={p.color} stroke={TRACK_PALETTE.line} strokeWidth="2" />
                               <text x={x} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="11">{p.emoji}</text>
                             </g>
                           </g>

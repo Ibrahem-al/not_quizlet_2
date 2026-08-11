@@ -1,11 +1,14 @@
 @import "tailwindcss";
 
-/* ===== Design Tokens ===== */
+/* ===== Design Tokens =====
+   Primary is a lapis/cerulean ink sampled from Arabic manuscript
+   illumination (the app's content is Arabic vocabulary study) — paired
+   with the amber warning token as its gold counterpart. */
 :root {
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-primary-light: #eef2ff;
-  --color-primary-ring: rgba(99, 102, 241, 0.3);
+  --color-primary: #1b6ca8;
+  --color-primary-hover: #14578a;
+  --color-primary-light: #e8f1f8;
+  --color-primary-ring: rgba(27, 108, 168, 0.3);
 
   --color-success: #22c55e;
   --color-success-light: #f0fdf4;
@@ -54,15 +57,16 @@
   --duration-slow: 300ms;
   --duration-slower: 500ms;
 
-  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-sans: 'IBM Plex Sans', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  --font-display: 'Bricolage Grotesque', 'IBM Plex Sans', 'IBM Plex Sans Arabic', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .dark {
-  --color-primary: #818cf8;
-  --color-primary-hover: #a5b4fc;
-  --color-primary-light: rgba(99, 102, 241, 0.12);
-  --color-primary-ring: rgba(129, 140, 248, 0.3);
+  --color-primary: #62aede;
+  --color-primary-hover: #85c2e8;
+  --color-primary-light: rgba(27, 108, 168, 0.18);
+  --color-primary-ring: rgba(98, 174, 222, 0.3);
 
   --color-success: #4ade80;
   --color-success-light: rgba(34, 197, 94, 0.12);
@@ -85,8 +89,8 @@
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(99, 102, 241, 0.1);
-  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 2px rgba(99, 102, 241, 0.15);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(98, 174, 222, 0.1);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 2px rgba(98, 174, 222, 0.15);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 20px 48px rgba(0, 0, 0, 0.5);
@@ -117,6 +121,14 @@ body {
 * { scrollbar-width: thin; scrollbar-color: var(--color-border) var(--color-surface-raised); }
 
 :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+/* Tailwind's outline-none utility must not swallow keyboard focus. */
+.outline-none:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+::selection { background: var(--color-primary); color: #ffffff; }
+input, textarea { caret-color: var(--color-primary); }
+a { text-underline-offset: 0.15em; }
+h1, h2, h3, h4 { text-wrap: balance; font-family: var(--font-display); }
+p { text-wrap: pretty; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

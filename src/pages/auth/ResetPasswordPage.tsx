@@ -68,18 +68,19 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
-      // Check password reuse if RPC is available
-      try {
-        const { data: reuseData } = await supabase.rpc('check_password_reuse', {
+      // Best-effort reuse check — the recovery link gives us a session, so
+      // the user id is available; RPC errors mean no reuse detected.
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        const { data: reused } = await supabase.rpc('check_password_reuse', {
+          p_user_id: userData.user.id,
           p_password: password,
         });
-        if (reuseData?.reused) {
+        if (reused === true) {
           setError('This password has been used recently. Please choose a different password.');
           setLoading(false);
           return;
         }
-      } catch {
-        // RPC not available, skip reuse check
       }
 
       const { error: updateError } = await supabase.auth.updateUser({

@@ -427,6 +427,41 @@ function setContentToRow(set: StudySet): Record<string, unknown> {
 // Sync operations
 // ============================================================
 
+/** Best-effort preparation for background sync: migrate/compress card media
+ *  when possible, but fall back to the original set instead of throwing so a
+ *  single oversized image does not block the whole push. */
+export async function prepareSetForAutoSync(set: StudySet): Promise<StudySet> {
+  try {
+    return await prepareSetForCloudSync(set);
+  } catch {
+    return set;
+  }
+}
+
+/** Upsert a set's content row (share_token preserved). Throws a classified
+ *  CloudSyncError on failure so callers can retry. */
+export async function upsertSetContent(set: StudySet): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  const { error } = await supabase
+    .from('study_sets')
+    .upsert(setContentToRow(set), { onConflict: 'id' });
+
+  if (error) throw classifySupabaseError(error, 'sync this set to the cloud');
+}
+
+/** Upsert a folder's content row (share_token preserved). Throws a classified
+ *  CloudSyncError on failure so callers can retry. */
+export async function upsertFolderContent(folder: Folder): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  const { error } = await supabase
+    .from('folders')
+    .upsert(folderContentToRow(folder), { onConflict: 'id' });
+
+  if (error) throw classifySupabaseError(error, 'sync this folder to the cloud');
+}
+
 export async function syncSetToCloud(set: StudySet): Promise<StudySet> {
   if (!isSupabaseConfigured() || !supabase) return set;
 
@@ -730,24 +765,13 @@ export async function fetchSharedSet(shareToken: string): Promise<StudySet | nul
   const cached = getCachedData<StudySet>(cacheKey);
   if (cached) return cached;
 
-  // Use the RPC to bypass RLS cleanly
+  // The token-filtered SECURITY DEFINER RPC is the ONLY read path for
+  // shared sets — migration 005 dropped the anon table-level policy, so a
+  // direct query would return nothing here.
   const { data, error } = await supabase
     .rpc('get_shared_set', { p_share_token: shareToken });
 
-  if (error || !data || (data as DbRow[]).length === 0) {
-    // Fallback: direct query (works because shared_select RLS allows it)
-    const { data: fallbackData, error: fallbackError } = await supabase
-      .from('study_sets')
-      .select('*')
-      .eq('share_token', shareToken)
-      .limit(1)
-      .single();
-
-    if (fallbackError || !fallbackData) return null;
-    const result = rowToSet(fallbackData as DbRow);
-    setCachedData(cacheKey, result);
-    return result;
-  }
+  if (error || !data || (data as DbRow[]).length === 0) return null;
 
   const result = rowToSet((data as DbRow[])[0]);
   setCachedData(cacheKey, result);
@@ -995,73 +1019,20 @@ export async function fetchSharedFolder(
     supabase.rpc('get_shared_folder_sets', { p_share_token: shareToken }),
   ]);
 
+  // The token-filtered SECURITY DEFINER RPCs are the ONLY read path for
+  // shared folders — migration 005 dropped the anon table-level policies,
+  // so direct queries would return nothing here.
   if (foldersRes.error || !foldersRes.data || (foldersRes.data as FolderDbRow[]).length === 0) {
-    // Fallback: try direct query for just the root folder
-    const { data, error } = await supabase
-      .from('folders')
-      .select('*')
-      .eq('share_token', shareToken)
-      .limit(1)
-      .single();
-    if (error || !data) return null;
-
-    const folder = rowToFolder(data as FolderDbRow);
-
-    // Fetch subfolders by walking parent_folder_id from the shared root
-    // Uses BFS with sequential queries since RLS only allows reading
-    // folders within the shared tree (via shared_folder_children_select policy)
-    const folderIds = new Set<string>([folder.id]);
-    const subfolders: Folder[] = [];
-    let parentIds = [folder.id];
-
-    while (parentIds.length > 0) {
-      const { data: childData } = await supabase
-        .from('folders')
-        .select('*')
-        .in('parent_folder_id', parentIds);
-      const children = ((childData ?? []) as FolderDbRow[]).map(rowToFolder);
-      if (children.length === 0) break;
-      parentIds = [];
-      for (const child of children) {
-        if (!folderIds.has(child.id)) {
-          folderIds.add(child.id);
-          subfolders.push(child);
-          parentIds.push(child.id);
-        }
-      }
-    }
-
-    // Fetch all sets belonging to any folder in the tree
-    const { data: setData } = await supabase
-      .from('study_sets')
-      .select('*')
-      .in('folder_id', Array.from(folderIds));
-
-    const fallbackResult = {
-      folder,
-      subfolders,
-      sets: ((setData ?? []) as DbRow[]).map(rowToSet),
-    };
-    setCachedData(cacheKey, fallbackResult);
-    return fallbackResult;
+    return null;
   }
 
   const allFolders = (foldersRes.data as FolderDbRow[]).map(rowToFolder);
   const rootFolder = allFolders.find((f) => f.shareToken === shareToken) ?? allFolders[0];
   const subfolders = allFolders.filter((f) => f.id !== rootFolder.id);
 
-  // If the sets RPC failed, fetch sets via direct query as fallback
-  let sets: StudySet[];
-  if (setsRes.error || !setsRes.data) {
-    const folderIds = allFolders.map((f) => f.id);
-    const { data: setData } = await supabase
-      .from('study_sets')
-      .select('*')
-      .in('folder_id', folderIds);
-    sets = ((setData ?? []) as DbRow[]).map(rowToSet);
-  } else {
-    sets = (setsRes.data as DbRow[]).map(rowToSet);
-  }
+  const sets: StudySet[] = setsRes.error || !setsRes.data
+    ? []
+    : (setsRes.data as DbRow[]).map(rowToSet);
 
   const result = { folder: rootFolder, subfolders, sets };
   setCachedData(cacheKey, result);

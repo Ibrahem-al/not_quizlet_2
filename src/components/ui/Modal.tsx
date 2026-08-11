@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,9 @@ export function Modal({
   danger = false,
   size = 'md',
 }: ModalProps) {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
@@ -39,6 +42,23 @@ export function Modal({
       document.body.style.overflow = '';
     };
   }, [isOpen, onClose]);
+
+  // Move focus into the dialog on open and return it on close so keyboard
+  // and screen-reader users are not left behind the scrim.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    if (panel) {
+      const focusable = panel.querySelector<HTMLElement>(
+        'input, textarea, select, button:not([data-modal-close]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      (focusable ?? panel).focus();
+    }
+    return () => {
+      previouslyFocused?.focus?.();
+    };
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -54,6 +74,11 @@ export function Modal({
             onClick={onClose}
           />
           <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={title ? titleId : undefined}
+            tabIndex={-1}
             className={cn('relative w-full mx-4', sizeClasses[size])}
             style={{
               background: 'var(--color-surface)',
@@ -69,6 +94,7 @@ export function Modal({
             {title && (
               <div className="flex items-center justify-between mb-4">
                 <h2
+                  id={titleId}
                   className="text-lg font-semibold"
                   style={{
                     color: danger ? 'var(--color-danger)' : 'var(--color-text)',
@@ -78,6 +104,8 @@ export function Modal({
                   {title}
                 </h2>
                 <button
+                  data-modal-close
+                  aria-label="Close dialog"
                   onClick={onClose}
                   className="flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-colors"
                   style={{

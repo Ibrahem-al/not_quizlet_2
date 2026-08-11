@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { Zap, Sun, Moon, Menu, X, LogOut } from 'lucide-react';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { SyncStatusIndicator } from '@/components/SyncStatusIndicator';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -22,7 +23,7 @@ function Layout({ children }: LayoutProps) {
     }`;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
+    <div className="min-h-dvh" style={{ background: 'var(--color-bg)' }}>
       {/* Header */}
       <header
         className="sticky top-0 z-50 flex items-center justify-between h-16 px-4 md:px-6"
@@ -44,7 +45,7 @@ function Layout({ children }: LayoutProps) {
             <span
               className="text-lg font-bold"
               style={{
-                fontFamily: "'Space Grotesk', var(--font-sans)",
+                fontFamily: 'var(--font-display)',
                 color: 'var(--color-text)',
               }}
             >
@@ -59,8 +60,9 @@ function Layout({ children }: LayoutProps) {
           </nav>
         </div>
 
-        {/* Right: Theme toggle + Auth + Mobile menu */}
+        {/* Right: Sync status + Theme toggle + Auth + Mobile menu */}
         <div className="flex items-center gap-2">
+          <SyncStatusIndicator />
           <button
             onClick={toggleTheme}
             className="flex items-center justify-center w-9 h-9 rounded-lg cursor-pointer transition-colors"
@@ -153,7 +155,7 @@ function Layout({ children }: LayoutProps) {
             style={{ background: 'rgba(0,0,0,0.4)' }}
           />
           <nav
-            className="absolute top-16 right-0 w-64 h-[calc(100vh-64px)] flex flex-col gap-2 p-4"
+            className="absolute top-16 right-0 w-64 h-[calc(100dvh-4rem)] flex flex-col gap-2 p-4"
             style={{
               background: 'var(--color-surface)',
               borderLeft: '1px solid var(--color-border)',

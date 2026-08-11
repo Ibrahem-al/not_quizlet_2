@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { Shuffle } from 'lucide-react';
 import type { Card } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { stripHtml } from '@/lib/utils';
+import { stripHtml, shuffleArray } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
 
@@ -16,13 +17,24 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
   const navigate = useNavigate();
   const exitTo = exitUrl ?? `/sets/${setId}`;
 
+  const [deck, setDeck] = useState<Card[]>(cards);
+  const [isShuffled, setIsShuffled] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [revealedWords, setRevealedWords] = useState(0);
   const [isRevealing, setIsRevealing] = useState(false);
 
-  const currentCard = cards[currentIndex];
+  const currentCard = deck[currentIndex];
+
+  const toggleShuffle = useCallback(() => {
+    setDeck(isShuffled ? cards : shuffleArray(cards));
+    setIsShuffled((prev) => !prev);
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setRevealedWords(0);
+    setIsRevealing(false);
+  }, [cards, isShuffled]);
 
   const getDefinitionWords = useCallback(() => {
     if (!currentCard) return [];
@@ -45,7 +57,7 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
   }, [currentIndex]);
 
   const handleNext = useCallback(() => {
-    if (currentIndex < cards.length - 1) {
+    if (currentIndex < deck.length - 1) {
       setCurrentIndex((prev) => prev + 1);
       setIsFlipped(false);
       setRevealedWords(0);
@@ -53,7 +65,7 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
     } else {
       setSessionComplete(true);
     }
-  }, [currentIndex, cards.length]);
+  }, [currentIndex, deck.length]);
 
   const handleProgressiveReveal = useCallback(() => {
     const words = getDefinitionWords();
@@ -168,7 +180,7 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
 
   if (!currentCard) return null;
 
-  const progressText = `${currentIndex + 1} / ${cards.length}`;
+  const progressText = `${currentIndex + 1} / ${deck.length}`;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -183,7 +195,22 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
         >
           {progressText}
         </span>
-        <div className="w-16" />
+        <div className="w-16 flex justify-end">
+          <button
+            onClick={toggleShuffle}
+            className="flex items-center justify-center w-9 h-9 rounded-lg cursor-pointer transition-colors"
+            style={{
+              background: isShuffled ? 'var(--color-primary-light)' : 'transparent',
+              border: 'none',
+              color: isShuffled ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            }}
+            title={isShuffled ? 'Restore original order' : 'Shuffle deck'}
+            aria-label={isShuffled ? 'Restore original order' : 'Shuffle deck'}
+            aria-pressed={isShuffled}
+          >
+            <Shuffle size={18} />
+          </button>
+        </div>
       </div>
 
       {/* Progress bar */}
@@ -194,7 +221,7 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
         <motion.div
           className="h-full rounded-full"
           style={{ background: 'var(--color-primary)' }}
-          animate={{ width: `${((currentIndex + 1) / cards.length) * 100}%` }}
+          animate={{ width: `${((currentIndex + 1) / deck.length) * 100}%` }}
           transition={{ duration: 0.3, ease: 'easeOut' }}
         />
       </div>

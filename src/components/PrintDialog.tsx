@@ -39,12 +39,12 @@ interface Activity {
 }
 
 const ACTIVITIES: Activity[] = [
-  { id: 'test', name: 'Printable Test', description: 'Written, multiple choice, and true/false questions.', minCards: 2, icon: FileText, gradient: 'linear-gradient(135deg, #a855f7, #ec4899)' },
+  { id: 'test', name: 'Printable Test', description: 'Written, multiple choice, and true/false questions.', minCards: 2, icon: FileText, gradient: 'linear-gradient(135deg, #14578a, #1b6ca8)' },
   { id: 'line-matching', name: 'Line Matching', description: 'Draw lines to match terms with definitions.', minCards: 2, icon: ArrowLeftRight, gradient: 'linear-gradient(135deg, #3b82f6, #06b6d4)' },
   { id: 'flashcards', name: 'Flashcards', description: 'Cut-out flashcards with term and definition.', minCards: 1, icon: LayoutGrid, gradient: 'linear-gradient(135deg, #10b981, #14b8a6)' },
   { id: 'matching-game', name: 'Matching Game', description: 'Cut-out cards for a physical matching game.', minCards: 2, icon: Puzzle, gradient: 'linear-gradient(135deg, #f97316, #f59e0b)' },
   { id: 'cut-and-glue', name: 'Cut & Glue', description: 'Cut out terms and glue them next to definitions.', minCards: 2, icon: Scissors, gradient: 'linear-gradient(135deg, #f43f5e, #ef4444)' },
-  { id: 'lift-the-flap', name: 'Lift the Flap', description: 'Cut flaps with questions, lift to reveal answers underneath.', minCards: 2, icon: BookOpen, gradient: 'linear-gradient(135deg, #8b5cf6, #6366f1)' },
+  { id: 'lift-the-flap', name: 'Lift the Flap', description: 'Cut flaps with questions, lift to reveal answers underneath.', minCards: 2, icon: BookOpen, gradient: 'linear-gradient(135deg, #334155, #475569)' },
 ];
 
 const DIRECTION_LABELS: { value: AnswerDirection; label: string; helper: string }[] = [
@@ -405,7 +405,7 @@ export function PrintDialog({ isOpen, onClose, set }: PrintDialogProps) {
               disabled={!!generating}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-opacity"
               style={{
-                background: 'linear-gradient(135deg, #a855f7, #ec4899)',
+                background: 'linear-gradient(135deg, #14578a, #1b6ca8)',
                 color: 'white',
                 border: 'none',
                 opacity: generating ? 0.7 : 1,

@@ -7,6 +7,11 @@ import { shuffleArray, normalizeAnswer, fairRepeatCards } from '@/lib/utils';
 import { buildEquivalenceGroups } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
+import { playSound } from '@/lib/gameSounds';
+import { SoundToggle } from '@/components/SoundToggle';
+
+/** Hard ceiling on pairs — beyond this the tiles become unreadably small. */
+const MAX_PAIRS = 18;
 
 interface MemoryCardFlipModeProps {
   cards: Card[];
@@ -99,7 +104,8 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
   const reduce = useReducedMotion();
   const exitTo = exitUrl ?? `/sets/${setId}`;
 
-  const [pairCount, setPairCount] = useState(Math.min(6, cards.length));
+  const maxPairs = Math.max(2, Math.min(MAX_PAIRS, cards.length));
+  const [pairCount, setPairCount] = useState(Math.min(6, Math.max(2, cards.length)));
   const [phase, setPhase] = useState<'setup' | 'playing' | 'results'>('setup');
   const [memoryCards, setMemoryCards] = useState<MemoryCard[]>([]);
   const [moves, setMoves] = useState(0);
@@ -164,7 +170,11 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
     if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
     if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
 
-    const selected = fairRepeatCards(cards, pairCount);
+    // Clamp in case the card set shrank below the chosen pair count
+    const count = Math.min(pairCount, maxPairs);
+    if (count !== pairCount) setPairCount(count);
+
+    const selected = fairRepeatCards(cards, count);
     const pairs: MemoryCard[] = [];
 
     selected.forEach((card, i) => {
@@ -199,7 +209,7 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
     setStartTime(Date.now());
     setElapsedTime(0);
     setPhase('playing');
-  }, [cards, pairCount]);
+  }, [cards, pairCount, maxPairs]);
 
   const checkMatch = useCallback((id1: string, id2: string, currentCards: MemoryCard[]) => {
     const card1 = currentCards.find((c) => c.id === id1);
@@ -227,79 +237,78 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
     return validDefIds.has(defCard.originalCardId);
   }, [cards, equivalenceGroups]);
 
+  // All flip resolution is computed here, outside any setState updater, so the
+  // functional updaters stay pure (no timeouts or setState scheduled inside
+  // them — StrictMode double-invocation safe). While two cards are resolving,
+  // `isLocked` guarantees `memoryCards` cannot change until the timeout fires,
+  // so computing the settled board eagerly from `updated` is safe.
   const handleCardClick = useCallback((cardId: string) => {
     if (isLocked) return;
 
-    setMemoryCards((prev) => {
-      const card = prev.find((c) => c.id === cardId);
-      if (!card || card.isMatched || card.isFlipped) return prev;
+    const card = memoryCards.find((c) => c.id === cardId);
+    if (!card || card.isMatched || card.isFlipped) return;
 
-      const currentFlipped = prev.filter((c) => c.isFlipped && !c.isMatched);
-      if (currentFlipped.length >= 2) return prev;
+    const currentFlipped = memoryCards.filter((c) => c.isFlipped && !c.isMatched);
+    if (currentFlipped.length >= 2) return;
 
-      const updated = prev.map((c) =>
-        c.id === cardId ? { ...c, isFlipped: true } : c,
+    const updated = memoryCards.map((c) =>
+      c.id === cardId ? { ...c, isFlipped: true } : c,
+    );
+    setMemoryCards(updated);
+    playSound('flip');
+
+    const newFlipped = updated.filter((c) => c.isFlipped && !c.isMatched);
+    if (newFlipped.length !== 2) return;
+
+    setMoves((m) => m + 1);
+    setIsLocked(true);
+
+    const isMatch = checkMatch(newFlipped[0].id, newFlipped[1].id, updated);
+    if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
+
+    if (isMatch) {
+      // Match found — precompute the settled board and completion check
+      // (ALL cards matched, not just a counter)
+      const settled = updated.map((c) =>
+        c.id === newFlipped[0].id || c.id === newFlipped[1].id
+          ? { ...c, isMatched: true }
+          : c,
       );
+      const boardComplete = settled.every((c) => c.isMatched);
+      const nextStreak = streak + 1;
 
-      const newFlipped = updated.filter((c) => c.isFlipped && !c.isMatched);
-
-      if (newFlipped.length === 2) {
-        setMoves((m) => m + 1);
-        setIsLocked(true);
-
-        const isMatch = checkMatch(newFlipped[0].id, newFlipped[1].id, updated);
-
-        if (isMatch) {
-          // Match found — clear any pending timeout first
-          if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
-          lockTimeoutRef.current = setTimeout(() => {
-            setMemoryCards((curr) => {
-              const settled = curr.map((c) =>
-                c.id === newFlipped[0].id || c.id === newFlipped[1].id
-                  ? { ...c, isMatched: true }
-                  : c,
-              );
-              // Check if ALL cards are matched (not just a counter)
-              if (settled.every((c) => c.isMatched)) {
-                if (timerRef.current) clearInterval(timerRef.current);
-                if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
-                completeTimeoutRef.current = setTimeout(() => setPhase('results'), 600);
-              }
-              return settled;
-            });
-            setMatchedPairs((mp) => mp + 1);
-            // Update streak and the running best streak from the functional
-            // updater (not from a closed-over `streak`), so the handler never
-            // captures a stale value and we never setState-in-effect.
-            setStreak((s) => {
-              const next = s + 1;
-              setBestStreak((b) => Math.max(b, next));
-              return next;
-            });
-            setIsLocked(false);
-          }, 600);
-        } else {
-          // No match — reset streak, flag the pair for shake feedback, then flip back
-          setStreak(0);
-          setMismatchIds([newFlipped[0].id, newFlipped[1].id]);
-          if (lockTimeoutRef.current) clearTimeout(lockTimeoutRef.current);
-          lockTimeoutRef.current = setTimeout(() => {
-            setMemoryCards((curr) =>
-              curr.map((c) =>
-                (c.id === newFlipped[0].id || c.id === newFlipped[1].id) && !c.isMatched
-                  ? { ...c, isFlipped: false }
-                  : c,
-              ),
-            );
-            setMismatchIds([]);
-            setIsLocked(false);
-          }, 800);
+      lockTimeoutRef.current = setTimeout(() => {
+        setMemoryCards(settled);
+        setMatchedPairs((mp) => mp + 1);
+        setStreak(nextStreak);
+        setBestStreak((b) => Math.max(b, nextStreak));
+        setIsLocked(false);
+        playSound('match');
+        if (boardComplete) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+          playSound('win');
+          completeTimeoutRef.current = setTimeout(() => setPhase('results'), 600);
         }
-      }
-
-      return updated;
-    });
-  }, [isLocked, checkMatch]);
+      }, 600);
+    } else {
+      // No match — reset streak, flag the pair for shake feedback, then flip back
+      setStreak(0);
+      setMismatchIds([newFlipped[0].id, newFlipped[1].id]);
+      playSound('wrong');
+      lockTimeoutRef.current = setTimeout(() => {
+        setMemoryCards((curr) =>
+          curr.map((c) =>
+            (c.id === newFlipped[0].id || c.id === newFlipped[1].id) && !c.isMatched
+              ? { ...c, isFlipped: false }
+              : c,
+          ),
+        );
+        setMismatchIds([]);
+        setIsLocked(false);
+      }, 800);
+    }
+  }, [isLocked, memoryCards, streak, checkMatch]);
 
   const formatElapsed = (s: number) => {
     const m = Math.floor(s / 60);
@@ -375,11 +384,18 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
                     </AnimatePresence>
                   </div>
                   <motion.button
-                    onClick={() => setPairCount((c) => c + 1)}
-                    whileTap={{ scale: 0.92 }}
-                    whileHover={{ scale: 1.06 }}
-                    className="w-11 h-11 rounded-full text-xl font-bold cursor-pointer flex items-center justify-center"
-                    style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+                    onClick={() => setPairCount((c) => Math.min(maxPairs, c + 1))}
+                    disabled={pairCount >= maxPairs}
+                    whileTap={pairCount >= maxPairs ? undefined : { scale: 0.92 }}
+                    whileHover={pairCount >= maxPairs ? undefined : { scale: 1.06 }}
+                    className="w-11 h-11 rounded-full text-xl font-bold flex items-center justify-center"
+                    style={{
+                      background: 'var(--color-muted)',
+                      color: 'var(--color-text)',
+                      border: '1px solid var(--color-border)',
+                      opacity: pairCount >= maxPairs ? 0.4 : 1,
+                      cursor: pairCount >= maxPairs ? 'not-allowed' : 'pointer',
+                    }}
                     aria-label="More pairs"
                   >
                     +
@@ -387,6 +403,7 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
                 </div>
                 <p className="text-sm text-center mt-3" style={{ color: 'var(--color-text-tertiary)' }}>
                   {pairCount * 2} cards on the board
+                  {pairCount >= maxPairs && <span> · max {maxPairs}</span>}
                 </p>
               </div>
 
@@ -402,15 +419,16 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
 
   // ===== Results screen =====
   if (phase === 'results') {
-    const accuracy = moves > 0 ? Math.round((pairCount / moves) * 100) : 100;
-    const emoji = accuracy >= 90 ? '🏆' : accuracy >= 70 ? '⭐' : accuracy >= 50 ? '👍' : '💪';
-    const title = accuracy >= 90 ? 'Amazing Memory!' : accuracy >= 70 ? 'Great Job!' : 'Good Effort!';
+    // Fewest possible moves is one per pair, so this measures efficiency (capped at 100%)
+    const efficiency = moves > 0 ? Math.min(100, Math.round((pairCount / moves) * 100)) : 100;
+    const emoji = efficiency >= 90 ? '🏆' : efficiency >= 70 ? '⭐' : efficiency >= 50 ? '👍' : '💪';
+    const title = efficiency >= 90 ? 'Amazing Memory!' : efficiency >= 70 ? 'Great Job!' : 'Good Effort!';
 
     const stats: { value: ReactNode; label: string; color: string }[] = [
       { value: moves, label: 'Moves', color: 'var(--color-primary)' },
       { value: formatElapsed(elapsedTime), label: 'Time', color: 'var(--color-success)' },
       { value: pairCount, label: 'Pairs', color: 'var(--color-warning)' },
-      { value: `${accuracy}%`, label: 'Accuracy', color: 'var(--color-text)' },
+      { value: `${efficiency}%`, label: 'Efficiency', color: 'var(--color-text)' },
     ];
 
     return (
@@ -473,9 +491,12 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
               ))}
             </div>
 
-            <div className="flex gap-3 justify-center">
-              <Button variant="primary" onClick={() => setPhase('setup')}>
+            <div className="flex gap-3 justify-center flex-wrap">
+              <Button variant="primary" onClick={startGame}>
                 Play Again
+              </Button>
+              <Button variant="outline" onClick={() => setPhase('setup')}>
+                Change Setup
               </Button>
               <Button variant="outline" onClick={() => navigate(exitTo)}>
                 Exit
@@ -509,13 +530,16 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
       <GameBackground reduce={reduce} />
       <div
         className="max-w-5xl mx-auto px-4 py-4 flex flex-col relative"
-        style={{ height: 'calc(100vh - 80px)', zIndex: 1 }}
+        style={{ height: 'calc(100dvh - 5rem)', zIndex: 1 }}
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
-          <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
-            Exit
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
+              Exit
+            </Button>
+            <SoundToggle />
+          </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <AnimatePresence>
               {streak >= 2 && (

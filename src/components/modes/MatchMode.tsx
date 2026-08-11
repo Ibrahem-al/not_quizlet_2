@@ -111,6 +111,14 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
   const [timer, setTimer] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mismatchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 12 pairs = 24 tiles, the most that stays readable in the grid.
+  const maxPairs = Math.min(12, cards.length);
+
+  useEffect(() => () => {
+    if (mismatchTimeoutRef.current) clearTimeout(mismatchTimeoutRef.current);
+  }, []);
 
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } });
@@ -212,7 +220,8 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
         }
       } else {
         setMismatchFlash(true);
-        setTimeout(() => setMismatchFlash(false), 600);
+        if (mismatchTimeoutRef.current) clearTimeout(mismatchTimeoutRef.current);
+        mismatchTimeoutRef.current = setTimeout(() => setMismatchFlash(false), 600);
       }
     },
     [tiles, isMatch, matchedPairs, selectedCards.length],
@@ -257,13 +266,15 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
                 {pairCount}
               </span>
               <button
-                onClick={() => setPairCount((c) => c + 1)}
-                className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer"
+                onClick={() => setPairCount((c) => Math.min(maxPairs, c + 1))}
+                disabled={pairCount >= maxPairs}
+                className="w-10 h-10 rounded-lg text-xl font-bold cursor-pointer disabled:cursor-not-allowed"
                 style={{
                   background: 'var(--color-muted)',
                   color: 'var(--color-text)',
                   border: 'none',
                   borderRadius: 'var(--radius-md)',
+                  opacity: pairCount >= maxPairs ? 0.5 : 1,
                 }}
               >
                 +
@@ -271,6 +282,7 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
             </div>
             <p className="text-sm text-center mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
               {pairCount * 2} tiles total — randomly selected from {cards.length} cards
+              {pairCount >= maxPairs ? ` (max ${maxPairs})` : ''}
             </p>
           </div>
 

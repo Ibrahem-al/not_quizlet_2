@@ -1,20 +1,16 @@
 import { create } from 'zustand';
 import type { Folder } from '@/types';
 import { getAllFolders, saveFolder, deleteFolder } from '@/db';
-import { syncFolderToCloud, pullFoldersFromCloud, deleteFolderFromCloud } from '@/lib/cloudSync';
+import { pullFoldersFromCloud, deleteFolderFromCloud } from '@/lib/cloudSync';
+import { queueFolderSync } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
-/** Check if a folder (or any ancestor) is shared */
-function isSharedFolder(folder: Folder, allFolders: Folder[]): boolean {
-  let currentId: string | undefined = folder.id;
-  while (currentId) {
-    const f = allFolders.find((x) => x.id === currentId);
-    if (!f) break;
-    if (f.shareToken) return true;
-    currentId = f.parentFolderId;
-  }
-  return false;
+/** Cloud-first: push every folder write to Supabase immediately when signed in. */
+function cloudSyncFolder(folder: Folder): void {
+  if (!isSupabaseConfigured()) return;
+  const user = useAuthStore.getState().user;
+  if (user) queueFolderSync(folder, user.id);
 }
 
 interface FolderStore {
@@ -99,13 +95,7 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
     );
     set({ folders });
 
-    // Auto-sync if this new folder is created inside a shared tree.
-    if (isSupabaseConfigured() && isSharedFolder(folder, folders)) {
-      const user = useAuthStore.getState().user;
-      if (user) {
-        syncFolderToCloud({ ...folder, userId: user.id }).catch(() => {});
-      }
-    }
+    cloudSyncFolder(folder);
   },
 
   updateFolder: async (updated: Folder) => {
@@ -115,24 +105,20 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
       .sort((a, b) => b.updatedAt - a.updatedAt);
     set({ folders });
 
-    // Auto-sync if this folder is shared (or is inside a shared tree)
-    if (isSupabaseConfigured() && isSharedFolder(updated, folders)) {
-      const user = useAuthStore.getState().user;
-      if (user) {
-        syncFolderToCloud({ ...updated, userId: user.id }).catch(() => {});
-      }
-    }
+    cloudSyncFolder(updated);
   },
 
   removeFolder: async (id: string) => {
     const folder = get().folders.find((f) => f.id === id);
     const parentId = folder?.parentFolderId ?? undefined;
 
-    // Move child folders up to parent
+    // Move child folders up to parent (cloud FK is ON DELETE SET NULL, so
+    // sync the re-parented children immediately to converge with the cloud)
     const childFolders = get().folders.filter((f) => f.parentFolderId === id);
     for (const child of childFolders) {
       const updated = { ...child, parentFolderId: parentId, updatedAt: Date.now() };
       await saveFolder(updated);
+      cloudSyncFolder(updated);
     }
 
     await deleteFolder(id);

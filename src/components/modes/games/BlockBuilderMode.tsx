@@ -18,6 +18,8 @@ import {
 } from '@/lib/equivalence';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
+import { playSound } from '@/lib/gameSounds';
+import { SoundToggle } from '@/components/SoundToggle';
 
 interface BlockBuilderModeProps {
   cards: Card[];
@@ -39,6 +41,15 @@ const DIFFICULTY_MAP: Record<Difficulty, DifficultySettings> = {
   medium: { blockPenalty: 1, lavaRise: 30, scoreMultiplier: 1.5 },
   hard: { blockPenalty: 2, lavaRise: 40, scoreMultiplier: 2 },
 };
+
+/** Height of one tower block in px; each correct answer adds one block. */
+const BLOCK_HEIGHT = 40;
+/**
+ * Lava grace buffer: the player only loses once lava reaches tower height +
+ * this buffer. Without it, the first wrong answer on a height-0 tower would
+ * end the game instantly on every difficulty.
+ */
+const LAVA_GRACE = 2 * BLOCK_HEIGHT;
 
 interface GameConfig {
   difficulty: Difficulty;
@@ -270,7 +281,7 @@ function ConfigScreen({
                   className="flex-1 px-4 py-2 text-sm font-medium cursor-pointer capitalize"
                   style={{
                     background: difficulty === d ? 'var(--color-primary)' : 'var(--color-muted)',
-                    color: difficulty === d ? '#ffffff' : 'var(--color-text)',
+                    color: difficulty === d ? 'white' : 'var(--color-text)',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
                   }}
@@ -422,8 +433,11 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [gameState, setGameState] = useState<GameState>('playing');
 
-  // Tower & lava state
-  const [towerHeight, setTowerHeight] = useState(0);
+  // Tower & lava state. The tower is an array of monotonically-increasing block
+  // ids so AnimatePresence can key removals to the actual removed blocks.
+  const [blocks, setBlocks] = useState<number[]>([]);
+  const blockIdRef = useRef(0);
+  const towerHeight = blocks.length * BLOCK_HEIGHT;
   const [lavaHeight, setLavaHeight] = useState(0);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
@@ -435,8 +449,21 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
   const [userAnswer, setUserAnswer] = useState('');
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
+  // True while the final answer's feedback is showing, before gameState flips
+  // to 'won'/'lost' (hides the Next button during that beat).
+  const [isEnding, setIsEnding] = useState(false);
+  // First Escape mid-game arms this banner; a second within 2s exits.
+  const [escArmed, setEscArmed] = useState(false);
 
   const questionStartTimeRef = useRef(0);
+  const endTimeoutRef = useRef<number | null>(null);
+  const escTimeoutRef = useRef<number | null>(null);
+
+  // Clear pending end/escape timers on unmount.
+  useEffect(() => () => {
+    if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
+    if (escTimeoutRef.current) window.clearTimeout(escTimeoutRef.current);
+  }, []);
 
   const settings = config ? DIFFICULTY_MAP[config.difficulty] : DIFFICULTY_MAP.medium;
   // M7 fix: the win target scales with the real question count so counts 1-4 are
@@ -449,10 +476,18 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
 
   const currentQuestion = questions[currentIndex] ?? null;
 
+  // Win/lose stinger when the game ends.
+  useEffect(() => {
+    if (gameState === 'won') playSound('win');
+    else if (gameState === 'lost') playSound('lose');
+  }, [gameState]);
+
   // Confetti celebration on a win (reduced-motion aware).
   useEffect(() => {
     if (gameState !== 'won' || reduce) return;
-    const colors = ['#fbbf24', '#f97316', '#7c5cff', '#22c55e'];
+    // Read the real primary token at fire time so confetti matches the theme.
+    const primary = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#1b6ca8';
+    const colors = [primary, '#fbbf24', '#f97316', '#22c55e'];
     const end = Date.now() + 900;
     let raf = 0;
     const frame = () => {
@@ -465,14 +500,24 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
   }, [gameState, reduce]);
 
   // CONTRACT A: Escape exits to exitTo (viewer-safe) once the game has started.
+  // Mid-run (playing) the first Escape only arms a "Press Esc again to quit"
+  // banner that auto-dismisses after 2s; a second Escape within that window
+  // exits. On the results screen a single Escape still exits immediately.
   useEffect(() => {
     if (phase === 'config') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') navigate(exitTo);
+      if (e.key !== 'Escape') return;
+      if (phase === 'game' && gameState === 'playing' && !escArmed) {
+        setEscArmed(true);
+        if (escTimeoutRef.current) window.clearTimeout(escTimeoutRef.current);
+        escTimeoutRef.current = window.setTimeout(() => setEscArmed(false), 2000);
+        return;
+      }
+      navigate(exitTo);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, navigate, exitTo]);
+  }, [phase, gameState, escArmed, navigate, exitTo]);
 
   const resetQuestionState = () => {
     setUserAnswer('');
@@ -486,7 +531,11 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
     setQuestions(q);
     setCurrentIndex(0);
     setGameState('playing');
-    setTowerHeight(0);
+    setBlocks([]);
+    blockIdRef.current = 0;
+    setIsEnding(false);
+    setEscArmed(false);
+    if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
     setLavaHeight(0);
     setScore(0);
     setStreak(0);
@@ -501,6 +550,7 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
   const processAnswer = useCallback((isCorrect: boolean) => {
     const timeSpent = (Date.now() - questionStartTimeRef.current) / 1000;
     setTotalAnswered((t) => t + 1);
+    playSound(isCorrect ? 'correct' : 'wrong');
 
     if (isCorrect) {
       setCorrectCount((c) => c + 1);
@@ -514,21 +564,27 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
       const points = Math.round((100 + speedBonus) * streakMult * settings.scoreMultiplier);
       setScore((s) => s + points);
 
-      // Add block
-      const newHeight = towerHeight + 40;
-      setTowerHeight(newHeight);
+      // Add block (new stable id)
+      const newBlocks = [...blocks, blockIdRef.current++];
+      setBlocks(newBlocks);
+      const newHeight = newBlocks.length * BLOCK_HEIGHT;
 
-      // Check win
+      // Check win — show the final answer's feedback first, then end after a beat.
       if (newHeight >= summitHeight) {
-        setGameState('won');
+        setFeedback('correct');
+        setIsEnding(true);
+        if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
+        endTimeoutRef.current = window.setTimeout(() => setGameState('won'), 900);
         return;
       }
     } else {
       setStreak(0);
-      // Block penalty — remove blocks on medium/hard
-      const penalty = settings.blockPenalty * 40;
-      const newTower = Math.max(0, towerHeight - penalty);
-      setTowerHeight(newTower);
+      // Block penalty — remove blocks from the top on medium/hard
+      const newBlocks = settings.blockPenalty > 0
+        ? blocks.slice(0, Math.max(0, blocks.length - settings.blockPenalty))
+        : blocks;
+      setBlocks(newBlocks);
+      const newTower = newBlocks.length * BLOCK_HEIGHT;
 
       // Lava rises on wrong answers
       const newLava = lavaHeight + settings.lavaRise;
@@ -543,42 +599,51 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
       }
 
       // Check lose: lava overtakes tower.
-      // L7 fix: an emptied tower under risen lava is a loss too — the previous
-      // `&& newTower > 0` guard made the loss impossible once the tower hit 0.
-      // This branch only runs on an answer, so "at least one answer" always holds.
-      if (newLava >= newTower) {
-        setGameState('lost');
+      // L7 fix: the loss line is tower height + LAVA_GRACE (two block heights) —
+      // without the grace buffer the very first wrong answer on a height-0 tower
+      // ended the game instantly on every difficulty. An emptied tower still
+      // loses once lava climbs through the buffer. This branch only runs on an
+      // answer, so "at least one answer" always holds. The final feedback shows
+      // first; gameState flips to 'lost' after a beat.
+      if (newLava >= newTower + LAVA_GRACE) {
+        setFeedback('wrong');
+        setIsEnding(true);
+        if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
+        endTimeoutRef.current = window.setTimeout(() => setGameState('lost'), 900);
         return;
       }
     }
 
     setFeedback(isCorrect ? 'correct' : 'wrong');
-  }, [streak, towerHeight, lavaHeight, summitHeight, settings, reduce, shakeControls]);
+  }, [streak, blocks, lavaHeight, summitHeight, settings, reduce, shakeControls]);
 
   const advance = useCallback(() => {
-    if (currentIndex + 1 >= questions.length) {
+    let nextIndex = currentIndex + 1;
+    if (nextIndex >= questions.length) {
       if (config?.isInfinite) {
-        // Generate more questions, trim old ones to prevent unbounded growth
+        // Generate more questions, trim old ones to prevent unbounded growth.
+        // Both updates are computed here and dispatched sequentially — never
+        // call setState inside another updater.
         const more = buildGameQuestions(cards, config);
         const keepCount = 20;
-        setQuestions((prev) => {
-          if (prev.length > keepCount) {
-            const trimmed = prev.slice(-keepCount);
-            setCurrentIndex(keepCount - 1);
-            return [...trimmed, ...more];
-          }
-          return [...prev, ...more];
-        });
+        if (questions.length > keepCount) {
+          const trimmed = questions.slice(-keepCount);
+          setQuestions([...trimmed, ...more]);
+          // Current question now sits at keepCount - 1; advance past it.
+          nextIndex = keepCount;
+        } else {
+          setQuestions([...questions, ...more]);
+        }
       } else {
         // Out of questions but didn't reach summit = lose
         setGameState('lost');
         return;
       }
     }
-    setCurrentIndex((i) => i + 1);
+    setCurrentIndex(nextIndex);
     resetQuestionState();
     questionStartTimeRef.current = Date.now();
-  }, [currentIndex, questions.length, config, cards]);
+  }, [currentIndex, questions, config, cards]);
 
   const checkWritten = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -601,6 +666,37 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
     const isCorrect = answer === currentQuestion.tfPair?.isCorrect;
     processAnswer(isCorrect);
   }, [feedback, currentQuestion, processAnswer]);
+
+  // Keyboard shortcuts while a question is live: 1-4 pick a multiple-choice
+  // option; T/F (or 1/2) answer true-false. Ignored while feedback is showing
+  // or when typing in an input (the written answer field).
+  useEffect(() => {
+    if (phase !== 'game' || gameState !== 'playing') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (feedback || !currentQuestion) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (currentQuestion.type === 'multiple-choice' && currentQuestion.options) {
+        const n = parseInt(e.key, 10);
+        if (n >= 1 && n <= currentQuestion.options.length) {
+          e.preventDefault();
+          checkMC(currentQuestion.options[n - 1]);
+        }
+      } else if (currentQuestion.type === 'true-false') {
+        const k = e.key.toLowerCase();
+        if (k === 't' || k === '1') {
+          e.preventDefault();
+          checkTF(true);
+        } else if (k === 'f' || k === '2') {
+          e.preventDefault();
+          checkTF(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase, gameState, feedback, currentQuestion, checkMC, checkTF]);
 
   const focusRing = useCallback((e: React.FocusEvent<HTMLElement>) => {
     if (e.currentTarget.matches(':focus-visible')) {
@@ -636,7 +732,9 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
             border: '1px solid var(--color-border-light)',
           }}
         >
-          {/* Loss: lava overtakes the card. Win: nothing behind the content. */}
+          {/* Loss: lava overtakes the card. Win: nothing behind the content.
+              The lava/loss gradients here and below (plus the tower hsl() blocks)
+              are deliberately theme-independent game art — do not tokenize. */}
           {!won && (
             <motion.div
               aria-hidden
@@ -712,10 +810,13 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
 
   if (!currentQuestion) return null;
 
-  const towerBlocks = Math.floor(towerHeight / 40);
   // 200 floor lives here (visual only, via the 400 container) — never in summitHeight.
   const maxVisualHeight = Math.max(summitHeight, 400);
-  const lavaPercent = (lavaHeight / maxVisualHeight) * 100;
+  // Clamp RENDERED lava so it never visually exceeds tower height + grace.
+  const lavaPercent = (Math.min(lavaHeight, towerHeight + LAVA_GRACE) / maxVisualHeight) * 100;
+  // Blocks render as a % of the viewport so they stay aligned with the
+  // %-based summit line and lava at any container height (incl. mobile).
+  const blockPercent = (BLOCK_HEIGHT / maxVisualHeight) * 100;
   const summitPercent = Math.min(95, (summitHeight / maxVisualHeight) * 100);
   const progressPct = Math.min(100, Math.round((towerHeight / summitHeight) * 100));
   const nearSummit = summitHeight > 0 && towerHeight >= summitHeight * 0.7;
@@ -727,11 +828,40 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
       <AuroraBackground reduce={reduce} />
 
       <div className="relative" style={{ zIndex: 10 }}>
+        {/* Esc-confirm banner: first Escape arms, second within 2s quits */}
+        <div className="fixed top-4 left-0 right-0 flex justify-center pointer-events-none" style={{ zIndex: 50 }}>
+          <AnimatePresence>
+            {escArmed && (
+              <motion.div
+                key="esc-confirm"
+                role="status"
+                className="px-4 py-2 text-sm font-semibold"
+                style={{
+                  background: 'var(--color-surface-raised)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border-light)',
+                  borderRadius: 'var(--radius-full)',
+                  boxShadow: 'var(--shadow-modal)',
+                }}
+                initial={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
+                animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
+                transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 400, damping: 28 }}
+              >
+                Press Esc again to quit
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
-            Exit
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
+              Exit
+            </Button>
+            <SoundToggle />
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Pill tone="primary">
               <motion.span
@@ -893,6 +1023,15 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
                   </div>
                 )}
 
+                {/* Keyboard hint (physical-keyboard users; hidden on small screens) */}
+                {!feedback && currentQuestion.type !== 'written' && (
+                  <p className="hidden md:block mt-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                    {currentQuestion.type === 'multiple-choice'
+                      ? `Press 1–${currentQuestion.options?.length ?? 4} to answer`
+                      : 'Press T / F (or 1 / 2) to answer'}
+                  </p>
+                )}
+
                 {/* Feedback + next */}
                 {feedback && (
                   <motion.div
@@ -912,16 +1051,20 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
                         </p>
                       </div>
                     )}
-                    <Button variant="primary" className="w-full mt-3" onClick={advance}>Next</Button>
+                    {/* Hidden while the delayed won/lost transition is pending */}
+                    {!isEnding && (
+                      <Button variant="primary" className="w-full mt-3" onClick={advance}>Next</Button>
+                    )}
                   </motion.div>
                 )}
               </motion.div>
             </AnimatePresence>
           </div>
 
-          {/* Tower visualization */}
+          {/* Tower visualization — capped below md so question + tower share
+              the phone viewport; %-based summit/lava/blocks scale with it */}
           <div
-            className="w-full md:w-48 flex-shrink-0 relative overflow-hidden"
+            className="w-full md:w-48 flex-shrink-0 relative overflow-hidden max-h-[36dvh] md:max-h-none"
             style={{
               height: 400,
               background: 'linear-gradient(180deg, var(--color-surface-raised), var(--color-muted))',
@@ -949,21 +1092,23 @@ function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
               </span>
             </motion.div>
 
-            {/* Tower blocks — spring/drop into place with a settle wobble */}
-            <div className="absolute bottom-0 left-0 right-0 flex flex-col-reverse items-center" style={{ zIndex: 2 }}>
+            {/* Tower blocks — spring/drop into place with a settle wobble.
+                Keyed by stable block id so penalty removals animate the actual
+                removed (top) blocks, not whichever index happens to fall off. */}
+            <div className="absolute inset-0 flex flex-col-reverse items-center" style={{ zIndex: 2 }}>
               <AnimatePresence>
-                {Array.from({ length: towerBlocks }).map((_, i) => {
+                {blocks.map((id, i) => {
                   const hue = (210 + i * 24) % 360;
                   return (
                     <motion.div
-                      key={i}
+                      key={id}
                       initial={reduce ? { opacity: 0 } : { opacity: 0, y: -80, scale: 0.5 }}
                       animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
                       exit={reduce ? { opacity: 0 } : { opacity: 0, y: -40, scale: 0.6, transition: { duration: 0.22 } }}
                       transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 500, damping: 12, mass: 0.8 }}
                       style={{
                         width: '75%',
-                        height: 38,
+                        height: `calc(${blockPercent}% - 2px)`,
                         marginTop: 2,
                         background: `linear-gradient(180deg, hsl(${hue}, 78%, 62%), hsl(${hue}, 72%, 48%))`,
                         borderRadius: 4,

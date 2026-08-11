@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useId } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import type { Card } from '@/types';
@@ -6,6 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { stripHtml, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import StudyContent from '@/components/StudyContent';
+import { playSound } from '@/lib/gameSounds';
+import { SoundToggle } from '@/components/SoundToggle';
 
 interface SpinnerModeProps {
   cards: Card[];
@@ -48,8 +50,26 @@ function getDisplaySide(card: Card): { html: string; imageSrc: string | null; te
   if (defImg) {
     return { html: card.definition, imageSrc: extractImageSrc(card.definition), text: defText };
   }
-  // No images — show term text
-  return { html: card.term, imageSrc: null, text: termText };
+  // No images — show term text; fall back to the definition only when the
+  // term strips to empty text (previously the definition could never appear).
+  if (termText) {
+    return { html: card.term, imageSrc: null, text: termText };
+  }
+  return { html: card.definition, imageSrc: null, text: defText };
+}
+
+/** Max segments drawn on the wheel; larger sets are randomly sampled each spin. */
+const WHEEL_MAX_SEGMENTS = 24;
+
+/** Random sample of up to WHEEL_MAX_SEGMENTS cards (Fisher-Yates partial shuffle). */
+function sampleWheelCards(pool: Card[]): Card[] {
+  if (pool.length <= WHEEL_MAX_SEGMENTS) return pool;
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, WHEEL_MAX_SEGMENTS);
 }
 
 /** Token-derived segment hue: rotate around the indigo brand hue for a cohesive wheel. */
@@ -111,17 +131,16 @@ function StatChip({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
-/** Fire a celebratory confetti burst (reduced-motion aware handled by caller). */
-function fireConfetti() {
-  confetti({ particleCount: 70, spread: 72, startVelocity: 42, origin: { x: 0.5, y: 0.42 }, scalar: 0.9 });
-}
-
 function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   const navigate = useNavigate();
   const reduce = useReducedMotion() ?? false;
   const exitTo = exitUrl ?? `/sets/${setId}`;
+  // Instance-unique prefix for SVG clipPath ids (multiple wheels can coexist).
+  const clipIdPrefix = useId().replace(/[^a-zA-Z0-9_-]/g, '');
 
   const [remainingCards, setRemainingCards] = useState<Card[]>(() => [...cards]);
+  // Cards actually drawn on the wheel (random sample of 24 when the set is large).
+  const [wheelCards, setWheelCards] = useState<Card[]>(() => sampleWheelCards(cards));
   const [rotationDeg, setRotationDeg] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
@@ -131,6 +150,10 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   const [landedIndex, setLandedIndex] = useState<number | null>(null);
   const spinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRotationRef = useRef(0);
+  // Cooldown: the card skipped in the previous modal can't land on the very next spin.
+  const lastSkippedIdRef = useRef<string | null>(null);
+  // Pending settle callback for the in-flight spin (lets a wheel tap fast-forward it).
+  const settleRef = useRef<(() => void) | null>(null);
 
   const totalCards = cards.length;
 
@@ -142,7 +165,9 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
 
   // Celebrate when every card has been completed.
   useEffect(() => {
-    if (remainingCards.length === 0 && totalCards > 0 && !reduce) {
+    if (remainingCards.length === 0 && totalCards > 0) {
+      playSound('win');
+      if (reduce) return;
       const t1 = setTimeout(() => {
         confetti({ particleCount: 90, spread: 65, startVelocity: 45, origin: { x: 0.3, y: 0.5 } });
         confetti({ particleCount: 90, spread: 65, startVelocity: 45, origin: { x: 0.7, y: 0.5 } });
@@ -164,10 +189,22 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   const handleSpin = useCallback(() => {
     if (isSpinning || remainingCards.length === 0) return;
 
-    const count = remainingCards.length;
+    // Re-sample the wheel every spin so all cards cycle through large sets.
+    const spinWheel = sampleWheelCards(remainingCards);
+    setWheelCards(spinWheel);
+
+    const count = spinWheel.length;
     const segmentAngle = 360 / count;
 
-    const randomIndex = Math.floor(Math.random() * count);
+    // Skip cooldown: with more than 1 card remaining, never land on the card
+    // that was skipped in the previous modal.
+    let candidates = spinWheel.map((_, i) => i);
+    if (remainingCards.length > 1 && lastSkippedIdRef.current !== null) {
+      const filtered = candidates.filter((i) => spinWheel[i].id !== lastSkippedIdRef.current);
+      if (filtered.length > 0) candidates = filtered;
+    }
+    lastSkippedIdRef.current = null;
+    const randomIndex = candidates[Math.floor(Math.random() * candidates.length)];
     const landingAngle = 360 - (randomIndex * segmentAngle + segmentAngle / 2);
 
     // Add 5-8 full bonus rotations
@@ -178,36 +215,59 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
     setIsSpinning(true);
     setRotationDeg(totalRotation);
     prevRotationRef.current = totalRotation;
+    playSound('spin');
 
     const settle = () => {
+      settleRef.current = null;
       setIsSpinning(false);
       setLandedIndex(randomIndex);
-      setSelectedCard(remainingCards[randomIndex]);
-      setIsFlipped(false);
-      if (!reduce) fireConfetti();
+      playSound('land');
+      // Brief pause so the landed-segment pulse can read before the modal opens.
+      spinTimeoutRef.current = setTimeout(() => {
+        setSelectedCard(spinWheel[randomIndex]);
+        setIsFlipped(false);
+      }, reduce ? 150 : 550);
     };
 
+    settleRef.current = settle;
     if (reduce) {
       // Skip the long decelerating animation for reduced motion.
       spinTimeoutRef.current = setTimeout(settle, 300);
     } else {
-      spinTimeoutRef.current = setTimeout(settle, 4000);
+      spinTimeoutRef.current = setTimeout(settle, 2800);
     }
   }, [isSpinning, remainingCards, reduce]);
 
+  // Tap/click on the wheel while spinning fast-forwards to the final rotation.
+  const handleFastForward = useCallback(() => {
+    const settle = settleRef.current;
+    if (!settle) return;
+    if (spinTimeoutRef.current) {
+      clearTimeout(spinTimeoutRef.current);
+      spinTimeoutRef.current = null;
+    }
+    // Nudge the target so framer-motion re-animates; with isSpinning false the
+    // transition is duration 0, snapping the wheel to its final rotation.
+    setRotationDeg((r) => r + 0.001);
+    settle();
+  }, []);
+
   const handleGotIt = useCallback(() => {
     if (!selectedCard) return;
+    playSound('correct');
     setRemainingCards((prev) => prev.filter((c) => c.id !== selectedCard.id));
+    setWheelCards((prev) => prev.filter((c) => c.id !== selectedCard.id));
     setDoneCount((d) => d + 1);
     setSelectedCard(null);
     setLandedIndex(null);
   }, [selectedCard]);
 
   const handleSkip = useCallback(() => {
+    if (selectedCard) lastSkippedIdRef.current = selectedCard.id;
     setSkippedCount((s) => s + 1);
     setSelectedCard(null);
     setLandedIndex(null);
-  }, []);
+  }, [selectedCard]);
 
   const handleReset = useCallback(() => {
     // L9: clear any pending spin timeout and reset spinning state so a stale
@@ -216,8 +276,11 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
       clearTimeout(spinTimeoutRef.current);
       spinTimeoutRef.current = null;
     }
+    settleRef.current = null;
+    lastSkippedIdRef.current = null;
     setIsSpinning(false);
     setRemainingCards([...cards]);
+    setWheelCards(sampleWheelCards(cards));
     setDoneCount(0);
     setSkippedCount(0);
     setRotationDeg(0);
@@ -294,7 +357,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
     );
   }
 
-  const count = remainingCards.length;
+  const count = wheelCards.length;
   const segmentAngle = 360 / count;
   const wheelSize = 360;
   const wheelRadius = 170;
@@ -302,7 +365,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
   const centerY = wheelSize / 2;
 
   // Build SVG segments
-  const segments = remainingCards.map((card, i) => {
+  const segments = wheelCards.map((card, i) => {
     const startAngle = (i * segmentAngle - 90) * (Math.PI / 180);
     const endAngle = ((i + 1) * segmentAngle - 90) * (Math.PI / 180);
 
@@ -338,11 +401,20 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
       ? display.text.slice(0, maxChars - 2) + '..'
       : display.text;
 
-    // Unique clip path id for this segment's image
-    const clipId = `clip-seg-${i}`;
+    // Unique clip path id for this segment's image (instance-unique via useId)
+    const clipId = `${clipIdPrefix}-clip-seg-${i}`;
 
     return (
-      <g key={card.id} style={{ filter: isLanded ? 'brightness(1.12) saturate(1.1)' : undefined }}>
+      <motion.g
+        key={card.id}
+        style={{
+          filter: isLanded ? 'brightness(1.12) saturate(1.1)' : undefined,
+          transformBox: 'view-box',
+          transformOrigin: `${centerX}px ${centerY}px`,
+        }}
+        animate={isLanded && !reduce ? { scale: [1, 1.07, 1] } : { scale: 1 }}
+        transition={isLanded && !reduce ? { duration: 0.45, ease: 'easeOut' } : { duration: 0 }}
+      >
         <path
           d={pathD}
           fill={color}
@@ -385,7 +457,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
             {truncated}
           </text>
         )}
-      </g>
+      </motion.g>
     );
   });
 
@@ -409,14 +481,17 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
             </Button>
             <div className="flex items-center gap-2">
               <StatChip label="Done" value={`${doneCount}/${totalCards}`} accent="var(--color-success)" />
-              <StatChip label="Left" value={`${count}`} accent="var(--color-primary)" />
+              <StatChip label="Left" value={`${remainingCards.length}`} accent="var(--color-primary)" />
               {skippedCount > 0 && (
                 <StatChip label="Skipped" value={`${skippedCount}`} accent="var(--color-warning)" />
               )}
             </div>
-            <Button variant="ghost" size="sm" onClick={handleReset}>
-              Reset
-            </Button>
+            <div className="flex items-center gap-1">
+              <SoundToggle />
+              <Button variant="ghost" size="sm" onClick={handleReset}>
+                Reset
+              </Button>
+            </div>
           </div>
 
           {/* Progress bar (transform-based for perf) */}
@@ -456,8 +531,13 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
             />
           </motion.svg>
 
-          {/* Wheel + glow ring */}
-          <div className="relative flex items-center justify-center w-full max-w-[360px]">
+          {/* Wheel + glow ring (tap during a spin to fast-forward to the result) */}
+          <div
+            className="relative flex items-center justify-center w-full max-w-[360px]"
+            onClick={handleFastForward}
+            style={{ cursor: isSpinning ? 'pointer' : 'default' }}
+            title={isSpinning ? 'Tap to skip the spin' : undefined}
+          >
             <motion.div
               className="absolute rounded-full pointer-events-none"
               style={{ inset: '-4px' }}
@@ -478,7 +558,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
               animate={{ rotate: rotationDeg }}
               transition={
                 isSpinning && !reduce
-                  ? { duration: 4, ease: [0.17, 0.67, 0.12, 0.99] }
+                  ? { duration: 2.8, ease: [0.17, 0.67, 0.12, 0.99] }
                   : { duration: 0 }
               }
               style={{ willChange: isSpinning ? 'transform' : 'auto' }}
@@ -499,6 +579,13 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
               <circle cx={centerX} cy={centerY} r="9" fill="var(--color-primary)" />
             </motion.svg>
           </div>
+
+          {/* Sampled-wheel caption */}
+          {count < remainingCards.length && (
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
+              {count} of {remainingCards.length} on the wheel
+            </p>
+          )}
 
           {/* Spin button */}
           <Button

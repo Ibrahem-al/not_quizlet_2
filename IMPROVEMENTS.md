@@ -92,3 +92,17 @@ Fixed all 62 bugs from BUG_REPORT.md. Highlights:
 - [ ] Audio card support (text-to-speech)
 - [ ] Search within card content
 - [ ] Undo/redo for card operations (add/delete/reorder)
+
+## 2026-08-10 — Cloud-first sync, security migration applied, game overhaul, re-theme
+
+**Backups taken first** (rollback points): git branch `backup/pre-improvements-2026-08-10` + tag; tag `deployed-production-2026-08-10` = exact Vercel prod commit; full DB snapshot in Supabase schema `backup_20260810`; local dump + all 587 card images in `../not_quizlet_2_backups/2026-08-10/` (kept OUT of this public repo — contains emails/share tokens).
+
+**Database** — migration 005 (security hardening) applied to Supabase and verified: enumeration policies dropped, SECURITY DEFINER search_paths pinned, anon EXECUTE revoked on rate-limit writers; study_sets checksum identical before/after (no data loss). App follow-ups shipped: RPC-only shared-set/folder fetches (fallback direct queries removed), `check_password_reuse` callers fixed (p_user_id + scalar boolean), `is_account_locked` name fixed in SignInPage. Still pending: service-role edge functions to populate `password_history` and drive failed-login accounting.
+
+**Cloud-first sync** — new `src/lib/syncEngine.ts`: every set/folder write pushes to Supabase immediately when signed in (500ms coalesce per item, exponential-backoff retries, flush on reconnect); `SyncStatusIndicator` in the header; IndexedDB remains the offline cache; pull-merge on load is the reconciliation net. The old "only shared folders auto-sync" logic is gone.
+
+**Games** — BlockBuilder: instant-loss-on-first-wrong-answer fixed (lava grace), final-answer feedback shown before results, stable block keys, 1-4/T/F keyboard input, double-Esc quit, mobile tower visible. RaceToFinish: stale-winner-stats fixed, page scroll-hijack fixed, faster pacing, solo "Race a bot" mode (Turbo Bot, 65% accuracy), track presets capped at 30, palette consolidated. MemoryCardFlip: 18-pair cap, dvh board height, instant Play Again, honest "Efficiency" stat, updater-purity fixes. Spinner: skip cooldown, 24-segment wheel sampling, definition-side label fix, confetti only on completion, tap-to-fast-forward. All four: synthesized WebAudio sounds (`src/lib/gameSounds.ts`) with a persistent mute toggle.
+
+**Study modes** — Learn: interleaved question types + one review round of missed cards + dead code removed. Match: 12-pair cap + timeout-leak fix. Flashcards: shuffle toggle. Modal: role=dialog/aria-modal/focus management. Input: useId (label-collision fix).
+
+**Re-theme (anti-vibecode)** — primary moved off `#6366f1` indigo (the canonical AI-generated tell) to a lapis/cerulean ink `#1b6ca8` grounded in Arabic manuscript illumination (the app's actual content); Space Grotesk replaced by IBM Plex Sans + IBM Plex Sans Arabic (Arabic content finally gets a designed face) with Bricolage Grotesque display; `::selection`/caret themed; 100vh → 100dvh everywhere; purple print gradients replaced; OG meta added; PWA manifest theme updated. Everything flows through the existing CSS tokens, so reverting is a one-file change.

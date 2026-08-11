@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import type { StudySet, Folder } from '@/types';
+import type { StudySet } from '@/types';
 import { getAllSets, getSet, saveSet, deleteSet } from '@/db';
-import { syncSetContentToCloud, deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
+import { deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
+import { queueSetSync } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { useFolderStore } from '@/stores/useFolderStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 const LEGACY_SHARED_COPY_SUFFIX = ' (Shared copy)';
@@ -63,61 +63,13 @@ export function backfillLegacyHiddenSets(allSets: StudySet[]): StudySet[] {
   });
 }
 
-/** Check if a folder (or any ancestor) is shared */
-function isInSharedTree(folderId: string | undefined): boolean {
-  if (!folderId) return false;
-  const folders = useFolderStore.getState().folders;
-  let currentId: string | undefined = folderId;
-  while (currentId) {
-    const folder = folders.find((f: Folder) => f.id === currentId);
-    if (!folder) break;
-    if (folder.shareToken) return true;
-    currentId = folder.parentFolderId;
-  }
-  return false;
-}
-
-function hasIncompleteFolderChain(folderId: string | undefined): boolean {
-  if (!folderId) return false;
-  const folders = useFolderStore.getState().folders;
-  let currentId: string | undefined = folderId;
-
-  while (currentId) {
-    const folder = folders.find((f: Folder) => f.id === currentId);
-    if (!folder) return true;
-    currentId = folder.parentFolderId;
-  }
-
-  return false;
-}
-
-/** Fire-and-forget cloud sync for a set in a shared folder */
-function autoSyncSet(s: StudySet): void {
+/** Cloud-first: push every write to Supabase immediately when signed in.
+ *  The syncEngine coalesces rapid edits, retries with backoff, and flushes
+ *  on reconnect; IndexedDB remains the offline cache. */
+function cloudSyncSet(s: StudySet): void {
   if (!isSupabaseConfigured()) return;
   const user = useAuthStore.getState().user;
-  if (user) {
-    syncSetContentToCloud({ ...s, userId: user.id }).catch(() => {});
-  }
-}
-
-function maybeAutoSyncSet(s: StudySet, folderIds: Array<string | undefined>): void {
-  const relevantFolderIds = [...new Set(folderIds.filter(Boolean))];
-  if (relevantFolderIds.some((folderId) => isInSharedTree(folderId))) {
-    autoSyncSet(s);
-    return;
-  }
-
-  if (!relevantFolderIds.some((folderId) => hasIncompleteFolderChain(folderId))) {
-    return;
-  }
-
-  void useFolderStore.getState().loadFolders()
-    .then(() => {
-      if (relevantFolderIds.some((folderId) => isInSharedTree(folderId))) {
-        autoSyncSet(s);
-      }
-    })
-    .catch(() => {});
+  if (user) queueSetSync(s, user.id);
 }
 
 interface SetStore {
@@ -230,12 +182,10 @@ export const useSetStore = create<SetStore>((set, get) => ({
     const sets = sortSets([...get().sets, newSet].filter(isSetVisible));
     set({ sets });
 
-    // Auto-sync if added to a shared folder
-    maybeAutoSyncSet(newSet, [newSet.folderId]);
+    cloudSyncSet(newSet);
   },
 
   updateSet: async (updated: StudySet) => {
-    const oldSet = get().sets.find((s) => s.id === updated.id);
     await saveSet(updated);
     const remaining = get().sets.filter((s) => s.id !== updated.id);
     const sets = sortSets(
@@ -243,8 +193,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     );
     set({ sets });
 
-    // Auto-sync if set is in (or was in) a shared folder
-    maybeAutoSyncSet(updated, [updated.folderId, oldSet?.folderId]);
+    cloudSyncSet(updated);
   },
 
   hideLegacyOriginal: async (id: string, replacementId: string) => {
