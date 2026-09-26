@@ -1,0 +1,33 @@
+/* ---- Escape Room ---- */
+.er-flash {
+  animation: erFlash 0.6s ease-out;
+}
+@keyframes erFlash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.er-shake {
+  animation: erShake 0.4s ease-in-out;
+}
+@keyframes erShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
+.er-lamp {
+  animation: erLamp 3s ease-in-out infinite alternate;
+}
+@keyframes erLamp {
+  from { opacity: 0.35; }
+  to { opacity: 0.55; }
+}
+.er-key:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .er-shake, .er-lamp { animation: none; }
+  .er-flash { animation-duration: 0.25s; }
+}

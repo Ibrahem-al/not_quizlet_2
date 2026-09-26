@@ -1,0 +1,44 @@
+/* ---- Fishing Pond ---- */
+.fp-fish {
+  position: absolute; width: 132px; padding: 0; margin: 0; border: none; background: transparent;
+  display: flex; flex-direction: column; align-items: center; cursor: pointer;
+  transition: opacity 250ms, filter 250ms;
+  -webkit-tap-highlight-color: transparent;
+}
+.fp-fish:focus-visible { outline: 3px solid #fff27a; outline-offset: 2px; border-radius: 14px; }
+.fp-fish:disabled { cursor: default; }
+.fp-body { transform: scaleX(var(--fp-dir, 1)); transition: transform 180ms; }
+.fp-fish:not(:disabled):hover .fp-chip { box-shadow: 0 0 0 3px #fff27a, 0 3px 0 rgba(0, 0, 0, 0.25); }
+.fp-glow { filter: drop-shadow(0 0 10px #fff27a) drop-shadow(0 0 4px #fff27a); z-index: 20 !important; }
+.fp-glow .fp-chip { box-shadow: 0 0 0 3px #ffc83d, 0 3px 0 rgba(0, 0, 0, 0.25); }
+.fp-gone { opacity: 0; pointer-events: none; }
+.fp-dim { opacity: 0.55; }
+
+.fp-chip {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  max-width: 150px; margin-top: -6px; padding: 3px 8px; border-radius: 10px;
+  font-size: 12.5px; line-height: 1.25; font-weight: 700; text-align: center; overflow-wrap: anywhere;
+}
+.fp-badge { width: 44px; height: 44px; border-radius: 999px; overflow: hidden; background: #fff; }
+.fp-badge .study-content, .fp-badge .study-content p { width: 100%; height: 100%; margin: 0; }
+.fp-badge .study-content img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; border-radius: 0; }
+
+.fp-tag .study-content img { max-width: 100%; max-height: 64px; object-fit: contain; background: #fff; }
+.fp-log .study-content img { max-width: 100%; max-height: 40px; object-fit: contain; background: #fff; }
+.fp-banner .study-content img { max-width: 100%; max-height: 48px; object-fit: contain; background: #fff; }
+
+.fp-splash { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 999px; border: 3px solid rgba(255, 255, 255, 0.9); pointer-events: none; animation: fpSplash 700ms ease-out forwards; }
+.fp-splash.fp-s2 { animation-delay: 140ms; }
+@keyframes fpSplash { from { transform: scale(0.4); opacity: 1; } to { transform: scale(5); opacity: 0; } }
+
+.fp-sway { transform-origin: 50% 100%; animation: fpSway 4s ease-in-out infinite; }
+@keyframes fpSway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+
+.fp-shimmer { background: linear-gradient(100deg, #ffc83d 30%, #fff3c4 50%, #ffc83d 70%); background-size: 250% 100%; animation: fpShimmer 2.2s linear infinite; }
+@keyframes fpShimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-splash, .fp-sway, .fp-shimmer { animation: none; }
+  .fp-splash { opacity: 0; }
+  .fp-body, .fp-fish { transition: none; }
+}

@@ -20,6 +20,14 @@ export const MODE_COMPONENTS = {
   'block-builder': lazyWithPreload(() => import('@/components/modes/games/BlockBuilderMode')),
   'memory-card-flip': lazyWithPreload(() => import('@/components/modes/games/MemoryCardFlipMode')),
   'race-to-finish': lazyWithPreload(() => import('@/components/modes/games/RaceToFinishMode')),
+  'meteor-defense': lazyWithPreload(() => import('@/components/modes/games/MeteorDefenseMode')),
+  'crossword': lazyWithPreload(() => import('@/components/modes/games/CrosswordMode')),
+  'letter-lock': lazyWithPreload(() => import('@/components/modes/games/LetterLockMode')),
+  'boss-battle': lazyWithPreload(() => import('@/components/modes/games/BossBattleMode')),
+  'swipe-blitz': lazyWithPreload(() => import('@/components/modes/games/SwipeBlitzMode')),
+  'fishing-pond': lazyWithPreload(() => import('@/components/modes/games/FishingPondMode')),
+  'mystery-picture': lazyWithPreload(() => import('@/components/modes/games/MysteryPictureMode')),
+  'escape-room': lazyWithPreload(() => import('@/components/modes/games/EscapeRoomMode')),
 } satisfies Record<StudyMode, unknown>;
 
 export const MIN_CARDS: Record<StudyMode, number> = {
@@ -31,6 +39,14 @@ export const MIN_CARDS: Record<StudyMode, number> = {
   'block-builder': 2,
   'memory-card-flip': 4,
   'race-to-finish': 2,
+  'meteor-defense': 2,
+  'crossword': 3,
+  'letter-lock': 2,
+  'boss-battle': 3,
+  'swipe-blitz': 3,
+  'fishing-pond': 3,
+  'mystery-picture': 3,
+  'escape-room': 4,
 };
 
 export function isStudyMode(mode: string | undefined): mode is StudyMode {

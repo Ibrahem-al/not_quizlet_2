@@ -1,0 +1,76 @@
+/* Mystery Picture: a framed canvas on a gallery wall, covered by paper tiles. */
+
+.mp-wall {
+  background-color: #2f4a57;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 64px),
+    linear-gradient(180deg, #34525f 0%, #2a4350 70%, #223743 70%, #1d2f39 100%);
+}
+
+.mp-frame {
+  padding: 14px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #e7bd62, #b9852f 45%, #e2b458 70%, #9d6d22);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 240, 200, 0.5),
+    inset 0 0 0 7px rgba(90, 55, 10, 0.35),
+    0 18px 36px rgba(0, 0, 0, 0.45);
+}
+
+.mp-canvas {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #f4ecd8;
+  box-shadow: inset 0 0 0 5px #f1e6cc, inset 0 0 0 6px rgba(0, 0, 0, 0.18);
+}
+
+.mp-tile {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #d8b784;
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.28), transparent 40%),
+    repeating-linear-gradient(45deg, rgba(120, 80, 30, 0.06) 0 3px, transparent 3px 7px);
+  box-shadow: inset 0 0 0 1.5px #8e6a3a, inset 0 -3px 0 rgba(90, 60, 20, 0.25);
+  color: #6e4f25;
+  backface-visibility: hidden;
+}
+
+.mp-light {
+  position: absolute;
+  left: 50%;
+  top: -40px;
+  width: 70%;
+  height: 120px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(255, 236, 180, 0.35), transparent 70%);
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+
+.mp-plate-in {
+  animation: mpPlate 600ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes mpPlate {
+  from { opacity: 0; transform: translateY(14px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+
+.mp-locked {
+  animation: mpShake 380ms ease;
+}
+@keyframes mpShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-plate-in, .mp-locked { animation: none; }
+  .mp-light { transition: none; }
+}

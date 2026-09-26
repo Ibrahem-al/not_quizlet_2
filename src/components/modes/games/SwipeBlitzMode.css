@@ -1,0 +1,21 @@
+/* ---- Swipe Blitz ---- */
+.sb-card .study-content img { max-width: 100%; max-height: 90px; object-fit: contain; background: #ffffff; }
+.sb-review .study-content img { max-width: 100%; max-height: 48px; object-fit: contain; background: #ffffff; }
+
+.sb-card-body { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
+.sb-term { -webkit-line-clamp: 3; line-clamp: 3; }
+.sb-def { -webkit-line-clamp: 5; line-clamp: 5; }
+
+.sb-urgent { animation: sbUrgent 0.5s ease-in-out infinite alternate; }
+@keyframes sbUrgent { from { filter: brightness(1); } to { filter: brightness(1.45); } }
+
+.sb-lane-arrow { animation: sbNudge 1.6s ease-in-out infinite; }
+.sb-lane-arrow.sb-left { animation-name: sbNudgeLeft; }
+@keyframes sbNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+@keyframes sbNudgeLeft { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-4px); } }
+
+.sb-btn:focus-visible { outline: 3px solid #ffd23e; outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-urgent, .sb-lane-arrow { animation: none; }
+}

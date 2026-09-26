@@ -91,7 +91,10 @@ export interface StudySession {
 
 export type QuestionType = 'written' | 'multiple-choice' | 'true-false';
 export type AnswerDirection = 'term-to-def' | 'def-to-term' | 'both';
-export type StudyMode = 'flashcards' | 'learn' | 'match' | 'test' | 'spinner' | 'block-builder' | 'memory-card-flip' | 'race-to-finish';
+export type StudyMode =
+  | 'flashcards' | 'learn' | 'match' | 'test'
+  | 'spinner' | 'block-builder' | 'memory-card-flip' | 'race-to-finish'
+  | 'meteor-defense' | 'crossword' | 'letter-lock' | 'boss-battle' | 'swipe-blitz' | 'fishing-pond' | 'mystery-picture' | 'escape-room';
 
 export interface TestConfig {
   questionCount: number;

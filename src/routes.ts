@@ -8,6 +8,7 @@ export const NewSetPage = lazyWithPreload(() => import('@/pages/NewSetPage'));
 export const SetDetailPage = lazyWithPreload(() => import('@/pages/SetDetailPage'));
 export const StudyPage = lazyWithPreload(() => import('@/pages/StudyPage'));
 export const StatsPage = lazyWithPreload(() => import('@/pages/StatsPage'));
+export const DailyQuestPage = lazyWithPreload(() => import('@/pages/DailyQuestPage'));
 export const FolderDetailPage = lazyWithPreload(() => import('@/pages/FolderDetailPage'));
 export const SignInPage = lazyWithPreload(() => import('@/pages/auth/SignInPage'));
 export const SignUpPage = lazyWithPreload(() => import('@/pages/auth/SignUpPage'));

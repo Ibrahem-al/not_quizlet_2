@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, BarChart3, FolderOpen, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Search, Plus, BarChart3, FolderOpen, PanelLeftClose, PanelLeft, Flame } from 'lucide-react';
 import type Fuse from 'fuse.js';
 import PageTransition from '@/components/layout/PageTransition';
 import { useSetStore } from '@/stores/useSetStore';
@@ -139,6 +139,13 @@ function HomePage() {
                 icon={<Plus size={18} />}
               >
                 New Set
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/daily')}
+                icon={<Flame size={18} />}
+              >
+                Daily Quest
               </Button>
               <Button
                 variant="ghost"

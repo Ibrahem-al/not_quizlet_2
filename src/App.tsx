@@ -15,6 +15,7 @@ import {
   SetDetailPage,
   StudyPage,
   StatsPage,
+  DailyQuestPage,
   FolderDetailPage,
   SignInPage,
   SignUpPage,
@@ -82,6 +83,7 @@ function App() {
               <Route path="/sets/:id" element={<SetDetailPage />} />
               <Route path="/sets/:id/study/:mode" element={<StudyPage />} />
               <Route path="/stats" element={<StatsPage />} />
+              <Route path="/daily" element={<DailyQuestPage />} />
               <Route path="/folders/:id" element={<FolderDetailPage />} />
               <Route path="/signin" element={<SignInPage />} />
               <Route path="/signup" element={<SignUpPage />} />

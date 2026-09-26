@@ -1,0 +1,32 @@
+/* ---- Boss Battle ---- */
+.bsb-torch {
+  transform-origin: 50% 100%;
+  animation: bsbTorch 1.4s ease-in-out infinite alternate;
+}
+@keyframes bsbTorch {
+  from { transform: scale(1, 1); opacity: 0.95; }
+  to { transform: scale(0.9, 1.12); opacity: 0.8; }
+}
+.bsb-hurt-flash {
+  animation: bsbHurt 0.5s ease-out;
+}
+@keyframes bsbHurt {
+  0% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+.bsb-special-bolt {
+  animation: bsbBolt 0.9s ease-out;
+}
+@keyframes bsbBolt {
+  0% { transform: scale(0.4) rotate(-20deg); opacity: 0; }
+  40% { transform: scale(1.25) rotate(6deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.bsb-focus:focus-visible {
+  outline: 3px solid #ffd23e;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bsb-torch, .bsb-special-bolt { animation: none; }
+  .bsb-hurt-flash { animation-duration: 0.2s; }
+}

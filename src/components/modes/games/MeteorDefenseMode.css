@@ -1,0 +1,165 @@
+/* Meteor Defense — scene-only animation. Class prefix: md- */
+
+.md-meteor {
+  position: absolute;
+  width: 31%;
+  max-width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -44px);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.md-rock {
+  position: relative;
+  width: 40px;
+  height: 64px;
+}
+
+.md-tail {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 26px;
+  height: 46px;
+  transform: translateX(-50%);
+  border-radius: 50% 50% 45% 45%;
+  background: linear-gradient(0deg, #fff3b0 0%, #ffb347 35%, rgba(255, 95, 58, 0.55) 70%, rgba(255, 95, 58, 0) 100%);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  animation: md-flicker 0.18s ease-in-out infinite alternate;
+  transform-origin: 50% 100%;
+}
+
+@keyframes md-flicker {
+  from { transform: translateX(-50%) scaleY(0.9); }
+  to { transform: translateX(-50%) scaleY(1.08); }
+}
+
+.md-rock svg {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+}
+
+.md-label {
+  margin-top: 4px;
+  max-width: 100%;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: rgba(8, 10, 28, 0.86);
+  border: 2px solid rgba(125, 252, 255, 0.45);
+  color: #f4f6ff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  transition: border-color 0.3s;
+}
+
+.md-label.md-danger {
+  border-color: #ff6b5a;
+}
+
+.md-thumb img {
+  max-height: 44px;
+  max-width: 72px;
+  border-radius: 6px;
+  margin: 0 auto;
+  display: block;
+}
+
+.md-thumb p {
+  margin: 0;
+}
+
+/* Explosion after a laser hit */
+.md-boom {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 64px;
+  height: 64px;
+  margin-left: -32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fffbe0 0%, #ffd23e 30%, #ff7a3a 58%, rgba(255, 90, 50, 0) 72%);
+  animation: md-boom 0.6s ease-out forwards;
+}
+
+@keyframes md-boom {
+  0% { transform: scale(0.3); opacity: 1; }
+  60% { transform: scale(1.5); opacity: 0.9; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+.md-shard {
+  position: absolute;
+  left: 50%;
+  bottom: 38px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #8a6450;
+  animation: md-shard 0.6s ease-out forwards;
+}
+
+@keyframes md-shard {
+  from { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) rotate(220deg); opacity: 0; }
+}
+
+.md-fade {
+  animation: md-fade 0.45s ease-out forwards;
+}
+
+@keyframes md-fade {
+  to { opacity: 0; }
+}
+
+.md-laser {
+  animation: md-laser 0.5s ease-out forwards;
+}
+
+@keyframes md-laser {
+  0% { opacity: 1; stroke-width: 5px; }
+  100% { opacity: 0; stroke-width: 1px; }
+}
+
+/* Ground impact when a meteor lands */
+.md-impact {
+  position: absolute;
+  width: 120px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(255, 220, 140, 0.95) 0%, rgba(255, 107, 90, 0.7) 40%, rgba(255, 107, 90, 0) 70%);
+  animation: md-impact 0.7s ease-out forwards;
+  pointer-events: none;
+  z-index: 5;
+}
+
+@keyframes md-impact {
+  from { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+}
+
+.md-shield-hit {
+  animation: md-shield-hit 0.6s ease-out;
+}
+
+@keyframes md-shield-hit {
+  0%, 30% { stroke: #ff6b5a; }
+  100% { stroke: #5fd4ff; }
+}
+
+
+
+@media (prefers-reduced-motion: reduce) {
+  .md-tail { animation: none; }
+  .md-shard { display: none; }
+  .md-boom { animation: md-fade 0.3s ease-out forwards; }
+  .md-impact { animation: md-fade 0.4s ease-out forwards; transform: translate(-50%, -50%); }
+  .md-laser { animation-duration: 0.3s; }
+}
