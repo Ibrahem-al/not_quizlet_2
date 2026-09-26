@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, Suspense, type ComponentType } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import type { StudySet, Card } from '@/types';
@@ -8,15 +8,7 @@ import { hasTermContent, hasDefinitionContent } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import FlashcardMode from '@/components/modes/FlashcardMode';
-import LearnMode from '@/components/modes/LearnMode';
-import MatchMode from '@/components/modes/MatchMode';
-import TestMode from '@/components/modes/TestMode';
-
-const SpinnerMode = lazy(() => import('@/components/modes/games/SpinnerMode'));
-const BlockBuilderMode = lazy(() => import('@/components/modes/games/BlockBuilderMode'));
-const MemoryCardFlipMode = lazy(() => import('@/components/modes/games/MemoryCardFlipMode'));
-const RaceToFinishMode = lazy(() => import('@/components/modes/games/RaceToFinishMode'));
+import { MODE_COMPONENTS, isStudyMode, type ModeProps } from '@/components/modes/registry';
 
 function SharedFolderStudyPage() {
   const { token, setId, mode } = useParams<{ token: string; setId: string; mode: string }>();
@@ -159,35 +151,20 @@ function SharedFolderStudyPage() {
   // route instead of ejecting anonymous viewers to a private /sets/:id page (H7).
   const props = { cards: validCards, setId: set.id, exitUrl: backUrl };
 
-  const renderMode = () => {
-    switch (mode) {
-      case 'flashcards':
-        return <FlashcardMode {...props} />;
-      case 'learn':
-        return <LearnMode {...props} />;
-      case 'match':
-        return <MatchMode {...props} />;
-      case 'test':
-        return <TestMode {...props} />;
-      case 'spinner':
-        return <SpinnerMode {...props} />;
-      case 'block-builder':
-        return <BlockBuilderMode {...props} />;
-      case 'memory-card-flip':
-        return <MemoryCardFlipMode {...props} />;
-      case 'race-to-finish':
-        return <RaceToFinishMode {...props} />;
-      default:
-        return (
-          <div className="text-center py-16">
-            <p style={{ color: 'var(--color-text-secondary)' }}>Unknown study mode: {mode}</p>
-            <Button variant="primary" className="mt-4" onClick={() => navigate(backUrl)}>
-              Back to Folder
-            </Button>
-          </div>
-        );
-    }
-  };
+  const Mode = isStudyMode(mode)
+    ? (MODE_COMPONENTS[mode] as unknown as ComponentType<ModeProps>)
+    : null;
+  const renderMode = () =>
+    Mode ? (
+      <Mode {...props} />
+    ) : (
+      <div className="text-center py-16">
+        <p style={{ color: 'var(--color-text-secondary)' }}>Unknown study mode: {mode}</p>
+        <Button variant="primary" className="mt-4" onClick={() => navigate(backUrl)}>
+          Back to Folder
+        </Button>
+      </div>
+    );
 
   return (
     <PageTransition>

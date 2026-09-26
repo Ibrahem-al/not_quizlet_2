@@ -1,11 +1,9 @@
-import { type ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { type ReactNode, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-interface CardProps {
+interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'style' | 'onClick'> {
   variant?: 'default' | 'elevated' | 'outlined' | 'ghost';
   hover?: boolean;
-  className?: string;
   children: ReactNode;
   onClick?: () => void;
 }
@@ -39,18 +37,15 @@ export function Card({
   className,
   children,
   onClick,
+  ...rest
 }: CardProps) {
   return (
-    <motion.div
+    <div
+      {...rest}
       onClick={onClick}
-      whileHover={
-        hover
-          ? { y: -2, boxShadow: 'var(--shadow-card-hover)' }
-          : undefined
-      }
-      transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
       className={cn(
         'overflow-hidden',
+        hover && 'sf-card-hover',
         onClick && 'cursor-pointer',
         className,
       )}
@@ -61,6 +56,6 @@ export function Card({
       }}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }

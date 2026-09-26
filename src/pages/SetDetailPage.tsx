@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Plus,
@@ -39,9 +39,27 @@ import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CardList } from '@/components/CardList';
-import { GameBrowserModal } from '@/components/GameBrowserModal';
-import { PrintDialog } from '@/components/PrintDialog';
-import MoveToFolderModal from '@/components/MoveToFolderModal';
+import { StudyPage } from '@/routes';
+import { preloadMode } from '@/components/modes/registry';
+import { whenIdle } from '@/lib/lazyWithPreload';
+
+// On-demand dialogs are split out of the editor chunk (PrintDialog pulls in
+// the PDF pipeline) and only mount once first opened.
+const GameBrowserModal = lazy(() =>
+  import('@/components/GameBrowserModal').then((m) => ({ default: m.GameBrowserModal })),
+);
+const PrintDialog = lazy(() =>
+  import('@/components/PrintDialog').then((m) => ({ default: m.PrintDialog })),
+);
+const MoveToFolderModal = lazy(() => import('@/components/MoveToFolderModal'));
+
+/** True from the first time `open` is true, so a lazily mounted dialog stays
+ *  mounted afterwards and its close animation still plays. */
+function useMountOnFirstOpen(open: boolean): boolean {
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
+  return opened || open;
+}
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved';
 
@@ -104,6 +122,9 @@ function SetDetailPage() {
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const gameBrowserMounted = useMountOnFirstOpen(gameBrowserOpen);
+  const printDialogMounted = useMountOnFirstOpen(printDialogOpen);
+  const folderModalMounted = useMountOnFirstOpen(folderModalOpen);
   const [sharing, setSharing] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const storedFilterIds = useFilterStore((s) => s.filteredCardIds);
@@ -140,20 +161,28 @@ function SetDetailPage() {
   );
 
   // Load sets on mount if needed
+  // (deduped/throttled in the store, so this is cheap on repeat visits; it
+  // still waits out an in-flight pull before declaring the set missing)
   useEffect(() => {
-    if (sets.length === 0) {
-      void loadSets().then(() => setLoaded(true));
-    } else {
-      setLoaded(true);
-    }
-  }, [sets.length, loadSets]);
+    void loadSets().then(() => setLoaded(true));
+  }, [loadSets]);
 
   // Adopt the resolved set into the local working copy once available.
   useEffect(() => {
-    if (loaded && found && !localSet) {
+    // Adopt as soon as the set is available locally — no need to wait for
+    // the background cloud pull that loadSets() also resolves after.
+    if (found && !localSet) {
       setLocalSet(found);
     }
-  }, [loaded, found, localSet]);
+  }, [found, localSet]);
+
+  // Warm the study screen and the most-used mode while the user edits.
+  useEffect(() => {
+    whenIdle(() => {
+      void StudyPage.preload();
+      preloadMode('flashcards');
+    });
+  }, []);
 
   // Restore excluded card IDs from filter store when set loads — only when the
   // stored filter belongs to this set (H5).
@@ -657,6 +686,8 @@ function SetDetailPage() {
               size="sm"
               icon={mode.icon}
               onClick={() => navigate(`/sets/${localSet.id}/study/${mode.id}`)}
+              onMouseEnter={() => preloadMode(mode.id)}
+              onFocus={() => preloadMode(mode.id)}
             >
               {mode.label}
             </Button>
@@ -917,28 +948,36 @@ function SetDetailPage() {
           </Button>
         </div>
 
-        {/* Game browser modal */}
-        <GameBrowserModal
-          isOpen={gameBrowserOpen}
-          onClose={() => setGameBrowserOpen(false)}
-          setId={localSet.id}
-          cardCount={filterApplied ? activeCardCount : localSet.cards.length}
-        />
+        <Suspense fallback={null}>
+          {/* Game browser modal */}
+          {gameBrowserMounted && (
+            <GameBrowserModal
+              isOpen={gameBrowserOpen}
+              onClose={() => setGameBrowserOpen(false)}
+              setId={localSet.id}
+              cardCount={filterApplied ? activeCardCount : localSet.cards.length}
+            />
+          )}
 
-        {/* Print dialog */}
-        <PrintDialog
-          isOpen={printDialogOpen}
-          onClose={() => setPrintDialogOpen(false)}
-          set={localSet}
-        />
+          {/* Print dialog */}
+          {printDialogMounted && (
+            <PrintDialog
+              isOpen={printDialogOpen}
+              onClose={() => setPrintDialogOpen(false)}
+              set={localSet}
+            />
+          )}
 
-        {/* Move to folder modal */}
-        <MoveToFolderModal
-          isOpen={folderModalOpen}
-          onClose={() => setFolderModalOpen(false)}
-          setId={localSet.id}
-          currentFolderId={localSet.folderId}
-        />
+          {/* Move to folder modal */}
+          {folderModalMounted && (
+            <MoveToFolderModal
+              isOpen={folderModalOpen}
+              onClose={() => setFolderModalOpen(false)}
+              setId={localSet.id}
+              currentFolderId={localSet.folderId}
+            />
+          )}
+        </Suspense>
       </div>
     </PageTransition>
   );

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { StudySet } from '@/types';
 import { getAllSets, getSet, saveSet, deleteSet } from '@/db';
 import { deleteSetFromCloud, pullSetsFromCloud } from '@/lib/cloudSync';
-import { queueSetSync, cancelSync } from '@/lib/syncEngine';
+import { queueSetSync, cancelSync, type QueueOptions } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -66,10 +66,38 @@ export function backfillLegacyHiddenSets(allSets: StudySet[]): StudySet[] {
 /** Cloud-first: push every write to Supabase immediately when signed in.
  *  The syncEngine coalesces rapid edits, retries with backoff, and flushes
  *  on reconnect; IndexedDB remains the offline cache. */
-function cloudSyncSet(s: StudySet): void {
+function cloudSyncSet(s: StudySet, options?: QueueOptions): void {
   if (!isSupabaseConfigured()) return;
   const user = useAuthStore.getState().user;
-  if (user) queueSetSync(s, user.id);
+  if (user) queueSetSync(s, user.id, options);
+}
+
+/** Resolve the signed-in user, waiting for auth initialization if needed. */
+export async function resolveAuthUser(): Promise<ReturnType<typeof useAuthStore.getState>['user']> {
+  const auth = useAuthStore.getState();
+  if (auth.user || !auth.loading) return auth.user;
+  return new Promise((resolve) => {
+    const unsub = useAuthStore.subscribe((state) => {
+      if (!state.loading) {
+        unsub();
+        resolve(state.user);
+      }
+    });
+  });
+}
+
+/** Pages call loadSets() on mount; without this every navigation to Home or
+ *  Stats re-ran a full cloud pull. Pulls are deduped while in flight and
+ *  skipped when the same user pulled within this window (force overrides). */
+const CLOUD_PULL_TTL_MS = 60_000;
+let setsHydrated = false;
+let localLoadInFlight: Promise<void> | null = null;
+let cloudPullInFlight: Promise<void> | null = null;
+let lastCloudPull: { userId: string; at: number } | null = null;
+
+export interface LoadOptions {
+  /** Pull from the cloud even if a recent pull happened (still deduped). */
+  force?: boolean;
 }
 
 interface SetStore {
@@ -77,9 +105,11 @@ interface SetStore {
   loading: boolean;
   searchQuery: string;
 
-  loadSets: () => Promise<void>;
+  loadSets: (options?: LoadOptions) => Promise<void>;
   addSet: (set: StudySet) => Promise<void>;
-  updateSet: (set: StudySet) => Promise<void>;
+  /** `background: true` marks a study-progress write, which the sync engine
+   *  coalesces for longer since it re-uploads the whole set row. */
+  updateSet: (set: StudySet, options?: QueueOptions) => Promise<void>;
   hideLegacyOriginal: (id: string, replacementId: string) => Promise<void>;
   restoreHiddenSet: (id: string) => Promise<void>;
   removeSet: (id: string) => Promise<void>;
@@ -91,90 +121,109 @@ export const useSetStore = create<SetStore>((set, get) => ({
   loading: false,
   searchQuery: '',
 
-  loadSets: async () => {
-    set({ loading: true });
-    try {
-      const localSets = await getAllSets();
-      const hydratedSets = backfillLegacyHiddenSets(localSets);
+  loadSets: async (options?: LoadOptions) => {
+    // Local hydration happens once per session: after it, every write goes
+    // through this store, so re-reading IndexedDB on each page visit only
+    // cost a structured clone of every set (and a new `sets` identity).
+    if (!setsHydrated) {
+      localLoadInFlight ??= (async () => {
+        set({ loading: true });
+        try {
+          const localSets = await getAllSets();
+          const hydratedSets = backfillLegacyHiddenSets(localSets);
 
-      await Promise.all(
-        hydratedSets
-          .filter((candidate, index) => candidate !== localSets[index])
-          .map((candidate) => saveSet(candidate)),
-      );
+          await Promise.all(
+            hydratedSets
+              .filter((candidate, index) => candidate !== localSets[index])
+              .map((candidate) => saveSet(candidate)),
+          );
 
-      set({ sets: sortSets(hydratedSets.filter(isSetVisible)) });
-    } finally {
-      set({ loading: false });
+          // Merge rather than replace, so a set added while IndexedDB was
+          // being read is kept.
+          const loadedIds = new Set(hydratedSets.map((s) => s.id));
+          const addedMeanwhile = get().sets.filter((s) => !loadedIds.has(s.id));
+          set({ sets: sortSets([...hydratedSets.filter(isSetVisible), ...addedMeanwhile]) });
+          setsHydrated = true;
+        } finally {
+          set({ loading: false });
+          localLoadInFlight = null;
+        }
+      })();
+      await localLoadInFlight;
     }
 
     // Background cloud pull — non-blocking, offline-first
-    // Wait for auth to finish initializing if it hasn't yet
-    if (isSupabaseConfigured()) {
-      let user = useAuthStore.getState().user;
-      if (!user && useAuthStore.getState().loading) {
-        user = await new Promise<ReturnType<typeof useAuthStore.getState>['user']>((resolve) => {
-          const unsub = useAuthStore.subscribe((state) => {
-            if (!state.loading) {
-              unsub();
-              resolve(state.user);
-            }
-          });
-        });
-      }
-      if (user) {
-        try {
-          // Pass ALL local sets — including hidden legacy-share duplicates —
-          // so the sync merge can preserve their hidden markers instead of
-          // resurrecting them (they are absent from get().sets).
-          const localForPull = await getAllSets();
-          const merged = await pullSetsFromCloud(user.id, localForPull);
+    if (!isSupabaseConfigured()) return;
+    const user = await resolveAuthUser();
+    if (!user) return;
 
-          // Recompute the merge against the freshest store state at commit
-          // time (no awaits between read and commit) so sets added or edited
-          // via debounce save during the async pull are not clobbered.
-          const currentSets = get().sets;
-          const currentMap = new Map(currentSets.map((s) => [s.id, s]));
-          const nextById = new Map(currentSets.map((s) => [s.id, s]));
-          const writes: StudySet[] = [];
+    if (cloudPullInFlight) return cloudPullInFlight;
+    const fresh =
+      lastCloudPull?.userId === user.id && Date.now() - lastCloudPull.at < CLOUD_PULL_TTL_MS;
+    if (fresh && !options?.force) return;
 
-          for (const s of merged) {
-            const existing = currentMap.get(s.id);
-            if (!existing) {
-              // Not currently in the visible store (new cloud set, or a hidden
-              // set that lives only in IndexedDB). Adopt it — hidden ones are
-              // filtered out below but their markers are persisted via saveSet.
-              nextById.set(s.id, s);
-              writes.push(s);
-            } else if (s.updatedAt > existing.updatedAt) {
-              // Merged copy is strictly newer → adopt it (last-writer-wins).
-              nextById.set(s.id, s);
-              writes.push(s);
-            } else if (s.userId && existing.userId !== s.userId) {
-              // Only ownership metadata differs and the local copy is
-              // newer/equal: keep the newer local content (so a concurrent card
-              // edit is preserved instead of overwritten) but adopt the cloud
-              // userId, and the cloud share token when local has none (H1).
-              const patched = {
-                ...existing,
-                userId: s.userId,
-                shareToken: existing.shareToken ?? s.shareToken,
-              };
-              nextById.set(s.id, patched);
-              writes.push(patched);
-            }
-            // Otherwise local is newer/equal with matching userId → keep as-is.
+    cloudPullInFlight = (async () => {
+      try {
+        // Pass ALL local sets — including hidden legacy-share duplicates —
+        // so the sync merge can preserve their hidden markers instead of
+        // resurrecting them (they are absent from get().sets).
+        const localForPull = await getAllSets();
+        const { merged, toUpload } = await pullSetsFromCloud(user.id, localForPull);
+        lastCloudPull = { userId: user.id, at: Date.now() };
+
+        // Recompute the merge against the freshest store state at commit
+        // time (no awaits between read and commit) so sets added or edited
+        // via debounce save during the async pull are not clobbered.
+        const currentSets = get().sets;
+        const currentMap = new Map(currentSets.map((s) => [s.id, s]));
+        const nextById = new Map(currentSets.map((s) => [s.id, s]));
+        const writes: StudySet[] = [];
+
+        for (const s of merged) {
+          const existing = currentMap.get(s.id);
+          if (!existing) {
+            // Not currently in the visible store (new cloud set, or a hidden
+            // set that lives only in IndexedDB). Adopt it — hidden ones are
+            // filtered out below but their markers are persisted via saveSet.
+            nextById.set(s.id, s);
+            writes.push(s);
+          } else if (s.updatedAt > existing.updatedAt) {
+            // Merged copy is strictly newer → adopt it (last-writer-wins).
+            nextById.set(s.id, s);
+            writes.push(s);
+          } else if (s.userId && existing.userId !== s.userId) {
+            // Only ownership metadata differs and the local copy is
+            // newer/equal: keep the newer local content (so a concurrent card
+            // edit is preserved instead of overwritten) but adopt the cloud
+            // userId, and the cloud share token when local has none (H1).
+            const patched = {
+              ...existing,
+              userId: s.userId,
+              shareToken: existing.shareToken ?? s.shareToken,
+            };
+            nextById.set(s.id, patched);
+            writes.push(patched);
           }
-
-          set({ sets: sortSets([...nextById.values()].filter(isSetVisible)) });
-
-          // Persist to IndexedDB outside the state-commit critical section.
-          await Promise.all(writes.map((s) => saveSet(s)));
-        } catch {
-          // Silent — offline-first, local sets already displayed
+          // Otherwise local is newer/equal with matching userId → keep as-is.
         }
+
+        set({ sets: sortSets([...nextById.values()].filter(isSetVisible)) });
+
+        // Persist to IndexedDB outside the state-commit critical section.
+        await Promise.all(writes.map((s) => saveSet(s)));
+
+        // Locally-newer and local-only sets go through the sync queue, which
+        // moves inline images to Storage before upserting. Queue the freshest
+        // copy: an edit made during the pull must not be replaced in the
+        // queue by the older snapshot the merge started from.
+        for (const s of toUpload) queueSetSync(nextById.get(s.id) ?? s, user.id);
+      } catch {
+        // Silent — offline-first, local sets already displayed
+      } finally {
+        cloudPullInFlight = null;
       }
-    }
+    })();
+    return cloudPullInFlight;
   },
 
   addSet: async (newSet: StudySet) => {
@@ -185,7 +234,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     cloudSyncSet(newSet);
   },
 
-  updateSet: async (updated: StudySet) => {
+  updateSet: async (updated: StudySet, options?: QueueOptions) => {
     await saveSet(updated);
     const remaining = get().sets.filter((s) => s.id !== updated.id);
     const sets = sortSets(
@@ -193,7 +242,7 @@ export const useSetStore = create<SetStore>((set, get) => ({
     );
     set({ sets });
 
-    cloudSyncSet(updated);
+    cloudSyncSet(updated, options);
   },
 
   hideLegacyOriginal: async (id: string, replacementId: string) => {

@@ -167,3 +167,68 @@ p { text-wrap: pretty; }
 .editor-content img,
 .editor-content .ProseMirror img,
 .card-preview img { max-width: 80px; max-height: 56px; object-fit: contain; border-radius: var(--radius-xs); display: inline-block; background: #ffffff; }
+
+/* Page enter (replaces a framer-motion wrapper used by every page) */
+@keyframes sfPageEnter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* backwards, not both: a filled transform animation keeps the element a
+   containing block, which would trap position:fixed overlays inside the page */
+.sf-page-enter { animation: sfPageEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Hoverable card lift (inline boxShadow comes from the variant, hence !important) */
+.sf-card-hover { transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.sf-card-hover:hover { transform: translateY(-2px); box-shadow: var(--shadow-card-hover) !important; }
+
+@keyframes sfToastEnter { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: none; } }
+.sf-toast-enter { animation: sfToastEnter 0.25s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.answer-tile .study-content img { max-width: 100%; max-height: 90px; object-fit: contain; background: #ffffff; }
+
+/* ---- Block Builder scene ---- */
+.bb-cloud {
+  position: absolute; left: -30%; width: 120px; height: 34px; border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+  box-shadow: 30px -14px 0 4px rgba(255,255,255,0.9), 62px 2px 0 -2px rgba(255,255,255,0.9);
+  animation: bbCloud 40s linear infinite;
+}
+@keyframes bbCloud { from { translate: 0 0; } to { translate: 160vw 0; } }
+.bb-lava-surface {
+  position: absolute; left: 0; right: 0; top: -7px; height: 14px;
+  background: radial-gradient(12px 7px at 12px 7px, #ffb020 98%, transparent) 0 0 / 24px 14px repeat-x;
+  filter: drop-shadow(0 -4px 10px rgba(255,120,30,0.8));
+  animation: bbWave 1.6s linear infinite;
+}
+@keyframes bbWave { from { background-position-x: 0; } to { background-position-x: 24px; } }
+.bb-bubble {
+  position: absolute; bottom: 20%; width: 9px; height: 9px; border-radius: 50%;
+  background: #fff1b8; opacity: 0; animation: bbBubble 2.4s ease-in infinite;
+}
+@keyframes bbBubble { 0% { transform: translateY(0) scale(0.4); opacity: 0; } 20% { opacity: 0.9; } 100% { transform: translateY(-60px) scale(1.1); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .bb-cloud, .bb-lava-surface, .bb-bubble { animation: none; } }
+
+/* ---- Race to Finish ---- */
+.rtf-speed { display: block; height: 3px; border-radius: 3px; background: rgba(255,255,255,0.8); animation: rtfSpeed 0.35s linear infinite; }
+@keyframes rtfSpeed { from { transform: translateX(10px); opacity: 1; } to { transform: translateX(-14px); opacity: 0; } }
+.rtf-idle { animation: rtfIdle 0.5s ease-in-out infinite; }
+@keyframes rtfIdle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+.rtf-dots { display: inline-flex; gap: 4px; }
+.rtf-dots i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: rtfDot 1s infinite; }
+.rtf-dots i:nth-child(2) { animation-delay: 0.15s; }
+.rtf-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes rtfDot { 0%, 60%, 100% { opacity: 0.25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .rtf-speed, .rtf-idle, .rtf-dots i { animation: none; } }
+
+/* ---- Memory card backs: navy with a gold lattice and center diamond ---- */
+.mem-back {
+  background:
+    radial-gradient(circle at 50% 50%, #e8b64c 0 9%, transparent 9.5%),
+    repeating-linear-gradient(45deg, rgba(232,182,76,0.35) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(-45deg, rgba(232,182,76,0.35) 0 2px, transparent 2px 12px),
+    #22335c;
+  border: 3px solid #fffaf0;
+}
+
+/* ---- Spinner marquee bulbs ---- */
+.sp-bulb { animation: spGlow 1.6s ease-in-out infinite; }
+.sp-bulb-chase { animation: spChase 0.36s steps(1) infinite; }
+@keyframes spGlow { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes spChase { 0% { opacity: 1; } 33% { opacity: 0.25; } 66% { opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .sp-bulb, .sp-bulb-chase { animation: none; } }

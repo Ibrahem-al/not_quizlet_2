@@ -4,6 +4,7 @@ import { Disc, Box, Layers, Flag } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { preloadMode } from '@/components/modes/registry';
 
 interface GameBrowserModalProps {
   isOpen: boolean;
@@ -101,7 +102,9 @@ export function GameBrowserModal({
                 border: '1px solid var(--color-border)',
                 borderRadius: 'var(--radius-lg)',
               }}
+              onFocus={() => preloadMode(game.id)}
               onMouseEnter={(e) => {
+                preloadMode(game.id);
                 if (!disabled) {
                   e.currentTarget.style.borderColor = 'var(--color-primary)';
                   e.currentTarget.style.background = 'var(--color-primary-light)';

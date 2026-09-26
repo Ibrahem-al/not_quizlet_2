@@ -1,20 +1,29 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { Crown, Zap } from 'lucide-react';
 import type { Card, QuestionType, AnswerDirection } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, stripHtml, normalizeAnswer, cn } from '@/lib/utils';
-import {
-  buildEquivalenceGroups,
-  getEquivalentAnswers,
-  getWrongOptionPool,
-  getWrongTermPool,
-  gradeWrittenAnswer,
-} from '@/lib/equivalence';
-import { Button } from '@/components/ui/Button';
-import StudyContent from '@/components/StudyContent';
+import { shuffleArray } from '@/lib/utils';
+import { buildEquivalenceGroups } from '@/lib/equivalence';
+import { buildGameQuestion, gradeGameAnswer, type GameQuestion } from '@/lib/gameQuestions';
 import { playSound } from '@/lib/gameSounds';
-import { SoundToggle } from '@/components/SoundToggle';
+import { Button } from '@/components/ui/Button';
+import {
+  ChoicePills,
+  Countdown,
+  EscBanner,
+  GameTopBar,
+  PlayButton,
+  QuestionPanel,
+  ResultsPanel,
+  SetupSection,
+  type Feedback,
+} from '@/components/games/GameKit';
+import {
+  celebrate,
+  useAnswerKeys,
+  useEscToQuit,
+} from '@/components/games/gameLogic';
 
 interface RaceToFinishModeProps {
   cards: Card[];
@@ -22,18 +31,19 @@ interface RaceToFinishModeProps {
   exitUrl?: string;
 }
 
+type BotLevel = 'chill' | 'pro' | 'ace';
+
 interface RaceConfig {
   playerCount: number;
   pathLength: number;
   direction: AnswerDirection;
   questionTypes: QuestionType[];
-  raceBot: boolean;
+  bot: BotLevel | null;
 }
 
-interface Player {
+interface Racer {
   id: number;
   name: string;
-  emoji: string;
   color: string;
   position: number;
   correctCount: number;
@@ -41,1327 +51,712 @@ interface Player {
   isBot?: boolean;
 }
 
-interface RaceQuestion {
-  card: Card;
-  type: QuestionType;
-  promptHtml: string;
-  correctAnswers: string[];
-  options?: string[];
-  tfPair?: { term: string; definition: string; isCorrect: boolean };
-}
+const BOT_ACCURACY: Record<BotLevel, number> = { chill: 0.5, pro: 0.68, ace: 0.85 };
+/** Answering within this many seconds earns one extra space. */
+const QUICK_SECONDS = 6;
 
-const PLAYER_EMOJIS = ['🚀', '🔥', '🌿', '⚡'];
-const BOT_EMOJI = '🤖';
-
-// Board/track game-art palette. Intentionally theme-independent: the dark
-// asphalt racetrack, checker flag, GO strip, nitro accents, racer hues, and
-// canvas confetti particles keep these fixed colors in both light and dark
-// themes. UI chrome outside the board uses design tokens instead.
-const TRACK_PALETTE = {
-  roadTop: '#3a4658',
-  roadMid: '#273244',
-  roadBottom: '#1b2433',
-  checkerDark: '#0f172a',
-  line: '#ffffff',
-  shadow: '#000000',
-  go: '#16a34a',
-  nitro: '#06b6d4',
-  nitroBright: '#22d3ee',
-  bot: '#ec4899',
-  players: ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b'],
-  confetti: ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#ffffff'],
+// Track art — fixed colors, identical in light and dark themes.
+const TRACK = {
+  grass: '#4f9d52',
+  grassDark: '#3f8a45',
+  asphalt: '#2f3542',
+  lane: 'rgba(255,255,255,0.35)',
+  nitro: '#22d3ee',
+  bot: '#d946ef',
 };
+const RACER_COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#22c55e'];
+const CONFETTI = ['#ef4444', '#3b82f6', '#f59e0b', '#22c55e', '#ffffff'];
 
-const PLAYER_COLORS = TRACK_PALETTE.players;
+// ---------- Art ----------
 
-// Confetti celebration colors (canvas particles — fixed hues are intentional).
-const CONFETTI_COLORS = TRACK_PALETTE.confetti;
-
-// Decorative, GPU-friendly animations. All continuous motion is disabled under
-// prefers-reduced-motion via the media query at the bottom.
-const RACE_STYLES = `
-@keyframes rtf-aurora-a {
-  0%   { transform: translate3d(0,0,0) scale(1); }
-  50%  { transform: translate3d(4%, -3%, 0) scale(1.15); }
-  100% { transform: translate3d(0,0,0) scale(1); }
-}
-@keyframes rtf-aurora-b {
-  0%   { transform: translate3d(0,0,0) scale(1.1); }
-  50%  { transform: translate3d(-5%, 4%, 0) scale(1); }
-  100% { transform: translate3d(0,0,0) scale(1.1); }
-}
-@keyframes rtf-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-2px); }
-}
-@keyframes rtf-dash {
-  to { stroke-dashoffset: -48; }
-}
-@keyframes rtf-speed {
-  0%   { transform: translateX(20%); opacity: 0; }
-  25%  { opacity: 0.95; }
-  100% { transform: translateX(-160%); opacity: 0; }
-}
-.rtf-aurora-a { animation: rtf-aurora-a 15s ease-in-out infinite; }
-.rtf-aurora-b { animation: rtf-aurora-b 19s ease-in-out infinite; }
-.rtf-active-racer { animation: rtf-bob 0.9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-.rtf-lane-dash { animation: rtf-dash 1.1s linear infinite; }
-.rtf-speed-line { animation: rtf-speed 0.65s ease-out forwards; }
-.rtf-focusable:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
-@media (prefers-reduced-motion: reduce) {
-  .rtf-aurora-a, .rtf-aurora-b, .rtf-active-racer, .rtf-lane-dash, .rtf-speed-line { animation: none !important; }
-}
-`;
-
-function RaceBackground({ reduce }: { reduce: boolean }) {
+function Kart({ color, bot, size = 56 }: { color: string; bot?: boolean; size?: number }) {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <style>{RACE_STYLES}</style>
-      <div
-        className={cn('absolute rounded-full', !reduce && 'rtf-aurora-a')}
-        style={{
-          top: '-18%',
-          left: '-12%',
-          width: '58vw',
-          height: '58vw',
-          background: 'radial-gradient(circle, var(--color-primary), transparent 70%)',
-          opacity: 0.16,
-          filter: 'blur(64px)',
-        }}
-      />
-      <div
-        className={cn('absolute rounded-full', !reduce && 'rtf-aurora-b')}
-        style={{
-          bottom: '-22%',
-          right: '-12%',
-          width: '52vw',
-          height: '52vw',
-          background: 'radial-gradient(circle, var(--color-warning), transparent 70%)',
-          opacity: 0.12,
-          filter: 'blur(64px)',
-        }}
-      />
-    </div>
+    <svg width={size} height={size * 0.62} viewBox="0 0 64 40" aria-hidden style={{ overflow: 'visible' }}>
+      <ellipse cx="32" cy="37" rx="26" ry="3" fill="rgba(0,0,0,0.35)" />
+      {/* rear wing */}
+      <rect x="2" y="9" width="6" height="14" rx="2" fill={color} />
+      <rect x="2" y="7" width="12" height="4" rx="2" fill="#1f2430" />
+      {/* body */}
+      <path d="M6 26 Q6 16 18 16 L40 16 Q50 16 56 22 L60 26 Q62 30 58 30 L8 30 Q6 30 6 26 Z" fill={color} />
+      <path d="M18 16 L40 16 Q48 16 53 20 L20 20 Z" fill="rgba(255,255,255,0.35)" />
+      {/* driver */}
+      <circle cx="30" cy="12" r="8" fill={bot ? '#e5e7eb' : '#ffffff'} stroke="#1f2430" strokeWidth="1.5" />
+      <path d="M31 9 Q38 9 38 13 L31 14 Z" fill="#1f2430" />
+      {bot && <line x1="26" y1="4" x2="24" y2="-2" stroke="#1f2430" strokeWidth="1.5" />}
+      {bot && <circle cx="24" cy="-2.5" r="2" fill={TRACK.bot} />}
+      {/* wheels */}
+      <circle cx="16" cy="30" r="6.5" fill="#1f2430" />
+      <circle cx="16" cy="30" r="2.5" fill="#9ca3af" />
+      <circle cx="50" cy="30" r="6.5" fill="#1f2430" />
+      <circle cx="50" cy="30" r="2.5" fill="#9ca3af" />
+    </svg>
   );
 }
 
-function buildRaceQuestion(
-  card: Card,
-  cards: Card[],
-  groups: Map<string, Card[]>,
-  type: QuestionType,
-  direction: AnswerDirection,
-  questionIndex: number,
-): RaceQuestion {
-  const isReverse =
-    direction === 'def-to-term' ||
-    (direction === 'both' && questionIndex % 2 === 1);
+const PIPS: Record<number, [number, number][]> = {
+  1: [[1, 1]],
+  2: [[0, 0], [2, 2]],
+  3: [[0, 0], [1, 1], [2, 2]],
+  4: [[0, 0], [2, 0], [0, 2], [2, 2]],
+  5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
+  6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
+};
 
-  const promptHtml = isReverse ? card.definition : card.term;
-  const correctAnswers = isReverse
-    ? [card.term]
-    : getEquivalentAnswers(card, 'definition', groups);
-
-  if (type === 'multiple-choice') {
-    const wrongPool = isReverse
-      ? getWrongTermPool(card, cards, groups)
-      : getWrongOptionPool(card, cards, groups);
-    const wrongs = shuffleArray(wrongPool).slice(0, 3);
-    if (wrongs.length < 1) {
-      return { card, type: 'written', promptHtml, correctAnswers };
-    }
-    const correctDef = isReverse ? card.term : card.definition;
-    const options = shuffleArray([correctDef, ...wrongs]);
-    return { card, type: 'multiple-choice', promptHtml, correctAnswers, options };
-  }
-
-  if (type === 'true-false') {
-    const isCorrect = Math.random() > 0.5;
-    let shownDef = isReverse ? card.term : card.definition;
-    if (!isCorrect) {
-      const wrongPool = isReverse
-        ? getWrongTermPool(card, cards, groups)
-        : getWrongOptionPool(card, cards, groups);
-      if (wrongPool.length > 0) {
-        shownDef = shuffleArray(wrongPool)[0];
-      }
-    }
-    return {
-      card,
-      type: 'true-false',
-      promptHtml,
-      correctAnswers,
-      tfPair: {
-        term: isReverse ? card.definition : card.term,
-        definition: shownDef,
-        isCorrect: isCorrect || correctAnswers.some((a) => normalizeAnswer(a) === normalizeAnswer(shownDef)),
-      },
-    };
-  }
-
-  return { card, type: 'written', promptHtml, correctAnswers };
-}
-
-// --- Config Screen ---
-
-function ConfigScreen({
-  cardCount,
-  onStart,
-}: {
-  cardCount: number;
-  onStart: (config: RaceConfig) => void;
-}) {
+/** A die that tumbles through random faces while `rolling`, then shows `value`. */
+function Die({ value, rolling }: { value: number; rolling: boolean }) {
   const reduce = useReducedMotion();
-  const [playerCount, setPlayerCount] = useState(1);
-  const [raceBot, setRaceBot] = useState(true);
-  const [pathLength, setPathLength] = useState(15);
-  const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
-  const [types, setTypes] = useState<QuestionType[]>(['multiple-choice', 'written']);
-
-  // Capped at 30 — longer tracks render an unusably tall SVG board.
-  const pathPresets = [10, 15, 20, 30];
-
-  const tap = reduce ? {} : { whileTap: { scale: 0.95 }, whileHover: { y: -1 } };
-
-  const toggleType = (type: QuestionType) => {
-    setTypes((prev) =>
-      prev.includes(type)
-        ? prev.length > 1 ? prev.filter((t) => t !== type) : prev
-        : [...prev, type],
-    );
-  };
+  const tumbling = rolling && !reduce;
+  const [tumbleFace, setTumbleFace] = useState(value);
+  useEffect(() => {
+    if (!tumbling) return;
+    const t = setInterval(() => setTumbleFace(1 + Math.floor(Math.random() * 6)), 70);
+    return () => clearInterval(t);
+  }, [tumbling]);
+  const face = tumbling ? tumbleFace : value;
 
   return (
-    <div className="relative min-h-dvh overflow-hidden">
-      <RaceBackground reduce={!!reduce} />
-      <div className="relative z-10 max-w-lg mx-auto px-4 py-10">
-        <motion.div
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6 text-center"
-        >
-          <div className="text-5xl mb-2">{'🏁'}</div>
-          <h2 className="text-3xl font-black tracking-tight" style={{ color: 'var(--color-text)' }}>
-            Race to Finish
-          </h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            Answer correctly to roll and speed down the track {'—'} {cardCount} cards ready
-          </p>
-        </motion.div>
+    <motion.div
+      animate={rolling && !reduce ? { rotate: [0, 90, 180, 270, 360] } : { rotate: 0, scale: [1.25, 1] }}
+      transition={rolling ? { duration: 0.5, repeat: Infinity, ease: 'linear' } : { type: 'spring', stiffness: 400, damping: 12 }}
+      className="grid grid-cols-3 grid-rows-3 p-1.5 rounded-xl shrink-0"
+      style={{ width: 44, height: 44, background: '#fff', boxShadow: 'inset 0 -4px 0 #d1d5db, 0 4px 10px rgba(0,0,0,0.2)' }}
+      role="img"
+      aria-label={rolling ? 'Rolling' : `Rolled ${value}`}
+    >
+      {Array.from({ length: 9 }, (_, i) => {
+        const on = PIPS[face].some(([c, r]) => c === i % 3 && r === Math.floor(i / 3));
+        return (
+          <span key={i} className="flex items-center justify-center">
+            {on && <span className="block rounded-full" style={{ width: 7, height: 7, background: '#1f2430' }} />}
+          </span>
+        );
+      })}
+    </motion.div>
+  );
+}
 
-        <motion.div
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 220, damping: 24 }}
-          className="p-6 space-y-6"
+function Track({
+  racers,
+  pathLength,
+  shortcuts,
+  activeId,
+  moving,
+}: {
+  racers: Racer[];
+  pathLength: number;
+  shortcuts: Map<number, number>;
+  activeId: number;
+  moving: boolean;
+}) {
+  const reduce = useReducedMotion();
+  // Left 13% is the name gutter + grid box; the finish line sits at 93%.
+  const x = (pos: number) => 13 + (pos / pathLength) * 80;
+  const leader = Math.max(...racers.map((r) => r.position));
+  const laneH = racers.length > 2 ? 46 : 56;
+
+  return (
+    <div
+      className="relative rounded-3xl overflow-hidden select-none"
+      style={{
+        background: `repeating-linear-gradient(90deg, ${TRACK.grass} 0 24px, ${TRACK.grassDark} 24px 48px)`,
+        padding: '14px 0',
+        boxShadow: '0 16px 40px rgba(0,0,0,0.18)',
+      }}
+    >
+      <div className="relative mx-2" style={{ background: TRACK.asphalt, borderRadius: 14, borderTop: '4px solid #fff', borderBottom: '4px solid #fff' }}>
+        {/* Start and finish lines */}
+        <div className="absolute top-0 bottom-0" style={{ left: `calc(${x(0)}% + 26px)`, width: 4, background: '#fff', opacity: 0.8 }} />
+        <div
+          className="absolute top-0 bottom-0"
           style={{
-            background: 'var(--color-surface)',
-            boxShadow: 'var(--shadow-card)',
-            borderRadius: 'var(--radius-xl)',
-            border: '1px solid var(--color-border)',
+            left: `${x(pathLength)}%`,
+            width: 16,
+            backgroundImage: 'conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0)',
+            backgroundSize: '8px 8px',
           }}
-        >
-          {/* Player count */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Players
-            </label>
-            <div className="flex gap-2">
-              {[1, 2, 3, 4].map((n) => (
-                <motion.button
-                  key={n}
-                  {...tap}
-                  onClick={() => setPlayerCount(n)}
-                  className="rtf-focusable flex-1 py-3 text-center cursor-pointer font-semibold"
-                  style={{
-                    background: playerCount === n ? PLAYER_COLORS[n - 1] : 'var(--color-muted)',
-                    color: playerCount === n ? '#ffffff' : 'var(--color-text)',
-                    border: 'none',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: '1.15rem',
-                    boxShadow: playerCount === n ? 'var(--shadow-sm)' : 'none',
-                  }}
-                >
-                  {PLAYER_EMOJIS[n - 1]} {n}
-                </motion.button>
-              ))}
-            </div>
-            {playerCount === 1 && (
-              <label className="flex items-center gap-2 cursor-pointer text-sm mt-3" style={{ color: 'var(--color-text)' }}>
-                <input
-                  type="checkbox"
-                  checked={raceBot}
-                  onChange={(e) => setRaceBot(e.target.checked)}
-                  style={{ accentColor: 'var(--color-primary)' }}
-                />
-                {BOT_EMOJI} Race against a bot
-              </label>
-            )}
+        />
+        {/* Cell ticks */}
+        {Array.from({ length: pathLength - 1 }, (_, i) => (
+          <div
+            key={i}
+            className="absolute bottom-0"
+            style={{ left: `${x(i + 1)}%`, width: 2, height: 6, background: 'rgba(255,255,255,0.25)' }}
+          />
+        ))}
+        {/* Nitro pads */}
+        {[...shortcuts.entries()].map(([from, to]) => (
+          <div
+            key={from}
+            className="absolute top-1 bottom-1 flex items-center justify-center rounded-md"
+            style={{
+              left: `${x(from)}%`,
+              width: `max(18px, ${80 / pathLength}%)`,
+              transform: 'translateX(-50%)',
+              background: 'rgba(34,211,238,0.22)',
+              border: `2px solid ${TRACK.nitro}`,
+            }}
+            title={`Nitro: jump to ${to}`}
+          >
+            <span className="flex flex-col items-center text-[10px] font-extrabold leading-none" style={{ color: TRACK.nitro }}>
+              <Zap size={12} fill="currentColor" />+{to - from}
+            </span>
           </div>
+        ))}
 
-          {/* Path length */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Track Length
-            </label>
-            <div className="flex items-center gap-2 flex-wrap">
-              <motion.button
-                {...tap}
-                onClick={() => setPathLength((l) => Math.max(5, l - 5))}
-                className="rtf-focusable w-8 h-8 text-lg font-bold cursor-pointer"
-                style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', borderRadius: 'var(--radius-md)' }}
+        {racers.map((r, lane) => {
+          const active = r.id === activeId;
+          const isLeader = r.position === leader && leader > 0;
+          return (
+            <div
+              key={r.id}
+              className="relative"
+              style={{
+                height: laneH,
+                borderTop: lane > 0 ? `2px dashed ${TRACK.lane}` : undefined,
+              }}
+            >
+              <motion.div
+                className="absolute top-1/2"
+                initial={false}
+                animate={{ left: `${x(r.position)}%` }}
+                transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 220, damping: 22 }}
+                style={{ y: '-55%', x: '-50%', zIndex: active ? 3 : 2 }}
               >
-                -
-              </motion.button>
-              {pathPresets.map((p) => (
-                <motion.button
-                  key={p}
-                  {...tap}
-                  onClick={() => setPathLength(p)}
-                  className="rtf-focusable px-3 py-1.5 text-sm font-medium cursor-pointer"
-                  style={{
-                    background: pathLength === p ? 'var(--color-primary)' : 'var(--color-muted)',
-                    color: pathLength === p ? '#ffffff' : 'var(--color-text)',
-                    border: 'none',
-                    borderRadius: 'var(--radius-md)',
-                  }}
-                >
-                  {p}
-                </motion.button>
-              ))}
-              <motion.button
-                {...tap}
-                onClick={() => setPathLength((l) => Math.min(30, l + 5))}
-                className="rtf-focusable w-8 h-8 text-lg font-bold cursor-pointer"
-                style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', borderRadius: 'var(--radius-md)' }}
+                {active && moving && !reduce && (
+                  <div aria-hidden className="absolute right-full top-1/2 -translate-y-1/2 flex flex-col gap-1 mr-0.5">
+                    <span className="rtf-speed" style={{ width: 22 }} />
+                    <span className="rtf-speed" style={{ width: 14, animationDelay: '0.1s' }} />
+                  </div>
+                )}
+                <div className={active && !reduce ? 'rtf-idle' : undefined}>
+                  <Kart color={r.color} bot={r.isBot} size={laneH > 50 ? 58 : 50} />
+                </div>
+                {isLeader && (
+                  <Crown
+                    size={16}
+                    className="absolute -top-2 left-1/2 -translate-x-1/2"
+                    fill="#ffc53d"
+                    stroke="#b7791f"
+                    aria-label="Leader"
+                  />
+                )}
+              </motion.div>
+              <span
+                className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-extrabold px-1.5 py-0.5 rounded"
+                style={{ background: r.color, color: '#fff', opacity: active ? 1 : 0.75 }}
               >
-                +
-              </motion.button>
+                {r.name}
+              </span>
             </div>
-          </div>
-
-          {/* Direction */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Direction
-            </label>
-            <div className="flex flex-col gap-2">
-              {([
-                ['term-to-def', 'Term → Definition'],
-                ['def-to-term', 'Definition → Term'],
-                ['both', 'Both'],
-              ] as [AnswerDirection, string][]).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--color-text)' }}>
-                  <input
-                    type="radio"
-                    name="direction"
-                    checked={direction === value}
-                    onChange={() => setDirection(value)}
-                    style={{ accentColor: 'var(--color-primary)' }}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Question types */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Question Types
-            </label>
-            <div className="flex flex-col gap-2">
-              {([
-                ['written', 'Written'],
-                ['multiple-choice', 'Multiple Choice'],
-                ['true-false', 'True / False'],
-              ] as [QuestionType, string][]).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--color-text)' }}>
-                  <input
-                    type="checkbox"
-                    checked={types.includes(value)}
-                    onChange={() => toggleType(value)}
-                    style={{ accentColor: 'var(--color-primary)' }}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <Button variant="primary" className="w-full rtf-focusable" onClick={() => onStart({ playerCount, pathLength, direction, questionTypes: types, raceBot: playerCount === 1 && raceBot })}>
-            {'🚦'} Start Race
-          </Button>
-        </motion.div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// --- Main Game ---
+// ---------- Setup ----------
+
+function ConfigScreen({ onStart }: { onStart: (config: RaceConfig) => void }) {
+  const [playerCount, setPlayerCount] = useState(1);
+  const [bot, setBot] = useState<BotLevel | 'none'>('pro');
+  const [pathLength, setPathLength] = useState(15);
+  const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
+  const [types, setTypes] = useState<QuestionType[]>(['multiple-choice', 'written']);
+  const toggleType = (type: QuestionType) =>
+    setTypes((prev) => (prev.includes(type) ? (prev.length > 1 ? prev.filter((t) => t !== type) : prev) : [...prev, type]));
+
+  const preview: Racer[] = [
+    { id: 0, name: 'You', color: RACER_COLORS[0], position: 0, correctCount: 0, totalCount: 0 },
+    { id: 1, name: 'Bot', color: TRACK.bot, position: 0, correctCount: 0, totalCount: 0, isBot: true },
+  ];
+
+  return (
+    <div className="max-w-xl mx-auto px-4 py-8">
+      <h2 className="text-3xl font-extrabold mb-1" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
+        Race to Finish
+      </h2>
+      <p className="mb-5" style={{ color: 'var(--color-text-secondary)' }}>
+        Answer right to roll the die and drive. Fast answers get an extra space.
+      </p>
+      <Track racers={preview} pathLength={10} shortcuts={new Map([[5, 7]])} activeId={0} moving={false} />
+      <div
+        className="mt-5 p-6 rounded-3xl flex flex-col gap-6"
+        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-card)' }}
+      >
+        <SetupSection label="Racers on this device">
+          <ChoicePills
+            options={[1, 2, 3, 4].map((n) => ({ value: n, label: n === 1 ? 'Just me' : `${n} players` }))}
+            isSelected={(v) => v === playerCount}
+            onToggle={setPlayerCount}
+            accent={RACER_COLORS[0]}
+          />
+        </SetupSection>
+        {playerCount === 1 && (
+          <SetupSection label="Race against">
+            <ChoicePills
+              options={[
+                { value: 'chill', label: 'Chill bot' },
+                { value: 'pro', label: 'Pro bot' },
+                { value: 'ace', label: 'Ace bot' },
+                { value: 'none', label: 'Nobody' },
+              ]}
+              isSelected={(v) => v === bot}
+              onToggle={setBot}
+              accent={RACER_COLORS[0]}
+            />
+          </SetupSection>
+        )}
+        <SetupSection label="Track length">
+          <ChoicePills
+            options={[10, 15, 20, 30].map((n) => ({ value: n, label: `${n} spaces` }))}
+            isSelected={(v) => v === pathLength}
+            onToggle={setPathLength}
+            accent={RACER_COLORS[0]}
+          />
+        </SetupSection>
+        <SetupSection label="Question types">
+          <ChoicePills
+            options={[
+              { value: 'multiple-choice', label: 'Multiple choice' },
+              { value: 'true-false', label: 'True or false' },
+              { value: 'written', label: 'Written' },
+            ]}
+            isSelected={(v) => types.includes(v)}
+            onToggle={toggleType}
+            accent={RACER_COLORS[0]}
+          />
+        </SetupSection>
+        <SetupSection label="Answer with">
+          <ChoicePills
+            options={[
+              { value: 'term-to-def', label: 'Definitions' },
+              { value: 'def-to-term', label: 'Terms' },
+              { value: 'both', label: 'Both' },
+            ]}
+            isSelected={(v) => v === direction}
+            onToggle={setDirection}
+            accent={RACER_COLORS[0]}
+          />
+        </SetupSection>
+        <PlayButton
+          color={RACER_COLORS[0]}
+          onClick={() =>
+            onStart({
+              playerCount,
+              pathLength,
+              direction,
+              questionTypes: types,
+              bot: playerCount === 1 && bot !== 'none' ? bot : null,
+            })
+          }
+        >
+          Start the race
+        </PlayButton>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Game ----------
+
+function generateShortcuts(pathLen: number): Map<number, number> {
+  const sc = new Map<number, number>();
+  const count = Math.max(1, Math.floor(pathLen / 8));
+  const used = new Set<number>();
+  for (let i = 0; i < count; i++) {
+    let from: number;
+    let guard = 0;
+    do {
+      from = 3 + Math.floor(Math.random() * (pathLen - 6));
+    } while ((used.has(from) || used.has(from - 1) || used.has(from + 1)) && ++guard < 20);
+    used.add(from);
+    sc.set(from, Math.min(pathLen - 1, from + 2 + Math.floor(Math.random() * 3)));
+  }
+  return sc;
+}
 
 function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
   const navigate = useNavigate();
   const reduce = useReducedMotion();
   const exitTo = exitUrl ?? `/sets/${setId}`;
-
-  const [phase, setPhase] = useState<'config' | 'playing' | 'results'>('config');
-  const [config, setConfig] = useState<RaceConfig | null>(null);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState<RaceQuestion | null>(null);
-  const [winner, setWinner] = useState<Player | null>(null);
-  const [shortcuts, setShortcuts] = useState<Map<number, number>>(new Map());
-
-  // Question UI state
-  const [userAnswer, setUserAnswer] = useState('');
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
-  const [diceRoll, setDiceRoll] = useState<number | null>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [showShortcut, setShowShortcut] = useState(false);
-  // Monotonic serial for the question card's AnimatePresence key — the old
-  // `${playerIndex}-${questionIndexRef.current}` key read a ref during render
-  // and could collide across turns, dropping exit transitions.
-  const [questionSerial, setQuestionSerial] = useState(0);
-  // Solo-mode bot turn status (null while a human is answering).
-  const [botStatus, setBotStatus] = useState<'thinking' | 'answered-correct' | 'answered-wrong' | null>(null);
-  // First Escape mid-race arms this banner; a second within 2s exits.
-  const [escArmed, setEscArmed] = useState(false);
-
-  const escTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const questionIndexRef = useRef(0);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const moveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const moveTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const exit = useCallback(() => navigate(exitTo), [navigate, exitTo]);
   const groups = useMemo(() => buildEquivalenceGroups(cards), [cards]);
 
-  // Cleanup intervals and timeouts on unmount
-  useEffect(() => {
-    return () => {
-      if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
-      if (escTimeoutRef.current) clearTimeout(escTimeoutRef.current);
-      for (const t of moveTimeoutsRef.current) clearTimeout(t);
-      moveTimeoutsRef.current.clear();
-      confetti.reset();
-    };
+  const [phase, setPhase] = useState<'config' | 'countdown' | 'playing' | 'results'>('config');
+  const [config, setConfig] = useState<RaceConfig | null>(null);
+  const [racers, setRacers] = useState<Racer[]>([]);
+  const [turn, setTurn] = useState(0);
+  const [question, setQuestion] = useState<GameQuestion | null>(null);
+  const [questionSerial, setQuestionSerial] = useState(0);
+  const [winner, setWinner] = useState<Racer | null>(null);
+  const [shortcuts, setShortcuts] = useState<Map<number, number>>(new Map());
+
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [roll, setRoll] = useState<{ value: number; rolling: boolean; quick: boolean } | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [nitro, setNitro] = useState(false);
+  const [botStatus, setBotStatus] = useState<'thinking' | 'right' | 'wrong' | null>(null);
+
+  const deckRef = useRef<Card[]>([]);
+  const questionIndexRef = useRef(0);
+  const questionStartRef = useRef(0);
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const moveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const later = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timers.current.delete(t);
+      fn();
+    }, ms);
+    timers.current.add(t);
   }, []);
-
-  // Celebratory confetti on the results screen (reduced-motion aware).
-  useEffect(() => {
-    if (phase !== 'results' || !winner || reduce) return;
-    let cancelled = false;
-    const end = Date.now() + 1400;
-    confetti({ particleCount: 90, spread: 95, startVelocity: 42, origin: { y: 0.6 }, colors: CONFETTI_COLORS, disableForReducedMotion: true });
-    const frame = () => {
-      if (cancelled) return;
-      confetti({ particleCount: 3, angle: 60, spread: 60, startVelocity: 45, origin: { x: 0, y: 0.9 }, colors: CONFETTI_COLORS, disableForReducedMotion: true });
-      confetti({ particleCount: 3, angle: 120, spread: 60, startVelocity: 45, origin: { x: 1, y: 0.9 }, colors: CONFETTI_COLORS, disableForReducedMotion: true });
-      if (Date.now() < end) requestAnimationFrame(frame);
-    };
-    frame();
-    return () => { cancelled = true; };
-  }, [phase, winner, reduce]);
-
-  // Escape exits the game. Mid-race the first Escape only arms a
-  // "Press Esc again to quit" banner (auto-dismisses after 2s); a second
-  // Escape within that window exits. The results screen keeps single-Escape.
-  useEffect(() => {
-    if (phase === 'config') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (phase === 'playing' && !escArmed) {
-        setEscArmed(true);
-        if (escTimeoutRef.current) clearTimeout(escTimeoutRef.current);
-        escTimeoutRef.current = setTimeout(() => setEscArmed(false), 2000);
-        return;
-      }
-      navigate(exitTo);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [phase, escArmed, navigate, exitTo]);
-
-  // Generate shortcuts for paths >= 15
-  const generateShortcuts = useCallback((pathLen: number) => {
-    const sc = new Map<number, number>();
-    if (pathLen < 15) return sc;
-    const shortcutCount = Math.max(1, Math.floor(pathLen / 10));
-    const used = new Set<number>();
-    for (let i = 0; i < shortcutCount; i++) {
-      let from: number;
-      do {
-        from = 3 + Math.floor(Math.random() * (pathLen - 6));
-      } while (used.has(from));
-      used.add(from);
-      const jump = 2 + Math.floor(Math.random() * 3);
-      const to = Math.min(pathLen - 1, from + jump);
-      sc.set(from, to);
-    }
-    return sc;
+  const clearAll = useCallback(() => {
+    timers.current.forEach(clearTimeout);
+    timers.current.clear();
+    if (moveTimer.current) clearInterval(moveTimer.current);
+    moveTimer.current = null;
   }, []);
+  useEffect(() => clearAll, [clearAll]);
 
-  const generateQuestion = useCallback(() => {
-    if (!config) return null;
-    const card = cards[Math.floor(Math.random() * cards.length)];
-    const type = config.questionTypes[questionIndexRef.current % config.questionTypes.length];
-    questionIndexRef.current++;
-    return buildRaceQuestion(card, cards, groups, type, config.direction, questionIndexRef.current);
-  }, [cards, config, groups]);
+  const escArmed = useEscToQuit(phase !== 'config', phase === 'playing' || phase === 'countdown', exit);
 
-  const handleStart = useCallback((cfg: RaceConfig) => {
-    const newPlayers: Player[] = [];
-    for (let i = 0; i < cfg.playerCount; i++) {
-      newPlayers.push({
+  useEffect(() => {
+    if (phase === 'results' && winner && !winner.isBot) return celebrate(CONFETTI, 1400);
+  }, [phase, winner]);
+
+  /** Next card from a shuffled deck, so cards don't repeat until all are used. */
+  const nextQuestion = useCallback(
+    (cfg: RaceConfig): GameQuestion => {
+      if (deckRef.current.length === 0) deckRef.current = shuffleArray(cards);
+      const card = deckRef.current.pop()!;
+      const i = questionIndexRef.current++;
+      return buildGameQuestion(card, cards, groups, cfg.questionTypes[i % cfg.questionTypes.length], cfg.direction, i);
+    },
+    [cards, groups],
+  );
+
+  const start = useCallback(
+    (cfg: RaceConfig) => {
+      clearAll();
+      const list: Racer[] = Array.from({ length: cfg.playerCount }, (_, i) => ({
         id: i,
-        name: `Player ${i + 1}`,
-        emoji: PLAYER_EMOJIS[i],
-        color: PLAYER_COLORS[i],
+        name: cfg.playerCount === 1 ? 'You' : `P${i + 1}`,
+        color: RACER_COLORS[i],
         position: 0,
         correctCount: 0,
         totalCount: 0,
-      });
+      }));
+      if (cfg.bot) {
+        list.push({ id: 1, name: 'Bot', color: TRACK.bot, position: 0, correctCount: 0, totalCount: 0, isBot: true });
+      }
+      deckRef.current = [];
+      questionIndexRef.current = 0;
+      setConfig(cfg);
+      setRacers(list);
+      setTurn(0);
+      setWinner(null);
+      setBotStatus(null);
+      setShortcuts(generateShortcuts(cfg.pathLength));
+      setQuestion(nextQuestion(cfg));
+      setQuestionSerial((s) => s + 1);
+      setFeedback(null);
+      setSelected(null);
+      setRoll(null);
+      setMoving(false);
+      setNitro(false);
+      setPhase('countdown');
+    },
+    [clearAll, nextQuestion],
+  );
+
+  // The turn flow below is plain hoisted functions: the bot turn forms a
+  // cycle (drive → finishTurn → nextTurn → botTurn → drive) that useCallback
+  // ordering can't express. Each step threads the freshly computed racers
+  // array through so async steps never read stale state.
+
+  function animateMove(idx: number, from: number, to: number, onDone: () => void) {
+    if (from >= to) {
+      onDone();
+      return;
     }
-    // Solo mode: add an automated opponent so it is an actual race.
-    if (cfg.playerCount === 1 && cfg.raceBot) {
-      newPlayers.push({
-        id: 1,
-        name: 'Turbo Bot',
-        emoji: BOT_EMOJI,
-        color: TRACK_PALETTE.bot,
-        position: 0,
-        correctCount: 0,
-        totalCount: 0,
-        isBot: true,
-      });
-    }
-    setConfig(cfg);
-    setPlayers(newPlayers);
-    setCurrentPlayerIndex(0);
-    setWinner(null);
-    setBotStatus(null);
-    setEscArmed(false);
-    setShortcuts(generateShortcuts(cfg.pathLength));
-    questionIndexRef.current = 0;
-    setPhase('playing');
-
-    // Generate first question
-    const card = cards[Math.floor(Math.random() * cards.length)];
-    const type = cfg.questionTypes[0];
-    const q = buildRaceQuestion(card, cards, groups, type, cfg.direction, 0);
-    setCurrentQuestion(q);
-    setQuestionSerial((s) => s + 1);
-    resetQuestionState();
-  }, [cards, groups, generateShortcuts]);
-
-  const resetQuestionState = () => {
-    setUserAnswer('');
-    setSelectedOption(null);
-    setFeedback(null);
-    setDiceRoll(null);
-    setShowShortcut(false);
-  };
-
-  const animateMove = useCallback((playerIdx: number, from: number, to: number, onDone: () => void) => {
-    if (from >= to) { onDone(); return; }
-    // Clear any previous move interval
-    if (moveIntervalRef.current) clearInterval(moveIntervalRef.current);
-    setIsAnimating(true);
+    if (moveTimer.current) clearInterval(moveTimer.current);
+    setMoving(true);
     let step = from;
-    const interval = setInterval(() => {
+    moveTimer.current = setInterval(() => {
       step++;
       playSound('move');
-      setPlayers((prev) =>
-        prev.map((p, i) => i === playerIdx ? { ...p, position: step } : p),
-      );
-      // Auto-scroll ONLY the track's own scroll container to the current
-      // cell — the page itself must never move (scrollIntoView hijacked it).
-      const container = boardRef.current;
-      if (container) {
-        const node = container.querySelector(`[data-cell="${step}"]`);
-        if (node) {
-          const cellTop =
-            node.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-          container.scrollTo({ top: cellTop - container.clientHeight / 2, behavior: 'smooth' });
-        }
-      }
+      setRacers((prev) => prev.map((r, i) => (i === idx ? { ...r, position: step } : r)));
       if (step >= to) {
-        clearInterval(interval);
-        moveIntervalRef.current = null;
-        setIsAnimating(false);
+        if (moveTimer.current) clearInterval(moveTimer.current);
+        moveTimer.current = null;
+        setMoving(false);
         onDone();
       }
-    }, 180);
-    moveIntervalRef.current = interval;
-  }, []);
-
-  // The turn-flow helpers below are plain function declarations (hoisted)
-  // because the bot turn creates a call cycle (processCorrectAnswer →
-  // checkWinAndAdvance → advanceTurn → runBotTurn → processCorrectAnswer)
-  // that useCallback dependency ordering cannot express. Each threads the
-  // freshly-computed players array through as a parameter so async steps
-  // never read a stale `players` snapshot (the stored winner's stats were
-  // previously one answer behind).
-
-  function processCorrectAnswer(playerIdx: number, playersNow: Player[]) {
-    if (!config) return;
-
-    // Dice roll animation
-    const roll = 1 + Math.floor(Math.random() * 6);
-    setDiceRoll(roll);
-
-    const t1 = setTimeout(() => {
-      moveTimeoutsRef.current.delete(t1);
-      const player = playersNow[playerIdx];
-      const newPos = Math.min(config.pathLength, player.position + roll);
-
-      animateMove(playerIdx, player.position, newPos, () => {
-        // Check shortcut
-        if (shortcuts.has(newPos)) {
-          const dest = shortcuts.get(newPos)!;
-          playSound('land');
-          setShowShortcut(true);
-          const t2 = setTimeout(() => {
-            moveTimeoutsRef.current.delete(t2);
-            animateMove(playerIdx, newPos, dest, () => {
-              setShowShortcut(false);
-              checkWinAndAdvance(playerIdx, dest, playersNow);
-            });
-          }, 450);
-          moveTimeoutsRef.current.add(t2);
-        } else {
-          checkWinAndAdvance(playerIdx, newPos, playersNow);
-        }
-      });
-    }, 300);
-    moveTimeoutsRef.current.add(t1);
+    }, reduce ? 60 : 200);
   }
 
-  function checkWinAndAdvance(playerIdx: number, finalPos: number, playersNow: Player[]) {
+  function drive(idx: number, list: Racer[], quick: boolean) {
     if (!config) return;
+    const value = 1 + Math.floor(Math.random() * 6);
+    setRoll({ value, rolling: true, quick });
+    later(() => {
+      setRoll({ value, rolling: false, quick });
+      playSound('land');
+      later(() => {
+        const from = list[idx].position;
+        const to = Math.min(config.pathLength, from + value + (quick ? 1 : 0));
+        animateMove(idx, from, to, () => {
+          const jump = shortcuts.get(to);
+          if (jump !== undefined) {
+            playSound('boost');
+            setNitro(true);
+            later(() => {
+              animateMove(idx, to, jump, () => {
+                setNitro(false);
+                finishTurn(idx, jump, list);
+              });
+            }, 500);
+          } else {
+            finishTurn(idx, to, list);
+          }
+        });
+      }, 350);
+    }, reduce ? 150 : 650);
+  }
 
-    const moved = playersNow.map((p, i) => (i === playerIdx ? { ...p, position: finalPos } : p));
-
+  function finishTurn(idx: number, finalPos: number, list: Racer[]) {
+    if (!config) return;
+    const moved = list.map((r, i) => (i === idx ? { ...r, position: finalPos } : r));
     if (finalPos >= config.pathLength) {
-      playSound(moved[playerIdx].isBot ? 'lose' : 'win');
-      setPlayers(moved);
-      setWinner(moved[playerIdx]);
-      setPhase('results');
+      playSound(moved[idx].isBot ? 'lose' : 'win');
+      setRacers(moved);
+      setWinner(moved[idx]);
+      later(() => setPhase('results'), 700);
       return;
     }
-
-    advanceTurn(moved, playerIdx);
+    later(() => nextTurn(moved, idx), 450);
   }
 
-  function advanceTurn(playersNow: Player[], fromIdx: number) {
-    const nextIdx = (fromIdx + 1) % playersNow.length;
-    setCurrentPlayerIndex(nextIdx);
-    if (playersNow[nextIdx]?.isBot) {
-      runBotTurn(playersNow, nextIdx);
+  function nextTurn(list: Racer[], fromIdx: number) {
+    if (!config) return;
+    const next = (fromIdx + 1) % list.length;
+    setTurn(next);
+    setRoll(null);
+    setFeedback(null);
+    setSelected(null);
+    if (list[next]?.isBot) {
+      botTurn(list, next);
       return;
     }
     setBotStatus(null);
-    setCurrentQuestion(generateQuestion());
+    setQuestion(nextQuestion(config));
     setQuestionSerial((s) => s + 1);
-    resetQuestionState();
+    questionStartRef.current = Date.now();
   }
 
-  function runBotTurn(playersNow: Player[], botIdx: number) {
-    // The bot never sees a question card — it "thinks" briefly, answers
-    // correctly 65% of the time, and on success rolls the same d6 and
-    // animates exactly like a human racer.
+  function botTurn(list: Racer[], idx: number) {
+    if (!config?.bot) return;
+    const accuracy = BOT_ACCURACY[config.bot];
     setBotStatus('thinking');
-    resetQuestionState();
-    const t = setTimeout(() => {
-      moveTimeoutsRef.current.delete(t);
-      const isCorrect = Math.random() < 0.65;
-      const next = playersNow.map((p, i) =>
-        i === botIdx
-          ? { ...p, totalCount: p.totalCount + 1, correctCount: p.correctCount + (isCorrect ? 1 : 0) }
-          : p,
+    later(() => {
+      const right = Math.random() < accuracy;
+      const next = list.map((r, i) =>
+        i === idx ? { ...r, totalCount: r.totalCount + 1, correctCount: r.correctCount + (right ? 1 : 0) } : r,
       );
-      setPlayers(next);
-      if (isCorrect) {
-        playSound('correct');
-        setBotStatus('answered-correct');
-        processCorrectAnswer(botIdx, next);
+      setRacers(next);
+      setBotStatus(right ? 'right' : 'wrong');
+      if (right) {
+        drive(idx, next, false);
       } else {
         playSound('wrong');
-        setBotStatus('answered-wrong');
-        const t2 = setTimeout(() => {
-          moveTimeoutsRef.current.delete(t2);
-          advanceTurn(next, botIdx);
-        }, 1200);
-        moveTimeoutsRef.current.add(t2);
+        later(() => nextTurn(next, idx), 1100);
       }
-    }, 800);
-    moveTimeoutsRef.current.add(t);
+    }, 900 + Math.random() * 700);
   }
 
-  function handleAnswer(isCorrect: boolean) {
-    const playerIdx = currentPlayerIndex;
-    // Compute the next players array synchronously so downstream steps (dice,
-    // move, win check) see the just-recorded answer instead of stale state.
-    const next = players.map((p, i) =>
-      i === playerIdx
-        ? { ...p, totalCount: p.totalCount + 1, correctCount: p.correctCount + (isCorrect ? 1 : 0) }
-        : p,
+  function answer(isRight: boolean) {
+    if (feedback || !config) return;
+    const idx = turn;
+    const quick = isRight && (Date.now() - questionStartRef.current) / 1000 <= QUICK_SECONDS;
+    const next = racers.map((r, i) =>
+      i === idx ? { ...r, totalCount: r.totalCount + 1, correctCount: r.correctCount + (isRight ? 1 : 0) } : r,
     );
-    setPlayers(next);
-
-    if (isCorrect) {
+    setRacers(next);
+    setFeedback(isRight ? 'correct' : 'wrong');
+    if (isRight) {
       playSound('correct');
-      setFeedback('correct');
-      processCorrectAnswer(playerIdx, next);
+      drive(idx, next, quick);
     } else {
       playSound('wrong');
-      setFeedback('wrong');
-      // Skip turn after delay (registered so unmount cleanup can clear it)
-      const t = setTimeout(() => {
-        moveTimeoutsRef.current.delete(t);
-        advanceTurn(next, playerIdx);
-      }, 1500);
-      moveTimeoutsRef.current.add(t);
+      later(() => nextTurn(next, idx), 1800);
     }
   }
 
-  const checkWritten = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (feedback || !userAnswer.trim() || !currentQuestion) return;
-    const isCorrect = gradeWrittenAnswer(userAnswer, currentQuestion.correctAnswers);
-    handleAnswer(isCorrect);
-  };
+  const answerRef = useRef(answer);
+  answerRef.current = answer;
+  const onWritten = useCallback(
+    (text: string) => question && answerRef.current(gradeGameAnswer(question, { written: text })),
+    [question],
+  );
+  const onOption = useCallback(
+    (option: string) => {
+      if (!question || feedback) return;
+      setSelected(option);
+      answerRef.current(gradeGameAnswer(question, { option }));
+    },
+    [question, feedback],
+  );
+  const onTrueFalse = useCallback(
+    (tf: boolean) => question && answerRef.current(gradeGameAnswer(question, { tf })),
+    [question],
+  );
+  const current = racers[turn];
+  useAnswerKeys(question, phase === 'playing' && !feedback && !current?.isBot, onOption, onTrueFalse);
 
-  const checkMC = (option: string) => {
-    if (feedback || !currentQuestion) return;
-    setSelectedOption(option);
-    const isCorrect = currentQuestion.correctAnswers.some(
-      (a) => normalizeAnswer(a) === normalizeAnswer(option),
-    );
-    handleAnswer(isCorrect);
-  };
+  if (phase === 'config') return <ConfigScreen onStart={start} />;
 
-  const checkTF = (answer: boolean) => {
-    if (feedback || !currentQuestion) return;
-    const isCorrect = answer === currentQuestion.tfPair?.isCorrect;
-    handleAnswer(isCorrect);
-  };
-
-  if (phase === 'config') {
-    return <ConfigScreen cardCount={cards.length} onStart={handleStart} />;
-  }
-
-  // Results
   if (phase === 'results' && config) {
-    const sortedPlayers = [...players].sort((a, b) => b.position - a.position);
-
+    const standings = [...racers].sort((a, b) => b.position - a.position);
+    const you = racers.find((r) => !r.isBot)!;
+    const solo = racers.filter((r) => !r.isBot).length === 1;
+    const accuracy = you.totalCount > 0 ? Math.round((you.correctCount / you.totalCount) * 100) : 0;
+    const youWon = !!winner && !winner.isBot;
+    const stars = solo ? (youWon ? (accuracy >= 90 ? 3 : accuracy >= 70 ? 2 : 1) : 0) : undefined;
     return (
-      <div className="relative min-h-dvh overflow-hidden">
-        <RaceBackground reduce={!!reduce} />
-        <div className="relative z-10 max-w-2xl mx-auto px-4 py-10">
-          <motion.div
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 220, damping: 22 }}
-            className="p-8 text-center relative overflow-hidden"
-            style={{
-              background: 'var(--color-surface)',
-              boxShadow: 'var(--shadow-modal)',
-              borderRadius: 'var(--radius-xl)',
-              border: '1px solid var(--color-border)',
-            }}
-          >
-            {/* Checkered finish strip */}
-            <div
-              aria-hidden
-              className="absolute inset-x-0 top-0 h-3"
-              style={{
-                backgroundImage: 'repeating-linear-gradient(45deg, var(--color-text) 0 8px, var(--color-surface) 8px 16px)',
-                opacity: 0.16,
-              }}
-            />
-
-            <motion.div
-              initial={reduce ? undefined : { scale: 0, rotate: -20 }}
-              animate={reduce ? undefined : { scale: 1, rotate: 0 }}
-              transition={reduce ? undefined : { type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }}
-              className="text-6xl mb-2"
-            >
-              {winner ? '🏁' : '🏆'}
-            </motion.div>
-            <h2 className="text-3xl font-black mb-1" style={{ color: 'var(--color-text)' }}>
-              {winner ? `${winner.name} Wins!` : 'Race Over!'}
-            </h2>
-            <p className="text-base mb-6" style={{ color: 'var(--color-text-secondary)' }}>
-              {winner ? `${winner.emoji} crossed the finish line first!` : 'Great racing!'}
-            </p>
-
-            {/* Standings */}
-            <div className="mb-6 flex flex-col gap-2 text-left">
-              {sortedPlayers.map((player, rank) => {
-                const accuracy = player.totalCount > 0
-                  ? Math.round((player.correctCount / player.totalCount) * 100)
-                  : 0;
-                const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `${rank + 1}`;
-                const pct = config.pathLength > 0 ? player.position / config.pathLength : 0;
-                return (
-                  <motion.div
-                    key={player.id}
-                    initial={reduce ? { opacity: 0 } : { opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: reduce ? 0 : 0.15 + rank * 0.07 }}
-                    className="flex items-center gap-3 p-3"
-                    style={{
-                      background: 'var(--color-muted)',
-                      borderRadius: 'var(--radius-lg)',
-                      border: rank === 0 ? `1px solid ${player.color}` : '1px solid var(--color-border)',
-                    }}
-                  >
-                    <span className="text-xl w-7 text-center font-bold">{medal}</span>
-                    <span className="text-xl">{player.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-                        <span>{player.name}</span>
-                        <span style={{ color: 'var(--color-text-secondary)' }}>{player.position}/{config.pathLength}</span>
-                      </div>
-                      <div className="mt-1.5 h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'var(--color-border)' }}>
-                        <motion.div
-                          initial={reduce ? undefined : { scaleX: 0 }}
-                          animate={reduce ? undefined : { scaleX: pct }}
-                          transition={{ delay: reduce ? 0 : 0.3 + rank * 0.07, duration: 0.6, ease: 'easeOut' }}
-                          style={{
-                            height: '100%',
-                            width: '100%',
-                            transformOrigin: 'left',
-                            transform: reduce ? `scaleX(${pct})` : undefined,
-                            background: player.color,
-                            borderRadius: 'inherit',
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold w-12 text-right" style={{ color: 'var(--color-text-secondary)' }}>{accuracy}%</span>
-                  </motion.div>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-3 justify-center">
-              <Button variant="primary" className="rtf-focusable" onClick={() => setPhase('config')}>
-                Play Again
-              </Button>
-              <Button variant="outline" className="rtf-focusable" onClick={() => navigate(exitTo)}>
-                Exit
-              </Button>
-            </div>
-          </motion.div>
-        </div>
+      <div className="relative min-h-[calc(100dvh-8rem)] flex items-center px-4 pt-16 pb-10">
+        <ResultsPanel
+          mascot={winner ? <div className="-mb-2"><Kart color={winner.color} bot={winner.isBot} size={120} /></div> : undefined}
+          title={winner ? (winner.isBot ? 'The bot takes it' : solo ? 'You win the race' : `${winner.name} wins`) : 'Race over'}
+          subtitle={winner?.isBot ? 'So close. A rematch is one click away.' : 'Crossed the finish line first.'}
+          stars={stars}
+          stats={standings.map((r, i) => ({
+            label: `${r.name} (${i + 1}${['st', 'nd', 'rd', 'th'][Math.min(i, 3)]})`,
+            value: `${r.totalCount > 0 ? Math.round((r.correctCount / r.totalCount) * 100) : 0}%`,
+          }))}
+          actions={
+            <>
+              <Button variant="primary" onClick={() => start(config)}>Rematch</Button>
+              <Button variant="outline" onClick={() => setPhase('config')}>Change settings</Button>
+              <Button variant="ghost" onClick={exit}>Exit</Button>
+            </>
+          }
+        />
       </div>
     );
   }
 
-  if (!currentQuestion || !config) return null;
-
-  const currentPlayer = players[currentPlayerIndex];
-  const pathLen = config.pathLength;
-
-  // Lane layout for racer tokens (purely presentational — position is vertical).
-  // Uses players.length, not config.playerCount, so the solo bot gets a lane.
-  const racerCount = players.length;
-  const laneGap = racerCount <= 1 ? 0 : Math.min(22, 66 / racerCount);
-  const laneX = (id: number) => 62 + (id - (racerCount - 1) / 2) * laneGap;
-
-  const containerV: Variants = {
-    hidden: {},
-    show: { transition: { staggerChildren: reduce ? 0 : 0.08 } },
-  };
-  const itemV: Variants = reduce
-    ? { hidden: { opacity: 0 }, show: { opacity: 1 } }
-    : { hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 240, damping: 22 } } };
+  if (!config || !current) return null;
 
   return (
-    // 100dvh minus the 4rem app header — min-h-dvh here guaranteed a stray
-    // outer scrollbar inside the Layout.
-    <div className="relative min-h-[calc(100dvh-4rem)] overflow-hidden">
-      <RaceBackground reduce={!!reduce} />
+    <div className="max-w-4xl mx-auto px-4 py-4">
+      <EscBanner show={escArmed} />
+      {phase === 'countdown' && (
+        <Countdown
+          accent="#22c55e"
+          onDone={() => {
+            questionStartRef.current = Date.now();
+            setPhase('playing');
+          }}
+        />
+      )}
 
-      {/* Esc-confirm banner: first Escape arms, second within 2s quits */}
-      <div className="fixed top-4 left-0 right-0 flex justify-center pointer-events-none" style={{ zIndex: 50 }}>
+      <GameTopBar onExit={exit}>
+        <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+          First to {config.pathLength} wins
+        </span>
+      </GameTopBar>
+
+      <div className="mt-3 relative">
+        <Track racers={racers} pathLength={config.pathLength} shortcuts={shortcuts} activeId={current.id} moving={moving} />
         <AnimatePresence>
-          {escArmed && (
+          {nitro && (
             <motion.div
-              key="esc-confirm"
-              role="status"
-              className="px-4 py-2 text-sm font-semibold"
-              style={{
-                background: 'var(--color-surface-raised)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border-light)',
-                borderRadius: 'var(--radius-full)',
-                boxShadow: 'var(--shadow-modal)',
-              }}
-              initial={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-              transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 400, damping: 28 }}
+              initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.4, rotate: -8 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              className="absolute inset-0 flex items-center justify-center pointer-events-none"
             >
-              Press Esc again to quit
+              <span
+                className="flex items-center gap-2 px-5 py-2 rounded-full text-2xl font-extrabold"
+                style={{ background: TRACK.nitro, color: '#083344', fontFamily: 'var(--font-display)', boxShadow: '0 8px 24px rgba(34,211,238,0.5)' }}
+              >
+                <Zap size={24} fill="currentColor" /> Nitro!
+              </span>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Shortcut / nitro flash overlay */}
-      <AnimatePresence>
-        {showShortcut && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center"
-            style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
-          >
-            <motion.div
-              initial={reduce ? { opacity: 0 } : { scale: 0.4, rotate: -8, opacity: 0 }}
-              animate={reduce ? { opacity: 1 } : { scale: 1, rotate: 0, opacity: 1 }}
-              exit={reduce ? { opacity: 0 } : { scale: 0, opacity: 0 }}
-              transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 300, damping: 18 }}
-              className="flex flex-col items-center gap-3"
+      {/* Turn banner + die */}
+      <div className="mt-4 flex items-center gap-3">
+        <div
+          className="flex-1 flex items-center gap-2 h-12 px-4 rounded-2xl font-extrabold"
+          style={{ background: current.color, color: '#fff', fontFamily: 'var(--font-display)', boxShadow: 'inset 0 -4px 0 rgba(0,0,0,0.2)' }}
+        >
+          <Kart color="#ffffff" bot={current.isBot} size={34} />
+          {current.isBot ? 'Bot’s turn' : racers.filter((r) => !r.isBot).length === 1 ? 'Your turn' : `${current.name}, your turn`}
+          {roll?.quick && !roll.rolling && (
+            <motion.span
+              initial={reduce ? false : { scale: 0 }}
+              animate={{ scale: 1 }}
+              className="ml-auto flex items-center gap-1 text-sm px-2.5 py-1 rounded-full"
+              style={{ background: 'rgba(255,255,255,0.25)' }}
             >
-              <div className="text-7xl">{'⚡'}</div>
-              <div
-                className="px-5 py-2 text-2xl font-black"
-                style={{ background: TRACK_PALETTE.nitro, color: '#ffffff', borderRadius: 'var(--radius-full)', boxShadow: 'var(--shadow-lg)' }}
-              >
-                NITRO BOOST!
-              </div>
-            </motion.div>
+              <Zap size={14} fill="currentColor" /> Quick +1
+            </motion.span>
+          )}
+        </div>
+        {roll && <Die value={roll.value} rolling={roll.rolling} />}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {current.isBot ? (
+          <motion.div
+            key={`bot-${questionSerial}-${turn}`}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mt-4 rounded-3xl p-6 text-center font-semibold"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
+            role="status"
+          >
+            {botStatus === 'right' ? (
+              <span style={{ color: 'var(--color-success)' }}>The bot got it right and rolls.</span>
+            ) : botStatus === 'wrong' ? (
+              <span style={{ color: 'var(--color-danger)' }}>The bot missed. Its turn is over.</span>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                Bot is thinking
+                <span className="rtf-dots" aria-hidden><i /><i /><i /></span>
+              </span>
+            )}
           </motion.div>
+        ) : (
+          question && (
+            <motion.div
+              key={questionSerial}
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -10 }}
+              transition={{ type: 'spring', stiffness: 360, damping: 32 }}
+              className="mt-4 rounded-3xl p-5 sm:p-6"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-card)' }}
+            >
+              <QuestionPanel
+                question={question}
+                feedback={feedback}
+                selectedOption={selected}
+                disabled={phase !== 'playing' || moving}
+                onWritten={onWritten}
+                onOption={onOption}
+                onTrueFalse={onTrueFalse}
+              />
+            </motion.div>
+          )
         )}
       </AnimatePresence>
-
-      <motion.div
-        variants={containerV}
-        initial="hidden"
-        animate="show"
-        className="relative z-10 max-w-4xl mx-auto px-4 py-6"
-      >
-        {/* Header: exit + racer chips */}
-        <motion.div variants={itemV} className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="rtf-focusable" onClick={() => navigate(exitTo)}>
-              {'←'} Exit
-            </Button>
-            <SoundToggle />
-          </div>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {players.map((p) => {
-              const active = p.id === currentPlayerIndex;
-              const pct = pathLen > 0 ? p.position / pathLen : 0;
-              return (
-                <motion.div
-                  key={p.id}
-                  animate={reduce ? undefined : { scale: active ? 1.06 : 1 }}
-                  className={cn('flex items-center gap-2 px-3 py-1.5', active && 'ring-2')}
-                  style={{
-                    background: active ? p.color : 'var(--color-surface)',
-                    color: active ? '#ffffff' : 'var(--color-text)',
-                    borderRadius: 'var(--radius-full)',
-                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                    border: active ? 'none' : '1px solid var(--color-border)',
-                  }}
-                >
-                  <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>{p.emoji}</span>
-                  <div className="flex flex-col leading-none">
-                    <span className="text-xs font-bold">{p.position}/{pathLen}</span>
-                    <div
-                      className="mt-1 h-1 w-12 rounded-full overflow-hidden"
-                      style={{ background: active ? 'rgba(255,255,255,0.35)' : 'var(--color-border)' }}
-                    >
-                      <div
-                        style={{
-                          height: '100%',
-                          width: '100%',
-                          transformOrigin: 'left',
-                          transform: `scaleX(${pct})`,
-                          background: active ? '#ffffff' : p.color,
-                          borderRadius: 'inherit',
-                          transition: reduce ? 'none' : 'transform 0.4s var(--ease-out)',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-        </motion.div>
-
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* Question column */}
-          <motion.div variants={itemV} className="flex-1 min-w-0">
-            <div
-              className="mb-4 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold"
-              style={{
-                background: currentPlayer.color,
-                color: '#ffffff',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: 'var(--shadow-sm)',
-              }}
-            >
-              <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>{currentPlayer.emoji}</span>
-              {currentPlayer.name}'s turn {'—'} go go go!
-            </div>
-
-            <AnimatePresence mode="wait">
-              {currentPlayer.isBot ? (
-              <motion.div
-                key={`bot-${questionSerial}`}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={reduce ? { opacity: 0 } : { opacity: 0, x: -24 }}
-                transition={{ duration: reduce ? 0.15 : 0.28 }}
-                className="relative p-6 overflow-hidden text-center"
-                style={{
-                  background: 'var(--color-surface)',
-                  boxShadow: 'var(--shadow-card)',
-                  borderRadius: 'var(--radius-xl)',
-                  border: '1px solid var(--color-border)',
-                }}
-                role="status"
-              >
-                <div className="text-4xl mb-3">{BOT_EMOJI}</div>
-                {botStatus === 'answered-correct' ? (
-                  <div className="flex items-center justify-center gap-2 font-semibold" style={{ color: 'var(--color-success)' }}>
-                    {diceRoll !== null && (
-                      <span
-                        className="flex items-center justify-center font-black"
-                        style={{ width: 32, height: 32, background: 'var(--color-success)', color: '#ffffff', borderRadius: 'var(--radius-md)', fontSize: '1.05rem' }}
-                      >
-                        {diceRoll}
-                      </span>
-                    )}
-                    <span>Turbo Bot got it!{diceRoll !== null && ` Boost ${diceRoll} spaces!`}</span>
-                  </div>
-                ) : botStatus === 'answered-wrong' ? (
-                  <p className="font-semibold" style={{ color: 'var(--color-danger)' }}>
-                    Turbo Bot spun out {'—'} skip turn
-                  </p>
-                ) : (
-                  <p className="font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
-                    Turbo Bot is answering{'…'}
-                  </p>
-                )}
-              </motion.div>
-              ) : (
-              <motion.div
-                key={questionSerial}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
-                animate={
-                  feedback === 'wrong' && !reduce
-                    ? { opacity: 1, x: [0, -10, 10, -7, 7, 0] }
-                    : feedback === 'correct' && !reduce
-                    ? { opacity: 1, x: 0, scale: [1, 1.02, 1] }
-                    : { opacity: 1, x: 0 }
-                }
-                exit={reduce ? { opacity: 0 } : { opacity: 0, x: -24 }}
-                transition={{ duration: reduce ? 0.15 : 0.28 }}
-                className="relative p-6 overflow-hidden"
-                style={{
-                  background: 'var(--color-surface)',
-                  boxShadow: 'var(--shadow-card)',
-                  borderRadius: 'var(--radius-xl)',
-                  border: '1px solid var(--color-border)',
-                }}
-              >
-                {/* Boost speed-lines on a correct answer */}
-                {feedback === 'correct' && !reduce && (
-                  <div aria-hidden className="pointer-events-none absolute inset-0">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <div
-                        key={i}
-                        className="rtf-speed-line absolute"
-                        style={{
-                          top: `${12 + i * 18}%`,
-                          right: 0,
-                          width: '60%',
-                          height: '3px',
-                          borderRadius: '999px',
-                          background: 'linear-gradient(90deg, transparent, var(--color-success))',
-                          animationDelay: `${i * 0.05}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <div className="relative">
-                  <div className="text-xs uppercase tracking-wider mb-2 font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-                    {currentQuestion.type === 'true-false' ? 'True or False?' : 'What is the answer?'}
-                  </div>
-
-                  {currentQuestion.type === 'true-false' && currentQuestion.tfPair ? (
-                    <div className="mb-6">
-                      <div className="mb-3">
-                        <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Term:</span>
-                        <StudyContent html={currentQuestion.tfPair.term} className="text-xl font-semibold mt-1" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Definition:</span>
-                        <StudyContent html={currentQuestion.tfPair.definition} className="text-xl mt-1" />
-                      </div>
-                    </div>
-                  ) : (
-                    <StudyContent html={currentQuestion.promptHtml} className="text-2xl font-semibold mb-6" />
-                  )}
-
-                  {/* Written */}
-                  {currentQuestion.type === 'written' && (
-                    <form onSubmit={checkWritten}>
-                      <input
-                        type="text"
-                        value={userAnswer}
-                        onChange={(e) => setUserAnswer(e.target.value)}
-                        placeholder="Type your answer..."
-                        disabled={feedback !== null}
-                        autoFocus
-                        className="w-full h-12 px-4 text-base outline-none"
-                        style={{
-                          background: 'var(--color-muted)',
-                          color: 'var(--color-text)',
-                          border: `2px solid ${
-                            feedback === 'correct' ? 'var(--color-success)'
-                              : feedback === 'wrong' ? 'var(--color-danger)'
-                              : 'var(--color-border)'
-                          }`,
-                          borderRadius: 'var(--radius-md)',
-                        }}
-                      />
-                      {!feedback && (
-                        <Button variant="primary" type="submit" className="mt-3 w-full rtf-focusable">Submit</Button>
-                      )}
-                    </form>
-                  )}
-
-                  {/* MC */}
-                  {currentQuestion.type === 'multiple-choice' && currentQuestion.options && (
-                    <div className="grid gap-3">
-                      {currentQuestion.options.map((option, i) => {
-                        const isSelected = selectedOption === option;
-                        const isCorrectOption = currentQuestion.correctAnswers.some(
-                          (a) => normalizeAnswer(a) === normalizeAnswer(option),
-                        );
-                        let borderColor = 'var(--color-border)';
-                        let bg = 'var(--color-surface-raised)';
-                        if (feedback) {
-                          if (isCorrectOption) { borderColor = 'var(--color-success)'; bg = 'var(--color-success-light)'; }
-                          else if (isSelected) { borderColor = 'var(--color-danger)'; bg = 'var(--color-danger-light)'; }
-                        }
-                        return (
-                          <motion.button
-                            key={i}
-                            onClick={() => checkMC(option)}
-                            disabled={feedback !== null || isAnimating}
-                            whileHover={feedback || isAnimating || reduce ? undefined : { y: -2 }}
-                            whileTap={feedback || reduce ? undefined : { scale: 0.98 }}
-                            className="rtf-focusable w-full text-left p-4 cursor-pointer"
-                            style={{
-                              background: bg,
-                              border: `2px solid ${borderColor}`,
-                              borderRadius: 'var(--radius-md)',
-                              color: 'var(--color-text)',
-                              opacity: feedback && !isCorrectOption && !isSelected ? 0.5 : 1,
-                            }}
-                          >
-                            <StudyContent html={option} />
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* T/F */}
-                  {currentQuestion.type === 'true-false' && (
-                    <div className="flex gap-3">
-                      {['True', 'False'].map((label) => {
-                        const val = label === 'True';
-                        const isCorrectBtn = feedback && val === currentQuestion.tfPair?.isCorrect;
-                        const isWrongBtn = feedback && val !== currentQuestion.tfPair?.isCorrect;
-                        return (
-                          <Button key={label} variant="outline" className="flex-1 rtf-focusable" onClick={() => checkTF(val)} disabled={feedback !== null || isAnimating}>
-                            <span style={{
-                              color: isCorrectBtn ? 'var(--color-success)' : isWrongBtn ? 'var(--color-danger)' : undefined,
-                              fontWeight: isCorrectBtn ? 700 : undefined,
-                            }}>
-                              {label}
-                            </span>
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Feedback */}
-                  {feedback && (
-                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
-                      {feedback === 'correct' ? (
-                        <div className="p-3 flex items-center gap-2" style={{ background: 'var(--color-success-light)', borderRadius: 'var(--radius-md)' }}>
-                          {diceRoll !== null && (
-                            <motion.span
-                              initial={reduce ? undefined : { scale: 0, rotate: -30 }}
-                              animate={reduce ? undefined : { scale: 1, rotate: 0 }}
-                              transition={reduce ? undefined : { type: 'spring', stiffness: 300, damping: 14 }}
-                              className="flex items-center justify-center font-black"
-                              style={{ width: 32, height: 32, background: 'var(--color-success)', color: '#ffffff', borderRadius: 'var(--radius-md)', fontSize: '1.05rem' }}
-                            >
-                              {diceRoll}
-                            </motion.span>
-                          )}
-                          <p className="font-semibold" style={{ color: 'var(--color-success)' }}>
-                            Correct! {diceRoll !== null && `Boost ${diceRoll} spaces!`}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="p-3" style={{ background: 'var(--color-danger-light)', borderRadius: 'var(--radius-md)' }}>
-                          <p className="font-semibold mb-1" style={{ color: 'var(--color-danger)' }}>Spun out {'—'} skip turn</p>
-                          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                            Correct: <span className="font-medium" style={{ color: 'var(--color-text)' }}>{stripHtml(currentQuestion.correctAnswers[0])}</span>
-                          </p>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </div>
-              </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-
-          {/* Racetrack board */}
-          <motion.div variants={itemV} className="w-full md:w-56 flex-shrink-0">
-            <div className="mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>
-              {'🏁'} Racetrack
-            </div>
-            <div
-              ref={boardRef}
-              className="overflow-y-auto"
-              style={{
-                maxHeight: 500,
-                background: 'var(--color-muted)',
-                borderRadius: 'var(--radius-xl)',
-                boxShadow: 'var(--shadow-card)',
-                border: '1px solid var(--color-border)',
-              }}
-            >
-              <svg
-                width="100%"
-                viewBox={`0 0 124 ${(pathLen + 1) * 60 + 40}`}
-                className="block"
-              >
-                <defs>
-                  <linearGradient id="rtf-road" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor={TRACK_PALETTE.roadTop} />
-                    <stop offset="0.5" stopColor={TRACK_PALETTE.roadMid} />
-                    <stop offset="1" stopColor={TRACK_PALETTE.roadBottom} />
-                  </linearGradient>
-                  <filter id="rtf-shadow" x="-60%" y="-60%" width="220%" height="220%">
-                    <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor={TRACK_PALETTE.shadow} floodOpacity="0.4" />
-                  </filter>
-                  <pattern id="rtf-checker" width="12" height="12" patternUnits="userSpaceOnUse">
-                    <rect width="12" height="12" fill={TRACK_PALETTE.line} />
-                    <rect width="6" height="6" fill={TRACK_PALETTE.checkerDark} />
-                    <rect x="6" y="6" width="6" height="6" fill={TRACK_PALETTE.checkerDark} />
-                  </pattern>
-                  <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-                    <polygon points="0 0, 6 2, 0 4" fill={TRACK_PALETTE.nitro} />
-                  </marker>
-                </defs>
-
-                {/* Road surface */}
-                <rect x={16} y={10} width={92} height={pathLen * 60 + 60} rx={12} fill="url(#rtf-road)" />
-                {/* Edge lines */}
-                <line x1={20} y1={16} x2={20} y2={pathLen * 60 + 64} stroke={TRACK_PALETTE.line} strokeWidth="2" opacity="0.22" />
-                <line x1={104} y1={16} x2={104} y2={pathLen * 60 + 64} stroke={TRACK_PALETTE.line} strokeWidth="2" opacity="0.22" />
-                {/* Center dashed lane line */}
-                <line
-                  x1={62}
-                  y1={16}
-                  x2={62}
-                  y2={pathLen * 60 + 64}
-                  stroke={TRACK_PALETTE.line}
-                  strokeWidth="3"
-                  strokeDasharray="10 14"
-                  opacity="0.5"
-                  className={reduce ? undefined : 'rtf-lane-dash'}
-                />
-
-                {/* Rows (bottom = start, top = finish) */}
-                {Array.from({ length: pathLen + 1 }).map((_, idx) => {
-                  const cellIdx = idx;
-                  const cy = (pathLen - idx) * 60 + 40;
-                  const isStart = idx === 0;
-                  const isFinish = idx === pathLen;
-                  const isShortcut = shortcuts.has(idx);
-                  const destCy = isShortcut ? (pathLen - shortcuts.get(idx)!) * 60 + 40 : 0;
-                  const playersHere = players.filter((p) => p.position === cellIdx);
-
-                  return (
-                    <g key={idx} data-cell={cellIdx}>
-                      {isFinish ? (
-                        <>
-                          <rect x={16} y={cy - 15} width={92} height={30} fill="url(#rtf-checker)" opacity="0.95" />
-                          <rect x={16} y={cy - 15} width={92} height={30} fill="none" stroke={TRACK_PALETTE.line} strokeWidth="1.5" opacity="0.4" />
-                        </>
-                      ) : isStart ? (
-                        <>
-                          <rect x={16} y={cy - 13} width={92} height={26} rx={6} fill={TRACK_PALETTE.go} opacity="0.9" />
-                          <text x={62} y={cy} textAnchor="middle" dominantBaseline="central" fill={TRACK_PALETTE.line} fontSize="12" fontWeight="800" fontFamily="var(--font-sans)">GO</text>
-                        </>
-                      ) : isShortcut ? (
-                        <>
-                          <rect x={16} y={cy - 12} width={92} height={24} rx={6} fill={TRACK_PALETTE.nitro} opacity="0.18" />
-                          <line x1={20} y1={cy} x2={104} y2={cy} stroke={TRACK_PALETTE.nitroBright} strokeWidth="2" strokeDasharray="5 4" />
-                          <text x={62} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="12">{'⚡'}</text>
-                          {/* Boost arrow to destination */}
-                          <line x1={112} y1={cy} x2={112} y2={destCy + 6} stroke={TRACK_PALETTE.nitro} strokeWidth="2" strokeDasharray="4 3" markerEnd="url(#arrowhead)" />
-                        </>
-                      ) : (
-                        <>
-                          <line x1={22} y1={cy} x2={102} y2={cy} stroke={TRACK_PALETTE.line} strokeWidth="1" opacity="0.07" />
-                          <text x={117} y={cy} textAnchor="middle" dominantBaseline="central" fill="var(--color-text-tertiary)" fontSize="8" fontFamily="var(--font-sans)">{idx}</text>
-                        </>
-                      )}
-
-                      {/* Racer tokens (own lanes) */}
-                      {playersHere.map((p) => {
-                        const active = p.id === currentPlayerIndex;
-                        const x = laneX(p.id);
-                        return (
-                          <g key={p.id}>
-                            {/* Dust / speed trail while this racer is moving */}
-                            {active && isAnimating && !reduce && (
-                              <g>
-                                <line x1={x} y1={cy + 12} x2={x} y2={cy + 24} stroke={p.color} strokeWidth="3" strokeLinecap="round" opacity="0.6" />
-                                <line x1={x - 5} y1={cy + 13} x2={x - 5} y2={cy + 21} stroke={p.color} strokeWidth="2" strokeLinecap="round" opacity="0.4" />
-                                <line x1={x + 5} y1={cy + 13} x2={x + 5} y2={cy + 21} stroke={p.color} strokeWidth="2" strokeLinecap="round" opacity="0.4" />
-                              </g>
-                            )}
-                            <g className={active && !reduce ? 'rtf-active-racer' : undefined} filter="url(#rtf-shadow)">
-                              {active && <circle cx={x} cy={cy} r="15" fill={p.color} opacity="0.25" />}
-                              <circle cx={x} cy={cy} r="11" fill={p.color} stroke={TRACK_PALETTE.line} strokeWidth="2" />
-                              <text x={x} y={cy} textAnchor="middle" dominantBaseline="central" fontSize="11">{p.emoji}</text>
-                            </g>
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
-          </motion.div>
-        </div>
-      </motion.div>
     </div>
   );
 }

@@ -27,14 +27,29 @@ async function dataUriToBlob(dataUri: string): Promise<Blob> {
 function buildCardImagePath(
   context: CardImageStorageContext,
   extension = 'jpg',
+  contentHash?: string,
 ): string {
   return [
     context.userId,
     context.setId,
     context.cardId,
-    `${Date.now()}-${crypto.randomUUID()}.${extension}`,
+    // Content-addressed when the source hash is known, so a retried or
+    // repeated sync of the same image targets the same object.
+    `${contentHash ?? `${Date.now()}-${crypto.randomUUID()}`}.${extension}`,
   ].join('/');
 }
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Inline images already uploaded this session, keyed by user + source hash.
+ *  A background sync that lands while the user keeps editing can't persist
+ *  the Storage URL back into the working copy, so the next autosave still
+ *  carries the same base64 — without this memo it was re-uploaded (as a new
+ *  object) on every save. In-flight uploads are shared too. */
+const uploadedInlineImages = new Map<string, Promise<string>>();
 
 function requireStorage(): SupabaseClient {
   if (!isSupabaseConfigured() || !supabase) {
@@ -55,6 +70,7 @@ export function hasInlineBase64Images(html: string): boolean {
 export async function uploadCardImage(
   file: File | Blob,
   context: CardImageStorageContext,
+  contentHash?: string,
 ): Promise<string> {
   const client = requireStorage();
 
@@ -75,7 +91,7 @@ export async function uploadCardImage(
   }
 
   const extension = fileExtensionFromMimeType(contentType);
-  const path = buildCardImagePath(context, extension);
+  const path = buildCardImagePath(context, extension, contentHash);
 
   const { error } = await client.storage
     .from(CARD_IMAGE_BUCKET)
@@ -85,7 +101,10 @@ export async function uploadCardImage(
       contentType,
     });
 
-  if (error) {
+  // A content-addressed object that already exists holds this same image
+  // (e.g. uploaded by an earlier session or a push whose upsert then failed).
+  const alreadyStored = Boolean(contentHash) && /already exists|duplicate/i.test(error?.message ?? '');
+  if (error && !alreadyStored) {
     throw new Error(`Failed to upload card image: ${error.message}`);
   }
 
@@ -100,8 +119,16 @@ export async function uploadBase64ImageToStorage(
   dataUri: string,
   context: CardImageStorageContext,
 ): Promise<string> {
-  const blob = await dataUriToBlob(dataUri);
-  return uploadCardImage(blob, context);
+  const hash = await sha256Hex(dataUri);
+  const key = `${context.userId}:${hash}`;
+  const existing = uploadedInlineImages.get(key);
+  if (existing) return existing;
+
+  const upload = dataUriToBlob(dataUri).then((blob) => uploadCardImage(blob, context, hash));
+  uploadedInlineImages.set(key, upload);
+  // Failed uploads must be retryable, so never memoize a rejection.
+  upload.catch(() => uploadedInlineImages.delete(key));
+  return upload;
 }
 
 export async function migrateInlineHtmlImagesToStorage(

@@ -1,32 +1,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useState, useRef, lazy, Suspense } from 'react';
-import type { Card, StudyMode } from '@/types';
+import { useEffect, useState, useRef, Suspense, type ComponentType } from 'react';
+import type { Card } from '@/types';
 import { useSetStore } from '@/stores/useSetStore';
 import { useFilterStore } from '@/stores/useFilterStore';
 import { hasTermContent, hasDefinitionContent } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
-import FlashcardMode from '@/components/modes/FlashcardMode';
-import LearnMode from '@/components/modes/LearnMode';
-import MatchMode from '@/components/modes/MatchMode';
-import TestMode from '@/components/modes/TestMode';
-
-const SpinnerMode = lazy(() => import('@/components/modes/games/SpinnerMode'));
-const BlockBuilderMode = lazy(() => import('@/components/modes/games/BlockBuilderMode'));
-const MemoryCardFlipMode = lazy(() => import('@/components/modes/games/MemoryCardFlipMode'));
-const RaceToFinishMode = lazy(() => import('@/components/modes/games/RaceToFinishMode'));
-
-const MIN_CARDS: Record<string, number> = {
-  flashcards: 1,
-  learn: 2,
-  match: 2,
-  test: 2,
-  spinner: 2,
-  'block-builder': 2,
-  'memory-card-flip': 4,
-  'race-to-finish': 2,
-};
+import { MODE_COMPONENTS, MIN_CARDS, isStudyMode, type ModeProps } from '@/components/modes/registry';
 
 function StudyPage() {
   const { id, mode } = useParams<{ id: string; mode: string }>();
@@ -47,15 +28,15 @@ function StudyPage() {
   const filteredCardIds = snapshotRef.current.ids;
   const filterSetId = snapshotRef.current.setId;
 
+  // Deduped/throttled in the store; resolves after the cloud pull, but the
+  // set renders as soon as it is available locally.
   useEffect(() => {
-    if (sets.length === 0) {
-      loadSets().finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
-  }, [sets.length, loadSets]);
+    void loadSets().finally(() => setLoading(false));
+  }, [loadSets]);
 
-  if (loading) {
+  const studySet = sets.find((s) => s.id === id);
+
+  if (loading && !studySet) {
     return (
       <PageTransition>
         <div className="flex items-center justify-center min-h-[60vh]">
@@ -64,8 +45,6 @@ function StudyPage() {
       </PageTransition>
     );
   }
-
-  const studySet = sets.find((s) => s.id === id);
 
   if (!studySet) {
     return (
@@ -102,8 +81,7 @@ function StudyPage() {
     }
   }
 
-  const studyMode = mode as StudyMode;
-  const minRequired = MIN_CARDS[studyMode] ?? 2;
+  const minRequired = isStudyMode(mode) ? MIN_CARDS[mode] : 2;
 
   if (validCards.length < minRequired) {
     return (
@@ -125,60 +103,39 @@ function StudyPage() {
     );
   }
 
-  function renderMode() {
-    const props = { cards: validCards, setId: id! };
-
-    switch (studyMode) {
-      case 'flashcards':
-        return <FlashcardMode {...props} />;
-      case 'learn':
-        return <LearnMode {...props} />;
-      case 'match':
-        return <MatchMode {...props} />;
-      case 'test':
-        return <TestMode {...props} />;
-      case 'spinner':
-        return (
-          <Suspense fallback={<Spinner size="lg" />}>
-            <SpinnerMode {...props} />
-          </Suspense>
-        );
-      case 'block-builder':
-        return (
-          <Suspense fallback={<Spinner size="lg" />}>
-            <BlockBuilderMode {...props} />
-          </Suspense>
-        );
-      case 'memory-card-flip':
-        return (
-          <Suspense fallback={<Spinner size="lg" />}>
-            <MemoryCardFlipMode {...props} />
-          </Suspense>
-        );
-      case 'race-to-finish':
-        return (
-          <Suspense fallback={<Spinner size="lg" />}>
-            <RaceToFinishMode {...props} />
-          </Suspense>
-        );
-      default:
-        return (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-            <h2 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
-              Unknown study mode
-            </h2>
-            <p style={{ color: 'var(--color-text-secondary)' }}>
-              "{mode}" is not a recognized study mode.
-            </p>
-            <Button variant="primary" onClick={() => navigate(`/sets/${id}`)}>
-              Back to Set
-            </Button>
-          </div>
-        );
-    }
+  if (!isStudyMode(mode)) {
+    return (
+      <PageTransition>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+          <h2 className="text-xl font-semibold" style={{ color: 'var(--color-text)' }}>
+            Unknown study mode
+          </h2>
+          <p style={{ color: 'var(--color-text-secondary)' }}>
+            "{mode}" is not a recognized study mode.
+          </p>
+          <Button variant="primary" onClick={() => navigate(`/sets/${id}`)}>
+            Back to Set
+          </Button>
+        </div>
+      </PageTransition>
+    );
   }
 
-  return <PageTransition>{renderMode()}</PageTransition>;
+  const Mode = MODE_COMPONENTS[mode] as unknown as ComponentType<ModeProps>;
+
+  return (
+    <PageTransition>
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <Spinner size="lg" />
+          </div>
+        }
+      >
+        <Mode cards={validCards} setId={id!} />
+      </Suspense>
+    </PageTransition>
+  );
 }
 
 export default StudyPage;

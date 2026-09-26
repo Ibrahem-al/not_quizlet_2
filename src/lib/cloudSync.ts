@@ -481,40 +481,90 @@ export async function syncSetToCloud(set: StudySet): Promise<StudySet> {
 // Pull operations (cloud → local) for cross-device sync
 // ============================================================
 
+/** Lightweight per-set metadata used to decide which full rows to download.
+ *  Everything the merge needs for sets that did NOT change in the cloud. */
+interface SetManifestRow {
+  id: string;
+  user_id: string;
+  updated_at: number;
+  share_token: string | null;
+}
+
+const SET_MANIFEST_COLUMNS = 'id, user_id, updated_at, share_token';
+const FULL_ROW_FETCH_CHUNK = 50;
+
+/** Download full rows (cards JSON included) for just these ids. */
+async function fetchFullSetRows(ids: string[]): Promise<DbRow[] | null> {
+  if (!supabase || ids.length === 0) return [];
+  const rows: DbRow[] = [];
+  for (let i = 0; i < ids.length; i += FULL_ROW_FETCH_CHUNK) {
+    const { data, error } = await supabase
+      .from('study_sets')
+      .select('*')
+      .in('id', ids.slice(i, i + FULL_ROW_FETCH_CHUNK));
+    if (error || !data) return null;
+    rows.push(...(data as DbRow[]));
+  }
+  return rows;
+}
+
+export interface SetPullResult {
+  merged: StudySet[];
+  /** Sets whose local copy is newer than (or missing from) the cloud. The
+   *  caller routes these through the sync queue, which migrates inline
+   *  images to Storage and retries — never a raw base64 upsert. */
+  toUpload: StudySet[];
+}
+
 /** Pull user's sets from Supabase and merge with local sets (LWW by updatedAt).
- *  Returns the merged set list. Caller is responsible for saving to IndexedDB. */
+ *
+ *  Delta sync: first fetches a tiny manifest (id/updated_at/share_token),
+ *  then downloads full card JSON only for sets that are new or newer in the
+ *  cloud. An unchanged library costs one small query instead of re-downloading
+ *  every card of every set. Caller is responsible for saving to IndexedDB. */
 export async function pullSetsFromCloud(
   userId: string,
   localSets: StudySet[],
-): Promise<StudySet[]> {
-  if (!isSupabaseConfigured() || !supabase) return localSets;
+): Promise<SetPullResult> {
+  if (!isSupabaseConfigured() || !supabase) return { merged: localSets, toUpload: [] };
 
-  const { data: cloudRows, error } = await supabase
+  const { data: manifestRows, error } = await supabase
     .from('study_sets')
-    .select('*')
+    .select(SET_MANIFEST_COLUMNS)
     .eq('user_id', userId);
 
-  if (error || !cloudRows) return localSets;
+  if (error || !manifestRows) return { merged: localSets, toUpload: [] };
 
   // Filter out items pending deletion locally — prevents resurrection
   const pending = getPendingDeletes('set');
-  const cloudSets = (cloudRows as DbRow[]).map(rowToSet).filter((s) => !pending.has(s.id));
+  const manifest = (manifestRows as SetManifestRow[]).filter((r) => !pending.has(r.id));
 
   // Retry pending deletes that are still in Supabase
   retryPendingDeletes('set', 'study_sets', pending);
 
   const localMap = new Map(localSets.map((s) => [s.id, s]));
 
+  const needFull = manifest
+    .filter((r) => {
+      const local = localMap.get(r.id);
+      return !local || r.updated_at > local.updatedAt;
+    })
+    .map((r) => r.id);
+  const fullRows = await fetchFullSetRows(needFull);
+  if (fullRows === null) return { merged: localSets, toUpload: [] };
+  const fullById = new Map(fullRows.map((r) => [r.id, rowToSet(r)]));
+
   const merged: StudySet[] = [];
-  const toUpload: Record<string, unknown>[] = [];
+  const toUpload: StudySet[] = [];
 
   // Process all cloud sets
-  for (const cloud of cloudSets) {
-    const local = localMap.get(cloud.id);
+  for (const row of manifest) {
+    const local = localMap.get(row.id);
+    const cloud = fullById.get(row.id);
     if (!local) {
-      // Cloud-only → pull down
-      merged.push(cloud);
-    } else if (cloud.updatedAt > local.updatedAt) {
+      // Cloud-only → pull down (skip if the row vanished between queries)
+      if (cloud) merged.push(cloud);
+    } else if (cloud && cloud.updatedAt > local.updatedAt) {
       // Cloud is newer → use cloud, but preserve markers the cloud row does
       // not carry: a local share token (when the cloud has none) and the
       // local "hidden" dedup markers (hiddenReason/hiddenAt/replacedBySetId),
@@ -529,37 +579,31 @@ export async function pullSetsFromCloud(
     } else {
       // Local is newer or equal → keep local, but adopt the cloud share token
       // when the local copy has none (a share link created on another device
-      // that this device has not pulled yet).
-      const shareToken = local.shareToken ?? cloud.shareToken;
+      // that this device has not pulled yet). Only manifest metadata is
+      // needed here, so no card payload was downloaded for this set.
+      const cloudShareToken = row.share_token ?? undefined;
+      const shareToken = local.shareToken ?? cloudShareToken;
       const mergedLocal: StudySet =
-        local.userId === cloud.userId && local.shareToken === shareToken
+        local.userId === row.user_id && local.shareToken === shareToken
           ? local
-          : { ...local, userId: cloud.userId, shareToken };
+          : { ...local, userId: row.user_id, shareToken };
       merged.push(mergedLocal);
-      if (local.updatedAt > cloud.updatedAt) {
-        // Upload local content WITHOUT overwriting the cloud share_token
-        // (mirrors setContentToRow / syncSetContentToCloud).
-        toUpload.push(setContentToRow({ ...mergedLocal, userId }));
+      if (local.updatedAt > row.updated_at) {
+        // The sync queue upserts content WITHOUT the share_token column, so
+        // the cloud token is preserved (mirrors setContentToRow).
+        toUpload.push(mergedLocal);
       }
     }
-    localMap.delete(cloud.id);
+    localMap.delete(row.id);
   }
 
   // Local-only sets (not in cloud) → keep local + push to cloud
   for (const local of localMap.values()) {
     merged.push(local);
-    toUpload.push(setToRow({ ...local, userId }));
+    toUpload.push(local);
   }
 
-  // Push local-only and locally-newer sets to cloud (fire-and-forget)
-  if (toUpload.length > 0) {
-    supabase
-      .from('study_sets')
-      .upsert(toUpload, { onConflict: 'id' })
-      .then(({ error: e }) => { if (e) console.error('Failed to push sets:', e.message); });
-  }
-
-  return merged;
+  return { merged, toUpload };
 }
 
 /** Pull user's folders from Supabase and merge with local folders (LWW). */
@@ -1076,13 +1120,21 @@ export async function migrateOversizedImages(): Promise<void> {
         await saveSet(updated);
         migrated++;
 
-        // Sync to cloud if user is authenticated
+        // Keep the in-memory store in step with IndexedDB (the store only
+        // reads IndexedDB once per session), unless the set was edited since.
+        const { useSetStore } = await import('@/stores/useSetStore');
+        useSetStore.setState((s) => ({
+          sets: s.sets.map((x) => (x.id === updated.id && x.updatedAt === set.updatedAt ? updated : x)),
+        }));
+
+        // Sync to cloud if user is authenticated (queued: coalesced + retried)
         if (isSupabaseConfigured()) {
           try {
             const { useAuthStore } = await import('@/stores/useAuthStore');
             const user = useAuthStore.getState().user;
             if (user) {
-              await syncSetContentToCloud({ ...updated, userId: user.id });
+              const { queueSetSync } = await import('@/lib/syncEngine');
+              queueSetSync(updated, user.id);
             }
           } catch { /* cloud sync is best-effort */ }
         }

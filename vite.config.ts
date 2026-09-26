@@ -38,7 +38,9 @@ export default defineConfig({
           if (id.includes('node_modules/@tiptap')) return 'vendor-editor';
           if (id.includes('node_modules/@dnd-kit')) return 'vendor-dnd';
           if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
-          if (id.includes('node_modules/zustand') || id.includes('node_modules/@tanstack/react-query')) return 'vendor-state';
+          if (id.includes('node_modules/zustand')) return 'vendor-state';
+          // Separate chunk so app deploys don't invalidate the cached client.
+          if (id.includes('node_modules/@supabase')) return 'vendor-supabase';
         },
       },
     },

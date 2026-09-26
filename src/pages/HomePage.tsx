@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, BarChart3, FolderOpen, PanelLeftClose, PanelLeft } from 'lucide-react';
-import Fuse from 'fuse.js';
+import type Fuse from 'fuse.js';
 import PageTransition from '@/components/layout/PageTransition';
 import { useSetStore } from '@/stores/useSetStore';
 import { useFolderStore } from '@/stores/useFolderStore';
@@ -25,20 +25,41 @@ function HomePage() {
     loadFolders();
   }, [loadSets, loadFolders]);
 
+  // Fuse indexes every card term of every set, so the library is loaded and
+  // the index built only once the user actually searches.
+  const searching = searchQuery.trim().length > 0;
+  const [FuseCtor, setFuseCtor] = useState<typeof Fuse | null>(null);
+  useEffect(() => {
+    if (!searching || FuseCtor) return;
+    let cancelled = false;
+    void import('fuse.js').then((m) => {
+      if (!cancelled) setFuseCtor(() => m.default);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [searching, FuseCtor]);
+
   const fuse = useMemo(
     () =>
-      new Fuse<StudySet>(sets, {
-        threshold: 0.4,
-        keys: ['title', 'tags', 'cards.term'],
-      }),
-    [sets],
+      searching && FuseCtor
+        ? new FuseCtor<StudySet>(sets, {
+            threshold: 0.4,
+            keys: ['title', 'tags', 'cards.term'],
+          })
+        : null,
+    [sets, searching, FuseCtor],
   );
 
   const filteredSets = useMemo(() => {
     let result = sets;
 
-    if (searchQuery.trim()) {
-      result = fuse.search(searchQuery).map((r) => r.item);
+    if (searching) {
+      // Until Fuse arrives (one small chunk), fall back to a title match.
+      const q = searchQuery.trim().toLowerCase();
+      result = fuse
+        ? fuse.search(searchQuery).map((r) => r.item)
+        : sets.filter((s) => s.title.toLowerCase().includes(q));
     }
 
     if (selectedFolderId) {
@@ -46,7 +67,7 @@ function HomePage() {
     }
 
     return result;
-  }, [sets, searchQuery, selectedFolderId, fuse]);
+  }, [sets, searchQuery, searching, selectedFolderId, fuse]);
 
   const handleDelete = useCallback(
     (id: string) => {

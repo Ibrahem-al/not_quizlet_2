@@ -24,6 +24,16 @@ React 19, TypeScript (strict), Vite 7, Tailwind CSS 4, Zustand, React Query, Dex
 - `src/components/modes/games/` - Game modes
 - `src/pages/SharedSetPage.tsx` - Read-only shared set view (no auth required)
 - `src/pages/SharedStudyPage.tsx` - Study modes for shared sets
+- `src/routes.ts` - Lazy page components with `preload()` (prefetch on hover/idle)
+- `src/components/modes/registry.ts` - Lazy study-mode/game registry shared by all study pages
+- `src/lib/cloudBootstrap.ts` - App-level cloud pull (on sign-in / tab refocus), not per page
+- `src/components/games/GameKit.tsx` + `gameLogic.ts` - Shared game HUD, answer tiles, countdown, results, combo scoring
+- `src/lib/gameQuestions.ts`, `src/lib/gameRecords.ts` - Quiz question builder; per-set personal bests
+
+## Sync Rules (keep DB calls low)
+- `pullSetsFromCloud` is a delta sync: small manifest query, full rows only for changed sets.
+- Store loads hydrate IndexedDB once per session; cloud pulls are deduped and throttled (60s per user). Pages may call `loadSets()` freely.
+- Study-progress writes pass `updateSet(set, { background: true })` (30s coalesce). Never upsert sets directly — go through `syncEngine`.
 
 ## Supabase Schema
 - DB uses snake_case columns; app uses camelCase. Mapping is in `src/lib/cloudSync.ts` (rowToSet/setToRow).

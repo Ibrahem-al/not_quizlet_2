@@ -618,7 +618,7 @@ function TestMode({ cards, setId, exitUrl }: TestModeProps) {
         const updatedCards = studySet.cards.map((c) =>
           c.id === updatedCard.id ? updatedCard : c,
         );
-        updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() });
+        updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() }, { background: true });
       }
     },
     [currentIndex, currentQuestion, sets, setId, updateSet],

@@ -190,7 +190,7 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
         const updatedCards = studySet.cards.map((c) =>
           c.id === updatedCard.id ? updatedCard : c,
         );
-        updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() });
+        updateSet({ ...studySet, cards: updatedCards, updatedAt: Date.now() }, { background: true });
       }
 
       // Missed questions (quality 1 = answered wrong) queue up for one

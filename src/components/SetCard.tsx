@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { SetDetailPage } from '@/routes';
 import { Trash2 } from 'lucide-react';
 import type { StudySet } from '@/types';
 import { Card } from '@/components/ui/Card';
@@ -35,6 +35,10 @@ function SetCard({ set, onDelete }: SetCardProps) {
     navigate(`/sets/${set.id}`);
   }, [navigate, set.id]);
 
+  const preloadDetail = useCallback(() => {
+    void SetDetailPage.preload();
+  }, []);
+
   const handleDelete = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
@@ -50,8 +54,19 @@ function SetCard({ set, onDelete }: SetCardProps) {
 
   return (
     <>
-      <motion.div layoutId={set.id}>
-        <Card hover onClick={handleClick} className="relative group">
+      {/* Fetch the editor chunk on hover/focus so the click opens instantly */}
+      <div onMouseEnter={preloadDetail} onFocus={preloadDetail}>
+        <Card
+          hover
+          onClick={handleClick}
+          className="relative group"
+          role="link"
+          tabIndex={0}
+          aria-label={`Open ${set.title || 'untitled set'}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target === e.currentTarget) handleClick();
+          }}
+        >
           <div className="flex items-start justify-between gap-2">
             <h3
               className="text-base font-semibold truncate"
@@ -118,7 +133,7 @@ function SetCard({ set, onDelete }: SetCardProps) {
             </div>
           )}
         </Card>
-      </motion.div>
+      </div>
 
       <Modal
         isOpen={showDeleteModal}

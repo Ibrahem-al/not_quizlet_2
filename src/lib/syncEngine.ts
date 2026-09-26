@@ -44,7 +44,7 @@ type QueueItem =
 
 /** Latest write wins per item id — rapid edits coalesce into one push. */
 const queue = new Map<string, QueueItem>();
-const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const timers = new Map<string, { handle: ReturnType<typeof setTimeout>; due: number }>();
 const retryCounts = new Map<string, number>();
 /** Keys with a push currently awaiting the network — used to serialize
  *  per-item pushes so an older payload can never land after a newer one. */
@@ -54,6 +54,11 @@ const inFlight = new Set<string>();
 const exhausted = new Set<string>();
 
 const COALESCE_MS = 2000;
+/** Study-progress writes (spaced-repetition stats after every answer) upsert
+ *  the whole set row, so they coalesce much longer: a study session costs one
+ *  push per ~30s instead of one per answer. Pending pushes still flush when
+ *  the tab is hidden, and the pull-merge uploads anything left behind. */
+const BACKGROUND_COALESCE_MS = 30_000;
 const MAX_RETRIES = 4;
 
 function recomputeStatus(): void {
@@ -164,34 +169,50 @@ async function processKey(key: string): Promise<void> {
   }
 }
 
-function scheduleKey(key: string, delay: number): void {
+/** Schedule a push for `key`. With `keepEarlier`, an already-scheduled push
+ *  that is due sooner is left alone — so a slow background write can never
+ *  postpone a pending edit, and a burst of writes pushes within a bounded
+ *  time instead of being debounced indefinitely. */
+function scheduleKey(key: string, delay: number, keepEarlier = false): void {
+  const due = Date.now() + delay;
   const existing = timers.get(key);
-  if (existing) clearTimeout(existing);
-  timers.set(
-    key,
-    setTimeout(() => {
+  if (existing) {
+    if (keepEarlier && existing.due <= due) return;
+    clearTimeout(existing.handle);
+  }
+  timers.set(key, {
+    due,
+    handle: setTimeout(() => {
       timers.delete(key);
       void processKey(key);
     }, delay),
-  );
+  });
 }
 
-function enqueue(item: QueueItem): void {
+function enqueue(item: QueueItem, delay: number): void {
   if (!isSupabaseConfigured()) return;
   const key = `${item.kind}:${item.payload.id}`;
   queue.set(key, item);
   retryCounts.delete(key); // fresh content resets the backoff
   exhausted.delete(key);
   recomputeStatus();
-  scheduleKey(key, COALESCE_MS);
+  scheduleKey(key, delay, true);
 }
 
-export function queueSetSync(set: StudySet, userId: string): void {
-  enqueue({ kind: 'set', payload: set, userId });
+export interface QueueOptions {
+  /** Coalesce for BACKGROUND_COALESCE_MS instead of COALESCE_MS. */
+  background?: boolean;
+}
+
+export function queueSetSync(set: StudySet, userId: string, options?: QueueOptions): void {
+  enqueue(
+    { kind: 'set', payload: set, userId },
+    options?.background ? BACKGROUND_COALESCE_MS : COALESCE_MS,
+  );
 }
 
 export function queueFolderSync(folder: Folder, userId: string): void {
-  enqueue({ kind: 'folder', payload: folder, userId });
+  enqueue({ kind: 'folder', payload: folder, userId }, COALESCE_MS);
 }
 
 /** Drop any queued (not yet in-flight) push for a deleted item so the
@@ -203,7 +224,7 @@ export function cancelSync(kind: 'set' | 'folder', id: string): void {
   retryCounts.delete(key);
   const timer = timers.get(key);
   if (timer) {
-    clearTimeout(timer);
+    clearTimeout(timer.handle);
     timers.delete(key);
   }
   recomputeStatus();
@@ -227,4 +248,14 @@ if (typeof window !== 'undefined') {
   window.addEventListener('offline', () => {
     reportStatus({ state: 'offline' });
   });
+  // Push coalesced writes (e.g. study progress) before the tab may be frozen
+  // or closed. Anything that still doesn't land is recovered by the next
+  // pull-merge, since IndexedDB holds the newer copy.
+  const flushPending = () => {
+    if (queue.size > 0) flushSyncQueue();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPending();
+  });
+  window.addEventListener('pagehide', flushPending);
 }

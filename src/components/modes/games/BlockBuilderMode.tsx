@@ -1,25 +1,36 @@
-import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import {
-  motion,
-  AnimatePresence,
-  useReducedMotion,
-  useAnimationControls,
-} from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence, useReducedMotion, useAnimationControls } from 'framer-motion';
 import type { Card, QuestionType, AnswerDirection } from '@/types';
 import { useNavigate } from 'react-router-dom';
-import { shuffleArray, stripHtml, normalizeAnswer, fairRepeatCards } from '@/lib/utils';
-import {
-  buildEquivalenceGroups,
-  getEquivalentAnswers,
-  getWrongOptionPool,
-  getWrongTermPool,
-  gradeWrittenAnswer,
-} from '@/lib/equivalence';
-import { Button } from '@/components/ui/Button';
-import StudyContent from '@/components/StudyContent';
+import { fairRepeatCards } from '@/lib/utils';
+import { buildEquivalenceGroups } from '@/lib/equivalence';
+import { buildGameQuestion, gradeGameAnswer, type GameQuestion } from '@/lib/gameQuestions';
+import { submitScore } from '@/lib/gameRecords';
 import { playSound } from '@/lib/gameSounds';
-import { SoundToggle } from '@/components/SoundToggle';
+import { Button } from '@/components/ui/Button';
+import { Mascot, type MascotMood } from '@/components/games/Mascot';
+import { ScorePopups } from '@/components/games/ScorePopup';
+import {
+  ChoicePills,
+  ComboMeter,
+  Countdown,
+  EscBanner,
+  GameTopBar,
+  PlayButton,
+  QuestionPanel,
+  ResultsPanel,
+  ScoreCounter,
+  SetupSection,
+  type Feedback,
+} from '@/components/games/GameKit';
+import {
+  celebrate,
+  comboMultiplier,
+  formatMultiplier,
+  useAnswerKeys,
+  useEscToQuit,
+  usePopups,
+} from '@/components/games/gameLogic';
 
 interface BlockBuilderModeProps {
   cards: Card[];
@@ -28,1155 +39,626 @@ interface BlockBuilderModeProps {
 }
 
 type Difficulty = 'easy' | 'medium' | 'hard';
-type GameState = 'playing' | 'won' | 'lost';
 
 interface DifficultySettings {
+  /** Blocks knocked off the top by a wrong answer. */
   blockPenalty: number;
+  /** Lava rise per wrong answer, in block units. */
   lavaRise: number;
   scoreMultiplier: number;
 }
 
 const DIFFICULTY_MAP: Record<Difficulty, DifficultySettings> = {
-  easy: { blockPenalty: 0, lavaRise: 20, scoreMultiplier: 1 },
-  medium: { blockPenalty: 1, lavaRise: 30, scoreMultiplier: 1.5 },
-  hard: { blockPenalty: 2, lavaRise: 40, scoreMultiplier: 2 },
+  easy: { blockPenalty: 0, lavaRise: 0.5, scoreMultiplier: 1 },
+  medium: { blockPenalty: 1, lavaRise: 0.75, scoreMultiplier: 1.5 },
+  hard: { blockPenalty: 2, lavaRise: 1, scoreMultiplier: 2 },
 };
 
-/** Height of one tower block in px; each correct answer adds one block. */
-const BLOCK_HEIGHT = 40;
-/**
- * Lava grace buffer: the player only loses once lava reaches tower height +
- * this buffer. Without it, the first wrong answer on a height-0 tower would
- * end the game instantly on every difficulty.
- */
-const LAVA_GRACE = 2 * BLOCK_HEIGHT;
+/** You lose once lava reaches the tower top plus this many blocks. Without a
+ *  buffer the first wrong answer on an empty tower would end every game. */
+const LAVA_GRACE = 2;
+/** Block units visible in the scene; the camera follows taller towers. */
+const VISIBLE_UNITS = 11;
+/** Share of the questions you must stack to reach the summit. */
+const SUMMIT_SHARE = 0.7;
+
+const BRICK_COLORS = ['#e8804a', '#f2b33d', '#4fa3e0', '#6cbf73', '#a98be0', '#e86f8a'];
+
+// Scene art — fixed colors so the sky/volcano read the same in both themes.
+const SCENE = {
+  skyTop: '#7cc8f6',
+  skyBottom: '#dff3ff',
+  far: '#9cc4dd',
+  near: '#6f98b3',
+  rock: '#4a3b35',
+  lava: ['#fff1b8', '#ffb020', '#f0592a', '#b3201d'],
+};
 
 interface GameConfig {
   difficulty: Difficulty;
   questionTypes: QuestionType[];
   direction: AnswerDirection;
   questionCount: number;
-  isInfinite: boolean;
+  endless: boolean;
 }
 
-interface GameQuestion {
-  card: Card;
-  type: QuestionType;
-  promptHtml: string;
-  correctAnswers: string[];
-  options?: string[];
-  tfPair?: { term: string; definition: string; isCorrect: boolean };
+function buildQuestions(cards: Card[], groups: Map<string, Card[]>, config: GameConfig, offset = 0): GameQuestion[] {
+  const count = config.endless ? Math.max(20, cards.length) : config.questionCount;
+  return fairRepeatCards(cards, count).map((card, i) =>
+    buildGameQuestion(card, cards, groups, config.questionTypes[(offset + i) % config.questionTypes.length], config.direction, offset + i),
+  );
 }
 
-function buildGameQuestions(
-  cards: Card[],
-  config: GameConfig,
-): GameQuestion[] {
-  const groups = buildEquivalenceGroups(cards);
-  const count = config.isInfinite ? cards.length * 3 : config.questionCount;
-  const selected = fairRepeatCards(cards, count);
-  const questions: GameQuestion[] = [];
-  const types = config.questionTypes;
+// ---------- Setup ----------
 
-  for (let i = 0; i < selected.length; i++) {
-    const card = selected[i];
-    const type = types[i % types.length];
-    const isReverse =
-      config.direction === 'def-to-term' ||
-      (config.direction === 'both' && i % 2 === 1);
+function ConfigScreen({ onStart, cardCount }: { onStart: (config: GameConfig) => void; cardCount: number }) {
+  const [difficulty, setDifficulty] = useState<Difficulty>('medium');
+  const [types, setTypes] = useState<QuestionType[]>(['multiple-choice', 'true-false', 'written']);
+  const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
+  const [length, setLength] = useState<number | 'endless'>(Math.min(10, Math.max(5, cardCount)));
 
-    const promptHtml = isReverse ? card.definition : card.term;
-    const correctAnswers = isReverse
-      ? [card.term]
-      : getEquivalentAnswers(card, 'definition', groups);
+  const toggleType = (type: QuestionType) =>
+    setTypes((prev) => (prev.includes(type) ? (prev.length > 1 ? prev.filter((t) => t !== type) : prev) : [...prev, type]));
 
-    if (type === 'multiple-choice') {
-      const wrongPool = isReverse
-        ? getWrongTermPool(card, cards, groups)
-        : getWrongOptionPool(card, cards, groups);
-      const wrongs = shuffleArray(wrongPool).slice(0, 3);
-      if (wrongs.length < 1) {
-        questions.push({ card, type: 'written', promptHtml, correctAnswers });
-        continue;
-      }
-      const correctDef = isReverse ? card.term : card.definition;
-      const options = shuffleArray([correctDef, ...wrongs]);
-      questions.push({ card, type: 'multiple-choice', promptHtml, correctAnswers, options });
-    } else if (type === 'true-false') {
-      const isCorrect = Math.random() > 0.5;
-      let shownDef = isReverse ? card.term : card.definition;
-      if (!isCorrect) {
-        const wrongPool = isReverse
-          ? getWrongTermPool(card, cards, groups)
-          : getWrongOptionPool(card, cards, groups);
-        if (wrongPool.length > 0) {
-          shownDef = shuffleArray(wrongPool)[0];
-        }
-      }
-      questions.push({
-        card,
-        type: 'true-false',
-        promptHtml,
-        correctAnswers,
-        tfPair: {
-          term: isReverse ? card.definition : card.term,
-          definition: shownDef,
-          isCorrect: isCorrect || correctAnswers.some((a) => normalizeAnswer(a) === normalizeAnswer(shownDef)),
-        },
-      });
-    } else {
-      questions.push({ card, type: 'written', promptHtml, correctAnswers });
-    }
-  }
+  const lengths: (number | 'endless')[] = [5, 10, 15, 20, 'endless'];
 
-  return questions;
-}
-
-// --- Shared presentation helpers (suite art direction) ---
-
-/** Soft aurora blobs — GPU-friendly, low-opacity, token-driven background. */
-function AuroraBackground({ reduce }: { reduce: boolean }) {
-  const blobs = [
-    { tone: 'var(--color-primary)', top: '-10%', left: '-8%', size: 380 },
-    { tone: 'var(--color-warning)', top: '35%', left: '65%', size: 320 },
-    { tone: 'var(--color-success)', top: '70%', left: '10%', size: 300 },
-  ];
   return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-      style={{ zIndex: 0, borderRadius: 'inherit' }}
-    >
-      {blobs.map((b, i) => (
-        <motion.div
-          key={i}
-          className="absolute"
-          style={{
-            top: b.top,
-            left: b.left,
-            width: b.size,
-            height: b.size,
-            borderRadius: 'var(--radius-full)',
-            background: `radial-gradient(circle at 50% 50%, ${b.tone} 0%, transparent 70%)`,
-            opacity: 0.14,
-            filter: 'blur(48px)',
-            willChange: 'transform',
-          }}
-          animate={
-            reduce
-              ? undefined
-              : {
-                  x: [0, i % 2 === 0 ? 30 : -30, 0],
-                  y: [0, i % 2 === 0 ? -24 : 24, 0],
-                  scale: [1, 1.08, 1],
-                }
-          }
-          transition={
-            reduce
-              ? undefined
-              : { duration: 14 + i * 3, repeat: Infinity, ease: 'easeInOut' }
-          }
-        />
-      ))}
+    <div className="max-w-xl mx-auto px-4 py-8">
+      <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
+        <SceneBackdrop compact>
+          <div className="flex items-end justify-center gap-3 h-full pb-4">
+            <Mascot mood="happy" color="#f2b33d" accessory="hardhat" size={84} />
+            <div className="pb-3 text-left">
+              <h2 className="text-3xl font-extrabold" style={{ color: '#17324a', fontFamily: 'var(--font-display)' }}>
+                Block Builder
+              </h2>
+              <p className="text-sm font-semibold" style={{ color: '#2d5575' }}>
+                Every right answer stacks a brick. Wrong ones raise the lava.
+              </p>
+            </div>
+          </div>
+        </SceneBackdrop>
+        <div className="p-6 flex flex-col gap-6" style={{ background: 'var(--color-surface)' }}>
+          <SetupSection label="Difficulty">
+            <ChoicePills
+              options={[
+                { value: 'easy', label: 'Easy' },
+                { value: 'medium', label: 'Medium ×1.5' },
+                { value: 'hard', label: 'Hard ×2' },
+              ]}
+              isSelected={(v) => v === difficulty}
+              onToggle={setDifficulty}
+              accent="#e8804a"
+            />
+          </SetupSection>
+          <SetupSection label="Questions">
+            <ChoicePills
+              options={lengths.map((l) => ({ value: String(l), label: l === 'endless' ? 'Endless' : String(l) }))}
+              isSelected={(v) => v === String(length)}
+              onToggle={(v) => setLength(v === 'endless' ? 'endless' : Number(v))}
+              accent="#e8804a"
+            />
+          </SetupSection>
+          <SetupSection label="Question types">
+            <ChoicePills
+              options={[
+                { value: 'multiple-choice', label: 'Multiple choice' },
+                { value: 'true-false', label: 'True or false' },
+                { value: 'written', label: 'Written' },
+              ]}
+              isSelected={(v) => types.includes(v)}
+              onToggle={toggleType}
+              accent="#e8804a"
+            />
+          </SetupSection>
+          <SetupSection label="Answer with">
+            <ChoicePills
+              options={[
+                { value: 'term-to-def', label: 'Definitions' },
+                { value: 'def-to-term', label: 'Terms' },
+                { value: 'both', label: 'Both' },
+              ]}
+              isSelected={(v) => v === direction}
+              onToggle={setDirection}
+              accent="#e8804a"
+            />
+          </SetupSection>
+          <PlayButton
+            color="#e8804a"
+            onClick={() =>
+              onStart({
+                difficulty,
+                questionTypes: types,
+                direction,
+                questionCount: length === 'endless' ? 0 : length,
+                endless: length === 'endless',
+              })
+            }
+          >
+            Start building
+          </PlayButton>
+        </div>
+      </div>
     </div>
   );
 }
 
-/** Rounded stat chip used across the suite header. */
-function Pill({
-  children,
-  tone = 'default',
-}: {
-  children: ReactNode;
-  tone?: 'primary' | 'success' | 'warning' | 'default';
-}) {
-  const color =
-    tone === 'primary'
-      ? 'var(--color-primary)'
-      : tone === 'success'
-        ? 'var(--color-success)'
-        : tone === 'warning'
-          ? 'var(--color-warning)'
-          : 'var(--color-text-secondary)';
+// ---------- Scene ----------
+
+function SceneBackdrop({ children, compact, danger }: { children?: React.ReactNode; compact?: boolean; danger?: boolean }) {
   return (
     <div
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold"
+      className="relative overflow-hidden"
       style={{
-        background: 'var(--color-surface-raised)',
-        color,
-        borderRadius: 'var(--radius-full)',
-        boxShadow: 'var(--shadow-xs)',
-        border: '1px solid var(--color-border-light)',
+        height: compact ? 150 : '100%',
+        background: `linear-gradient(180deg, ${SCENE.skyTop}, ${SCENE.skyBottom})`,
       }}
     >
-      {children}
+      <div aria-hidden className="bb-cloud" style={{ top: '14%', animationDuration: '38s' }} />
+      <div aria-hidden className="bb-cloud" style={{ top: '34%', animationDuration: '52s', animationDelay: '-20s', transform: 'scale(0.7)' }} />
+      <svg aria-hidden className="absolute bottom-0 left-0 w-full" viewBox="0 0 400 120" preserveAspectRatio="none" style={{ height: '45%' }}>
+        <path d="M0 120 L0 70 L60 30 L110 62 L170 18 L230 60 L290 26 L350 66 L400 40 L400 120 Z" fill={SCENE.far} />
+        <path d="M0 120 L0 92 L80 58 L150 88 L220 50 L300 90 L360 70 L400 84 L400 120 Z" fill={SCENE.near} />
+      </svg>
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none transition-opacity duration-500"
+        style={{ boxShadow: 'inset 0 0 80px 10px rgba(229,56,40,0.55)', opacity: danger ? 1 : 0 }}
+      />
+      <div className="absolute inset-0">{children}</div>
     </div>
   );
 }
 
-// --- Config Screen ---
-
-function ConfigScreen({
-  onStart,
-  reduce,
+function TowerScene({
+  blocks,
+  lavaUnits,
+  summitUnits,
+  mood,
+  popups,
+  onPopupDone,
 }: {
-  onStart: (config: GameConfig) => void;
-  reduce: boolean;
+  blocks: number[];
+  lavaUnits: number;
+  summitUnits: number | null;
+  mood: MascotMood;
+  popups: ReturnType<typeof usePopups>['popups'];
+  onPopupDone: (id: number) => void;
 }) {
-  const [difficulty, setDifficulty] = useState<Difficulty>('medium');
-  const [types, setTypes] = useState<QuestionType[]>(['written', 'multiple-choice', 'true-false']);
-  const [direction, setDirection] = useState<AnswerDirection>('term-to-def');
-  const [questionCount, setQuestionCount] = useState(10);
-  const [isInfinite, setIsInfinite] = useState(false);
-
-  const toggleType = (type: QuestionType) => {
-    setTypes((prev) =>
-      prev.includes(type)
-        ? prev.length > 1 ? prev.filter((t) => t !== type) : prev
-        : [...prev, type],
-    );
-  };
+  const reduce = useReducedMotion();
+  const tower = blocks.length;
+  // Camera: once the tower passes 7 blocks, scroll so its top stays in view.
+  const camBase = Math.max(0, tower - 7);
+  const unitPct = 100 / VISIBLE_UNITS;
+  const toPct = (units: number) => (units - camBase) * unitPct;
+  const danger = lavaUnits >= tower + LAVA_GRACE - 1;
+  const lavaPct = Math.max(0, Math.min(100, toPct(Math.min(lavaUnits, tower + LAVA_GRACE))));
 
   return (
-    <div className="relative max-w-lg mx-auto px-4 py-8">
-      <AuroraBackground reduce={reduce} />
-      <motion.div
-        className="relative"
-        style={{ zIndex: 10 }}
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 18 }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 260, damping: 26 }}
-      >
-        <div className="flex flex-col items-center mb-6">
-          <div className="text-4xl mb-1" aria-hidden>🧱</div>
-          <h2 className="text-2xl font-bold text-center" style={{ color: 'var(--color-text)' }}>
-            Block Builder
-          </h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            Stack blocks above the rising lava and reach the summit.
-          </p>
+    <SceneBackdrop danger={danger}>
+      {/* Summit flag */}
+      {summitUnits !== null && toPct(summitUnits) <= 100 && (
+        <div className="absolute left-0 right-0" style={{ bottom: `${toPct(summitUnits)}%`, zIndex: 2 }}>
+          <div className="border-t-[3px] border-dashed" style={{ borderColor: 'rgba(23,50,74,0.55)' }} />
+          <div className="absolute right-3 bottom-0 flex items-end">
+            <div style={{ width: 3, height: 34, background: '#17324a' }} />
+            <motion.div
+              className="origin-left"
+              animate={reduce ? undefined : { skewY: [0, -8, 0] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+              style={{ width: 26, height: 18, background: '#e5484d', marginBottom: 16, clipPath: 'polygon(0 0, 100% 50%, 0 100%)' }}
+            />
+          </div>
+          <span className="absolute left-3 -top-6 text-xs font-extrabold" style={{ color: '#17324a', fontFamily: 'var(--font-display)' }}>
+            Summit
+          </span>
         </div>
+      )}
 
-        <div
-          className="p-6 space-y-6"
-          style={{
-            background: 'var(--color-surface)',
-            boxShadow: 'var(--shadow-card)',
-            borderRadius: 'var(--radius-xl)',
-            border: '1px solid var(--color-border-light)',
-          }}
-        >
-          {/* Difficulty */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Difficulty
-            </label>
-            <div className="flex gap-2">
-              {(['easy', 'medium', 'hard'] as Difficulty[]).map((d) => (
-                <motion.button
-                  key={d}
-                  onClick={() => setDifficulty(d)}
-                  whileTap={reduce ? undefined : { scale: 0.96 }}
-                  whileHover={reduce ? undefined : { scale: 1.03 }}
-                  className="flex-1 px-4 py-2 text-sm font-medium cursor-pointer capitalize"
-                  style={{
-                    background: difficulty === d ? 'var(--color-primary)' : 'var(--color-muted)',
-                    color: difficulty === d ? 'white' : 'var(--color-text)',
-                    borderRadius: 'var(--radius-md)',
-                    border: 'none',
-                  }}
-                >
-                  {d}
-                </motion.button>
-              ))}
-            </div>
-          </div>
+      {/* Rock base (only when the camera is at ground level) */}
+      {camBase === 0 && (
+        <div className="absolute left-0 right-0 bottom-0" style={{ height: `${unitPct * 0.35}%`, background: SCENE.rock, zIndex: 1 }} />
+      )}
 
-          {/* Question types */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Question Types
-            </label>
-            <div className="flex flex-col gap-2">
-              {([
-                ['written', 'Written'],
-                ['multiple-choice', 'Multiple Choice'],
-                ['true-false', 'True / False'],
-              ] as [QuestionType, string][]).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--color-text)' }}>
-                  <input
-                    type="checkbox"
-                    checked={types.includes(value)}
-                    onChange={() => toggleType(value)}
-                    style={{ accentColor: 'var(--color-primary)' }}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Direction */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Direction
-            </label>
-            <div className="flex flex-col gap-2">
-              {([
-                ['term-to-def', 'Term → Definition'],
-                ['def-to-term', 'Definition → Term'],
-                ['both', 'Both'],
-              ] as [AnswerDirection, string][]).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--color-text)' }}>
-                  <input
-                    type="radio"
-                    name="direction"
-                    checked={direction === value}
-                    onChange={() => setDirection(value)}
-                    style={{ accentColor: 'var(--color-primary)' }}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Question count */}
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-              Question Count
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setQuestionCount((c) => Math.max(1, c - 1))}
-                disabled={isInfinite}
-                className="w-8 h-8 text-lg font-bold cursor-pointer"
+      {/* Tower */}
+      <div className="absolute inset-0" style={{ zIndex: 3 }}>
+        <AnimatePresence>
+          {blocks.map((id, i) => {
+            if (i < camBase - 1) return null;
+            const color = BRICK_COLORS[id % BRICK_COLORS.length];
+            const jitter = ((id * 37) % 9) - 4;
+            return (
+              <motion.div
+                key={id}
+                className="absolute rounded-md"
+                initial={reduce ? { opacity: 0 } : { opacity: 0, y: -160, rotate: jitter * 2 }}
+                animate={{ opacity: 1, y: 0, rotate: 0 }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, y: 40, rotate: jitter * 6, transition: { duration: 0.35 } }}
+                transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 520, damping: 16, mass: 0.9 }}
                 style={{
-                  background: 'var(--color-muted)',
-                  color: 'var(--color-text)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-md)',
-                  opacity: isInfinite ? 0.4 : 1,
-                }}
-              >
-                -
-              </button>
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={isInfinite ? '' : questionCount}
-                onChange={(e) => setQuestionCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                disabled={isInfinite}
-                placeholder={isInfinite ? '∞' : ''}
-                className="w-20 px-3 py-2 text-sm text-center outline-none"
-                style={{
-                  background: 'var(--color-muted)',
-                  color: 'var(--color-text)',
-                  border: '2px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  opacity: isInfinite ? 0.4 : 1,
+                  left: `calc(50% - 26% + ${jitter}px)`,
+                  width: '52%',
+                  bottom: `calc(${toPct(i + 0.35)}% + 1px)`,
+                  height: `calc(${unitPct}% - 3px)`,
+                  boxShadow: 'inset 0 -4px 0 rgba(0,0,0,0.18), 0 2px 0 rgba(0,0,0,0.15)',
+                  // top highlight + a center mortar joint
+                  backgroundImage: `linear-gradient(90deg, transparent 49%, rgba(0,0,0,0.12) 49% 51%, transparent 51%), linear-gradient(180deg, color-mix(in srgb, ${color} 75%, white) 0 18%, ${color} 18% 100%)`,
                 }}
               />
-              <button
-                onClick={() => setQuestionCount((c) => c + 1)}
-                disabled={isInfinite}
-                className="w-8 h-8 text-lg font-bold cursor-pointer"
-                style={{
-                  background: 'var(--color-muted)',
-                  color: 'var(--color-text)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-md)',
-                  opacity: isInfinite ? 0.4 : 1,
-                }}
-              >
-                +
-              </button>
-              <label className="flex items-center gap-2 cursor-pointer text-sm ml-2" style={{ color: 'var(--color-text)' }}>
-                <input
-                  type="checkbox"
-                  checked={isInfinite}
-                  onChange={() => setIsInfinite((v) => !v)}
-                  style={{ accentColor: 'var(--color-primary)' }}
-                />
-                Infinity
-              </label>
-            </div>
-          </div>
+            );
+          })}
+        </AnimatePresence>
 
-          <Button
-            variant="primary"
-            className="w-full"
-            onClick={() => onStart({ difficulty, questionTypes: types, direction, questionCount, isInfinite })}
-          >
-            Start Game
-          </Button>
-        </div>
+        {/* Mascot rides the top of the tower */}
+        <motion.div
+          className="absolute left-1/2"
+          style={{ x: '-50%', zIndex: 4 }}
+          initial={false}
+          animate={{ bottom: `calc(${toPct(tower + 0.35)}% - 6px)` }}
+          transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 20 }}
+        >
+          <Mascot mood={mood} color="#f2b33d" accessory="hardhat" size={66} />
+        </motion.div>
+      </div>
+
+      {/* Lava */}
+      <motion.div
+        aria-hidden
+        className="absolute left-0 right-0 bottom-0 overflow-visible"
+        style={{
+          zIndex: 5,
+          background: `linear-gradient(180deg, ${SCENE.lava[1]} 0%, ${SCENE.lava[2]} 35%, ${SCENE.lava[3]} 100%)`,
+        }}
+        initial={false}
+        animate={{ height: `${lavaPct}%` }}
+        transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 80, damping: 16 }}
+      >
+        {lavaPct > 0 && (
+          <>
+            <div className="bb-lava-surface" />
+            <span className="bb-bubble" style={{ left: '18%', animationDelay: '0s' }} />
+            <span className="bb-bubble" style={{ left: '52%', animationDelay: '0.9s' }} />
+            <span className="bb-bubble" style={{ left: '78%', animationDelay: '1.6s' }} />
+          </>
+        )}
       </motion.div>
-    </div>
+
+      <ScorePopups popups={popups} onDone={onPopupDone} />
+
+      {/* Height readout */}
+      <div
+        className="absolute top-3 left-3 px-2.5 py-1 rounded-lg text-sm font-extrabold tabular-nums"
+        style={{ background: 'rgba(255,255,255,0.8)', color: '#17324a', fontFamily: 'var(--font-display)', zIndex: 6 }}
+      >
+        {tower}
+        {summitUnits !== null ? ` / ${summitUnits}` : ''} blocks
+      </div>
+    </SceneBackdrop>
   );
 }
 
-// --- Main Game ---
+// ---------- Game ----------
 
 function BlockBuilderMode({ cards, setId, exitUrl }: BlockBuilderModeProps) {
   const navigate = useNavigate();
   const reduce = !!useReducedMotion();
-  const shakeControls = useAnimationControls();
-
-  // CONTRACT A: exit to the caller-provided URL when present, else the private set page.
+  const shake = useAnimationControls();
   const exitTo = exitUrl ?? `/sets/${setId}`;
+  const exit = useCallback(() => navigate(exitTo), [navigate, exitTo]);
+  const groups = useMemo(() => buildEquivalenceGroups(cards), [cards]);
 
-  const [phase, setPhase] = useState<'config' | 'game' | 'results'>('config');
+  const [phase, setPhase] = useState<'config' | 'countdown' | 'game' | 'won' | 'lost'>('config');
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [questions, setQuestions] = useState<GameQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [gameState, setGameState] = useState<GameState>('playing');
+  const [index, setIndex] = useState(0);
+  const [asked, setAsked] = useState(0);
 
-  // Tower & lava state. The tower is an array of monotonically-increasing block
-  // ids so AnimatePresence can key removals to the actual removed blocks.
   const [blocks, setBlocks] = useState<number[]>([]);
   const blockIdRef = useRef(0);
-  const towerHeight = blocks.length * BLOCK_HEIGHT;
-  const [lavaHeight, setLavaHeight] = useState(0);
+  const [lavaUnits, setLavaUnits] = useState(0);
   const [score, setScore] = useState(0);
+  // Read by delayed callbacks (auto-advance), which would otherwise see the
+  // score from before the answer that scheduled them.
+  const scoreRef = useRef(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [totalAnswered, setTotalAnswered] = useState(0);
+  const [correct, setCorrect] = useState(0);
+  const [answered, setAnswered] = useState(0);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [lastPoints, setLastPoints] = useState<number | null>(null);
+  const [ending, setEnding] = useState(false);
+  const [mood, setMood] = useState<MascotMood>('idle');
+  const [best, setBest] = useState<ReturnType<typeof submitScore> | undefined>();
+  const { popups, push, remove } = usePopups();
 
-  // Question UI state
-  const [userAnswer, setUserAnswer] = useState('');
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
-  // True while the final answer's feedback is showing, before gameState flips
-  // to 'won'/'lost' (hides the Next button during that beat).
-  const [isEnding, setIsEnding] = useState(false);
-  // First Escape mid-game arms this banner; a second within 2s exits.
-  const [escArmed, setEscArmed] = useState(false);
-
-  const questionStartTimeRef = useRef(0);
-  const endTimeoutRef = useRef<number | null>(null);
-  const escTimeoutRef = useRef<number | null>(null);
-
-  // Clear pending end/escape timers on unmount.
-  useEffect(() => () => {
-    if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
-    if (escTimeoutRef.current) window.clearTimeout(escTimeoutRef.current);
+  const questionStart = useRef(0);
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const later = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timers.current.delete(t);
+      fn();
+    }, ms);
+    timers.current.add(t);
+  }, []);
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach(clearTimeout);
   }, []);
 
   const settings = config ? DIFFICULTY_MAP[config.difficulty] : DIFFICULTY_MAP.medium;
-  // M7 fix: the win target scales with the real question count so counts 1-4 are
-  // winnable. Each correct answer adds one 40px block, so summitHeight must be
-  // reachable within questionCount blocks. The 200 floor is kept ONLY for the
-  // visual container height (maxVisualHeight below), never for the win target.
-  const summitHeight = config
-    ? (config.isInfinite ? 400 : config.questionCount * 40)
-    : 400;
+  const summitUnits = config && !config.endless ? Math.max(1, Math.ceil(config.questionCount * SUMMIT_SHARE)) : null;
+  const question = questions[index] ?? null;
+  const playing = phase === 'game';
 
-  const currentQuestion = questions[currentIndex] ?? null;
+  const escArmed = useEscToQuit(phase !== 'config', playing, exit);
 
-  // Win/lose stinger when the game ends.
-  useEffect(() => {
-    if (gameState === 'won') playSound('win');
-    else if (gameState === 'lost') playSound('lose');
-  }, [gameState]);
-
-  // Confetti celebration on a win (reduced-motion aware).
-  useEffect(() => {
-    if (gameState !== 'won' || reduce) return;
-    // Read the real primary token at fire time so confetti matches the theme.
-    const primary = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#1b6ca8';
-    const colors = [primary, '#fbbf24', '#f97316', '#22c55e'];
-    const end = Date.now() + 900;
-    let raf = 0;
-    const frame = () => {
-      confetti({ particleCount: 4, angle: 60, spread: 60, startVelocity: 45, origin: { x: 0, y: 0.7 }, colors });
-      confetti({ particleCount: 4, angle: 120, spread: 60, startVelocity: 45, origin: { x: 1, y: 0.7 }, colors });
-      if (Date.now() < end) raf = requestAnimationFrame(frame);
-    };
-    frame();
-    return () => cancelAnimationFrame(raf);
-  }, [gameState, reduce]);
-
-  // CONTRACT A: Escape exits to exitTo (viewer-safe) once the game has started.
-  // Mid-run (playing) the first Escape only arms a "Press Esc again to quit"
-  // banner that auto-dismisses after 2s; a second Escape within that window
-  // exits. On the results screen a single Escape still exits immediately.
-  useEffect(() => {
-    if (phase === 'config') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (phase === 'game' && gameState === 'playing' && !escArmed) {
-        setEscArmed(true);
-        if (escTimeoutRef.current) window.clearTimeout(escTimeoutRef.current);
-        escTimeoutRef.current = window.setTimeout(() => setEscArmed(false), 2000);
-        return;
-      }
-      navigate(exitTo);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [phase, gameState, escArmed, navigate, exitTo]);
-
-  const resetQuestionState = () => {
-    setUserAnswer('');
-    setSelectedOption(null);
-    setFeedback(null);
-  };
-
-  const handleStart = useCallback((cfg: GameConfig) => {
-    const q = buildGameQuestions(cards, cfg);
-    setConfig(cfg);
-    setQuestions(q);
-    setCurrentIndex(0);
-    setGameState('playing');
-    setBlocks([]);
-    blockIdRef.current = 0;
-    setIsEnding(false);
-    setEscArmed(false);
-    if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
-    setLavaHeight(0);
-    setScore(0);
-    setStreak(0);
-    setMaxStreak(0);
-    setCorrectCount(0);
-    setTotalAnswered(0);
-    resetQuestionState();
-    questionStartTimeRef.current = Date.now();
-    setPhase('game');
-  }, [cards]);
-
-  const processAnswer = useCallback((isCorrect: boolean) => {
-    const timeSpent = (Date.now() - questionStartTimeRef.current) / 1000;
-    setTotalAnswered((t) => t + 1);
-    playSound(isCorrect ? 'correct' : 'wrong');
-
-    if (isCorrect) {
-      setCorrectCount((c) => c + 1);
-      const newStreak = streak + 1;
-      setStreak(newStreak);
-      setMaxStreak((m) => Math.max(m, newStreak));
-
-      // Score calculation
-      const speedBonus = Math.max(0, Math.min(50, 50 * (1 - timeSpent / 15)));
-      const streakMult = Math.min(2, 1 + (newStreak - 1) * 0.1);
-      const points = Math.round((100 + speedBonus) * streakMult * settings.scoreMultiplier);
-      setScore((s) => s + points);
-
-      // Add block (new stable id)
-      const newBlocks = [...blocks, blockIdRef.current++];
-      setBlocks(newBlocks);
-      const newHeight = newBlocks.length * BLOCK_HEIGHT;
-
-      // Check win — show the final answer's feedback first, then end after a beat.
-      if (newHeight >= summitHeight) {
-        setFeedback('correct');
-        setIsEnding(true);
-        if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
-        endTimeoutRef.current = window.setTimeout(() => setGameState('won'), 900);
-        return;
-      }
-    } else {
+  const start = useCallback(
+    (cfg: GameConfig) => {
+      timers.current.forEach(clearTimeout);
+      timers.current.clear();
+      setConfig(cfg);
+      setQuestions(buildQuestions(cards, groups, cfg));
+      setIndex(0);
+      setAsked(1);
+      setBlocks([]);
+      blockIdRef.current = 0;
+      setLavaUnits(0);
+      setScore(0);
+      scoreRef.current = 0;
       setStreak(0);
-      // Block penalty — remove blocks from the top on medium/hard
-      const newBlocks = settings.blockPenalty > 0
-        ? blocks.slice(0, Math.max(0, blocks.length - settings.blockPenalty))
-        : blocks;
-      setBlocks(newBlocks);
-      const newTower = newBlocks.length * BLOCK_HEIGHT;
+      setMaxStreak(0);
+      setCorrect(0);
+      setAnswered(0);
+      setFeedback(null);
+      setSelected(null);
+      setLastPoints(null);
+      setEnding(false);
+      setMood('idle');
+      setBest(undefined);
+      setPhase('countdown');
+    },
+    [cards, groups],
+  );
 
-      // Lava rises on wrong answers
-      const newLava = lavaHeight + settings.lavaRise;
-      setLavaHeight(newLava);
+  const finish = useCallback(
+    (result: 'won' | 'lost', finalScore: number) => {
+      if (!config) return;
+      const variant = `${config.difficulty}-${config.endless ? 'endless' : config.questionCount}`;
+      setBest(submitScore('block-builder', setId, finalScore, variant));
+      setMood(result === 'won' ? 'celebrate' : 'sad');
+      setPhase(result);
+      playSound(result === 'won' ? 'win' : 'lose');
+    },
+    [config, setId],
+  );
 
-      // Subtle screen shake on a wrong answer (reduced-motion aware).
-      if (!reduce) {
-        shakeControls.start({
-          x: [0, -8, 8, -6, 6, -3, 3, 0],
-          transition: { duration: 0.42, ease: 'easeInOut' },
-        });
-      }
-
-      // Check lose: lava overtakes tower.
-      // L7 fix: the loss line is tower height + LAVA_GRACE (two block heights) —
-      // without the grace buffer the very first wrong answer on a height-0 tower
-      // ended the game instantly on every difficulty. An emptied tower still
-      // loses once lava climbs through the buffer. This branch only runs on an
-      // answer, so "at least one answer" always holds. The final feedback shows
-      // first; gameState flips to 'lost' after a beat.
-      if (newLava >= newTower + LAVA_GRACE) {
-        setFeedback('wrong');
-        setIsEnding(true);
-        if (endTimeoutRef.current) window.clearTimeout(endTimeoutRef.current);
-        endTimeoutRef.current = window.setTimeout(() => setGameState('lost'), 900);
-        return;
-      }
+  useEffect(() => {
+    if (phase === 'won' || (phase === 'lost' && config?.endless && blocks.length >= 10)) {
+      return celebrate(['#e8804a', '#f2b33d', '#4fa3e0', '#6cbf73']);
     }
-
-    setFeedback(isCorrect ? 'correct' : 'wrong');
-  }, [streak, blocks, lavaHeight, summitHeight, settings, reduce, shakeControls]);
+  }, [phase, config?.endless, blocks.length]);
 
   const advance = useCallback(() => {
-    let nextIndex = currentIndex + 1;
-    if (nextIndex >= questions.length) {
-      if (config?.isInfinite) {
-        // Generate more questions, trim old ones to prevent unbounded growth.
-        // Both updates are computed here and dispatched sequentially — never
-        // call setState inside another updater.
-        const more = buildGameQuestions(cards, config);
-        const keepCount = 20;
-        if (questions.length > keepCount) {
-          const trimmed = questions.slice(-keepCount);
-          setQuestions([...trimmed, ...more]);
-          // Current question now sits at keepCount - 1; advance past it.
-          nextIndex = keepCount;
-        } else {
-          setQuestions([...questions, ...more]);
-        }
-      } else {
-        // Out of questions but didn't reach summit = lose
-        setGameState('lost');
+    if (!config) return;
+    let next = index + 1;
+    if (next >= questions.length) {
+      if (!config.endless) {
+        finish('lost', scoreRef.current);
         return;
       }
+      // Endless: append a fresh batch, keeping only a short tail.
+      const more = buildQuestions(cards, groups, config, asked);
+      const tail = questions.slice(-10);
+      setQuestions([...tail, ...more]);
+      next = tail.length;
     }
-    setCurrentIndex(nextIndex);
-    resetQuestionState();
-    questionStartTimeRef.current = Date.now();
-  }, [currentIndex, questions, config, cards]);
+    setIndex(next);
+    setAsked((a) => a + 1);
+    setFeedback(null);
+    setSelected(null);
+    setLastPoints(null);
+    setMood('idle');
+    questionStart.current = Date.now();
+  }, [config, index, questions, asked, cards, groups, finish]);
 
-  const checkWritten = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    if (feedback || !userAnswer.trim() || !currentQuestion) return;
-    const isCorrect = gradeWrittenAnswer(userAnswer, currentQuestion.correctAnswers);
-    processAnswer(isCorrect);
-  }, [feedback, userAnswer, currentQuestion, processAnswer]);
+  const answer = useCallback(
+    (isRight: boolean) => {
+      if (!config || feedback) return;
+      const seconds = (Date.now() - questionStart.current) / 1000;
+      setAnswered((a) => a + 1);
 
-  const checkMC = useCallback((option: string) => {
-    if (feedback || !currentQuestion) return;
-    setSelectedOption(option);
-    const isCorrect = currentQuestion.correctAnswers.some(
-      (a) => normalizeAnswer(a) === normalizeAnswer(option),
-    );
-    processAnswer(isCorrect);
-  }, [feedback, currentQuestion, processAnswer]);
+      if (isRight) {
+        playSound('correct');
+        const nextStreak = streak + 1;
+        const mult = comboMultiplier(nextStreak);
+        if (mult > comboMultiplier(streak)) {
+          playSound('combo');
+          push({ text: `${formatMultiplier(mult)} combo!`, color: '#e5484d', x: 38, y: 22 });
+        }
+        const speed = Math.round(Math.max(0, 50 * (1 - seconds / 12)));
+        const points = Math.round((100 + speed) * mult * settings.scoreMultiplier);
+        const newScore = score + points;
+        const newBlocks = [...blocks, blockIdRef.current++];
+        setStreak(nextStreak);
+        setMaxStreak((m) => Math.max(m, nextStreak));
+        setCorrect((c) => c + 1);
+        setScore(newScore);
+        scoreRef.current = newScore;
+        setBlocks(newBlocks);
+        setLastPoints(points);
+        setFeedback('correct');
+        setMood(nextStreak >= 3 ? 'celebrate' : 'happy');
+        push({ text: `+${points}`, color: '#17324a', x: 56, y: 40 });
 
-  const checkTF = useCallback((answer: boolean) => {
-    if (feedback || !currentQuestion) return;
-    const isCorrect = answer === currentQuestion.tfPair?.isCorrect;
-    processAnswer(isCorrect);
-  }, [feedback, currentQuestion, processAnswer]);
+        if (summitUnits !== null && newBlocks.length >= summitUnits) {
+          setEnding(true);
+          later(() => finish('won', newScore), 1100);
+        } else {
+          // Right answers keep the pace up: move on automatically.
+          later(() => advance(), reduce ? 500 : 950);
+        }
+      } else {
+        playSound('wrong');
+        const kept = settings.blockPenalty > 0 ? blocks.slice(0, Math.max(0, blocks.length - settings.blockPenalty)) : blocks;
+        if (kept.length < blocks.length) later(() => playSound('crumble'), 120);
+        const newLava = lavaUnits + settings.lavaRise;
+        setStreak(0);
+        setBlocks(kept);
+        setLavaUnits(newLava);
+        setFeedback('wrong');
+        setLastPoints(null);
+        setMood(newLava >= kept.length + LAVA_GRACE - 1 ? 'worried' : 'sad');
+        if (!reduce) shake.start({ x: [0, -10, 10, -6, 6, 0], transition: { duration: 0.4 } });
 
-  // Keyboard shortcuts while a question is live: 1-4 pick a multiple-choice
-  // option; T/F (or 1/2) answer true-false. Ignored while feedback is showing
-  // or when typing in an input (the written answer field).
+        if (newLava >= kept.length + LAVA_GRACE) {
+          setEnding(true);
+          later(() => finish('lost', scoreRef.current), 1300);
+        }
+      }
+    },
+    [config, feedback, streak, settings, score, blocks, lavaUnits, summitUnits, push, later, finish, advance, reduce, shake],
+  );
+
+  const onWritten = useCallback((text: string) => question && answer(gradeGameAnswer(question, { written: text })), [question, answer]);
+  const onOption = useCallback(
+    (option: string) => {
+      if (!question || feedback) return;
+      setSelected(option);
+      answer(gradeGameAnswer(question, { option }));
+    },
+    [question, feedback, answer],
+  );
+  const onTrueFalse = useCallback((tf: boolean) => question && answer(gradeGameAnswer(question, { tf })), [question, answer]);
+  useAnswerKeys(question, playing && !feedback, onOption, onTrueFalse);
+
+  // Enter moves on after reading a wrong-answer correction.
   useEffect(() => {
-    if (phase !== 'game' || gameState !== 'playing') return;
+    if (!playing || feedback !== 'wrong' || ending) return;
     const onKey = (e: KeyboardEvent) => {
-      if (feedback || !currentQuestion) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-      if (currentQuestion.type === 'multiple-choice' && currentQuestion.options) {
-        const n = parseInt(e.key, 10);
-        if (n >= 1 && n <= currentQuestion.options.length) {
-          e.preventDefault();
-          checkMC(currentQuestion.options[n - 1]);
-        }
-      } else if (currentQuestion.type === 'true-false') {
-        const k = e.key.toLowerCase();
-        if (k === 't' || k === '1') {
-          e.preventDefault();
-          checkTF(true);
-        } else if (k === 'f' || k === '2') {
-          e.preventDefault();
-          checkTF(false);
-        }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        advance();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, gameState, feedback, currentQuestion, checkMC, checkTF]);
+  }, [playing, feedback, ending, advance]);
 
-  const focusRing = useCallback((e: React.FocusEvent<HTMLElement>) => {
-    if (e.currentTarget.matches(':focus-visible')) {
-      e.currentTarget.style.boxShadow = 'var(--shadow-focus)';
-    }
-  }, []);
-  const clearRing = useCallback((e: React.FocusEvent<HTMLElement>) => {
-    e.currentTarget.style.boxShadow = '';
-  }, []);
+  if (phase === 'config') return <ConfigScreen onStart={start} cardCount={cards.length} />;
 
-  if (phase === 'config') {
-    return <ConfigScreen onStart={handleStart} reduce={reduce} />;
-  }
-
-  // Results screen
-  if (gameState === 'won' || gameState === 'lost') {
-    const accuracy = totalAnswered > 0 ? Math.round((correctCount / totalAnswered) * 100) : 0;
-    const won = gameState === 'won';
-
+  if (phase === 'won' || phase === 'lost') {
+    const accuracy = answered > 0 ? Math.round((correct / answered) * 100) : 0;
+    const endless = !!config?.endless;
+    const stars = endless
+      ? blocks.length >= 30 ? 3 : blocks.length >= 18 ? 2 : blocks.length >= 8 ? 1 : 0
+      : phase === 'won' ? (accuracy >= 95 ? 3 : accuracy >= 80 ? 2 : 1) : 0;
     return (
-      <div className="relative max-w-2xl mx-auto px-4 py-8">
-        <AuroraBackground reduce={reduce} />
-        <motion.div
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
-          animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-          transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 240, damping: 24 }}
-          className="relative overflow-hidden p-8 text-center"
-          style={{
-            zIndex: 10,
-            background: 'var(--color-surface)',
-            boxShadow: 'var(--shadow-modal)',
-            borderRadius: 'var(--radius-xl)',
-            border: '1px solid var(--color-border-light)',
-          }}
-        >
-          {/* Loss: lava overtakes the card. Win: nothing behind the content.
-              The lava/loss gradients here and below (plus the tower hsl() blocks)
-              are deliberately theme-independent game art — do not tokenize. */}
-          {!won && (
-            <motion.div
-              aria-hidden
-              className="absolute left-0 right-0 bottom-0"
-              style={{
-                height: '100%',
-                background:
-                  'linear-gradient(0deg, #b91c1c 0%, #ef4444 45%, #f97316 80%, rgba(251,191,36,0) 100%)',
-                opacity: 0.16,
-                zIndex: 0,
-                willChange: 'transform',
-              }}
-              initial={reduce ? { y: '55%' } : { y: '100%' }}
-              animate={{ y: '55%' }}
-              transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 60, damping: 16, delay: 0.15 }}
-            />
-          )}
-
-          <div className="relative" style={{ zIndex: 1 }}>
-            <motion.div
-              className="text-6xl mb-2"
-              aria-hidden
-              initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0, rotate: won ? -35 : 0, y: won ? 10 : 0 }}
-              animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: 0, y: 0 }}
-              transition={reduce ? { duration: 0.2 } : { type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }}
-            >
-              {won ? '🚩' : '🌋'}
-            </motion.div>
-
-            <h2 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
-              {won ? 'Tower Complete!' : 'Lava Wins!'}
-            </h2>
-            <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
-              {won
-                ? 'You built your tower to the summit!'
-                : 'The lava overtook your tower.'}
-            </p>
-
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              {[
-                { value: score, label: 'Score', color: 'var(--color-primary)' },
-                { value: `${accuracy}%`, label: 'Accuracy', color: 'var(--color-success)' },
-                { value: maxStreak, label: 'Best Streak', color: 'var(--color-warning)' },
-                { value: totalAnswered, label: 'Questions', color: 'var(--color-text)' },
-              ].map((stat, i) => (
-                <motion.div
-                  key={stat.label}
-                  className="p-4"
-                  style={{ background: 'var(--color-muted)', borderRadius: 'var(--radius-lg)' }}
-                  initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
-                  animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                  transition={reduce ? { duration: 0.2 } : { delay: 0.2 + i * 0.07, type: 'spring', stiffness: 300, damping: 24 }}
-                >
-                  <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
-                  <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{stat.label}</div>
-                </motion.div>
-              ))}
-            </div>
-
-            <div className="flex gap-3 justify-center">
-              <Button variant="primary" onClick={() => setPhase('config')}>
-                Play Again
-              </Button>
-              <Button variant="outline" onClick={() => navigate(exitTo)}>
-                Exit
-              </Button>
-            </div>
-          </div>
-        </motion.div>
+      <div className="relative min-h-[calc(100dvh-8rem)] flex items-center px-4 pt-24 pb-10">
+        <ResultsPanel
+          mascot={<Mascot mood={phase === 'won' || stars > 0 ? 'celebrate' : 'sad'} color="#f2b33d" accessory="hardhat" size={112} />}
+          title={endless ? `${blocks.length} blocks high` : phase === 'won' ? 'You reached the summit' : 'The lava caught up'}
+          subtitle={
+            endless
+              ? 'Endless run over.'
+              : phase === 'won'
+                ? `${correct} of ${answered} right on the way up.`
+                : 'Review the cards you missed and climb again.'
+          }
+          stars={stars}
+          score={score}
+          best={best}
+          stats={[
+            { label: 'Accuracy', value: `${accuracy}%` },
+            { label: 'Best streak', value: maxStreak },
+            { label: 'Answered', value: answered },
+          ]}
+          actions={
+            <>
+              <Button variant="primary" onClick={() => config && start(config)}>Play again</Button>
+              <Button variant="outline" onClick={() => setPhase('config')}>Change settings</Button>
+              <Button variant="ghost" onClick={exit}>Exit</Button>
+            </>
+          }
+        />
       </div>
     );
   }
 
-  if (!currentQuestion) return null;
-
-  // 200 floor lives here (visual only, via the 400 container) — never in summitHeight.
-  const maxVisualHeight = Math.max(summitHeight, 400);
-  // Clamp RENDERED lava so it never visually exceeds tower height + grace.
-  const lavaPercent = (Math.min(lavaHeight, towerHeight + LAVA_GRACE) / maxVisualHeight) * 100;
-  // Blocks render as a % of the viewport so they stay aligned with the
-  // %-based summit line and lava at any container height (incl. mobile).
-  const blockPercent = (BLOCK_HEIGHT / maxVisualHeight) * 100;
-  const summitPercent = Math.min(95, (summitHeight / maxVisualHeight) * 100);
-  const progressPct = Math.min(100, Math.round((towerHeight / summitHeight) * 100));
-  const nearSummit = summitHeight > 0 && towerHeight >= summitHeight * 0.7;
-
-  const totalLabel = config?.isInfinite ? '∞' : config?.questionCount ?? questions.length;
-
   return (
-    <div className="relative max-w-4xl mx-auto px-4 py-8">
-      <AuroraBackground reduce={reduce} />
+    <div className="max-w-5xl mx-auto px-4 py-4">
+      <EscBanner show={escArmed} />
+      {phase === 'countdown' && (
+        <Countdown
+          accent="#f2b33d"
+          onDone={() => {
+            questionStart.current = Date.now();
+            setPhase('game');
+          }}
+        />
+      )}
 
-      <div className="relative" style={{ zIndex: 10 }}>
-        {/* Esc-confirm banner: first Escape arms, second within 2s quits */}
-        <div className="fixed top-4 left-0 right-0 flex justify-center pointer-events-none" style={{ zIndex: 50 }}>
-          <AnimatePresence>
-            {escArmed && (
+      <GameTopBar onExit={exit}>
+        <ComboMeter streak={streak} />
+        <ScoreCounter value={score} />
+      </GameTopBar>
+
+      <motion.div animate={shake} className="mt-4 flex flex-col md:flex-row gap-4 md:gap-6 items-stretch">
+        <div
+          className="w-full md:w-[340px] shrink-0 rounded-3xl overflow-hidden relative h-[34dvh] min-h-[220px] md:h-[min(560px,calc(100dvh-10rem))]"
+          style={{ boxShadow: '0 16px 40px rgba(0,0,0,0.15)' }}
+        >
+          <TowerScene
+            blocks={blocks}
+            lavaUnits={lavaUnits}
+            summitUnits={summitUnits}
+            mood={mood}
+            popups={popups}
+            onPopupDone={remove}
+          />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+            <span>
+              Question {asked}
+              {config && !config.endless ? ` of ${config.questionCount}` : ''}
+            </span>
+            <span>{settings.blockPenalty > 0 ? `Wrong answers knock off ${settings.blockPenalty}` : 'No knock-offs on Easy'}</span>
+          </div>
+          <AnimatePresence mode="wait">
+            {question && (
               <motion.div
-                key="esc-confirm"
-                role="status"
-                className="px-4 py-2 text-sm font-semibold"
-                style={{
-                  background: 'var(--color-surface-raised)',
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-border-light)',
-                  borderRadius: 'var(--radius-full)',
-                  boxShadow: 'var(--shadow-modal)',
-                }}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-                animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                exit={reduce ? { opacity: 0 } : { opacity: 0, y: -12 }}
-                transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 400, damping: 28 }}
+                key={`${asked}`}
+                initial={reduce ? { opacity: 0 } : { opacity: 0, x: 30 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, x: -30 }}
+                transition={{ type: 'spring', stiffness: 360, damping: 32 }}
+                className="rounded-3xl p-5 sm:p-6"
+                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-card)' }}
               >
-                Press Esc again to quit
+                <QuestionPanel
+                  question={question}
+                  feedback={feedback}
+                  selectedOption={selected}
+                  disabled={!playing}
+                  onWritten={onWritten}
+                  onOption={onOption}
+                  onTrueFalse={onTrueFalse}
+                  points={lastPoints}
+                  footer={
+                    feedback === 'wrong' && !ending ? (
+                      <Button variant="primary" className="w-full mt-3" onClick={advance}>
+                        Next question
+                      </Button>
+                    ) : null
+                  }
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => navigate(exitTo)}>
-              Exit
-            </Button>
-            <SoundToggle />
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Pill tone="primary">
-              <motion.span
-                key={score}
-                initial={reduce ? undefined : { scale: 1.3 }}
-                animate={reduce ? undefined : { scale: 1 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 18 }}
-              >
-                {score}
-              </motion.span>
-              <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 500 }}>pts</span>
-            </Pill>
-            <Pill tone="warning">
-              <span aria-hidden>🔥</span>
-              <motion.span
-                key={streak}
-                initial={reduce || streak === 0 ? undefined : { scale: 1.35 }}
-                animate={reduce ? undefined : { scale: 1 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 16 }}
-              >
-                {streak}
-              </motion.span>
-            </Pill>
-            <Pill>
-              Q{currentIndex + 1}
-              <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 500 }}>/ {totalLabel}</span>
-            </Pill>
-          </div>
-        </div>
-
-        <motion.div className="flex flex-col md:flex-row gap-6" animate={shakeControls}>
-          {/* Question panel */}
-          <div className="flex-1">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentIndex}
-                initial={reduce ? { opacity: 0 } : { opacity: 0, x: 24 }}
-                animate={reduce ? { opacity: 1 } : { opacity: 1, x: 0 }}
-                exit={reduce ? { opacity: 0 } : { opacity: 0, x: -24 }}
-                transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 320, damping: 30 }}
-                className="p-6"
-                style={{
-                  background: 'var(--color-surface)',
-                  boxShadow: 'var(--shadow-card)',
-                  borderRadius: 'var(--radius-xl)',
-                  border: '1px solid var(--color-border-light)',
-                  borderLeft: feedback === 'correct'
-                    ? '4px solid var(--color-success)'
-                    : feedback === 'wrong'
-                      ? '4px solid var(--color-danger)'
-                      : '4px solid transparent',
-                }}
-              >
-                <div className="text-xs uppercase tracking-wider mb-2 font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {currentQuestion.type === 'true-false' ? 'True or False?' : 'What is the answer?'}
-                </div>
-
-                {currentQuestion.type === 'true-false' && currentQuestion.tfPair ? (
-                  <div className="mb-6">
-                    <div className="mb-3">
-                      <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Term:</span>
-                      <StudyContent html={currentQuestion.tfPair.term} className="text-xl font-semibold mt-1" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Definition:</span>
-                      <StudyContent html={currentQuestion.tfPair.definition} className="text-xl mt-1" />
-                    </div>
-                  </div>
-                ) : (
-                  <StudyContent html={currentQuestion.promptHtml} className="text-2xl font-semibold mb-6" />
-                )}
-
-                {/* Written */}
-                {currentQuestion.type === 'written' && (
-                  <form onSubmit={checkWritten}>
-                    <input
-                      type="text"
-                      value={userAnswer}
-                      onChange={(e) => setUserAnswer(e.target.value)}
-                      placeholder="Type your answer..."
-                      disabled={feedback !== null}
-                      autoFocus
-                      className="w-full h-12 px-4 text-base outline-none"
-                      style={{
-                        background: 'var(--color-muted)',
-                        color: 'var(--color-text)',
-                        border: `2px solid ${
-                          feedback === 'correct' ? 'var(--color-success)'
-                            : feedback === 'wrong' ? 'var(--color-danger)'
-                            : 'var(--color-border)'
-                        }`,
-                        borderRadius: 'var(--radius-md)',
-                      }}
-                    />
-                    {!feedback && (
-                      <Button variant="primary" type="submit" className="mt-3 w-full">Submit</Button>
-                    )}
-                  </form>
-                )}
-
-                {/* MC */}
-                {currentQuestion.type === 'multiple-choice' && currentQuestion.options && (
-                  <div className="grid gap-3">
-                    {currentQuestion.options.map((option, i) => {
-                      const isSelected = selectedOption === option;
-                      const isCorrectOption = currentQuestion.correctAnswers.some(
-                        (a) => normalizeAnswer(a) === normalizeAnswer(option),
-                      );
-                      let borderColor = 'var(--color-border)';
-                      let bg = 'var(--color-surface-raised)';
-                      if (feedback) {
-                        if (isCorrectOption) { borderColor = 'var(--color-success)'; bg = 'var(--color-success-light)'; }
-                        else if (isSelected) { borderColor = 'var(--color-danger)'; bg = 'var(--color-danger-light)'; }
-                      }
-                      return (
-                        <motion.button
-                          key={i}
-                          onClick={() => checkMC(option)}
-                          disabled={feedback !== null}
-                          whileTap={feedback || reduce ? undefined : { scale: 0.96 }}
-                          whileHover={feedback || reduce ? undefined : { scale: 1.01, y: -2 }}
-                          onFocus={focusRing}
-                          onBlur={clearRing}
-                          className="w-full text-left p-4 cursor-pointer"
-                          style={{
-                            background: bg,
-                            border: `2px solid ${borderColor}`,
-                            borderRadius: 'var(--radius-md)',
-                            color: 'var(--color-text)',
-                            outline: 'none',
-                            opacity: feedback && !isCorrectOption && !isSelected ? 0.5 : 1,
-                          }}
-                        >
-                          <StudyContent html={option} />
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* T/F */}
-                {currentQuestion.type === 'true-false' && (
-                  <div className="flex gap-3">
-                    {['True', 'False'].map((label) => {
-                      const val = label === 'True';
-                      const isCorrectBtn = feedback && val === currentQuestion.tfPair?.isCorrect;
-                      const isWrongBtn = feedback && val !== currentQuestion.tfPair?.isCorrect;
-                      return (
-                        <Button key={label} variant="outline" className="flex-1" onClick={() => checkTF(val)} disabled={feedback !== null}>
-                          <span style={{
-                            color: isCorrectBtn ? 'var(--color-success)' : isWrongBtn ? 'var(--color-danger)' : undefined,
-                            fontWeight: isCorrectBtn ? 700 : undefined,
-                          }}>
-                            {label}
-                          </span>
-                        </Button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Keyboard hint (physical-keyboard users; hidden on small screens) */}
-                {!feedback && currentQuestion.type !== 'written' && (
-                  <p className="hidden md:block mt-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                    {currentQuestion.type === 'multiple-choice'
-                      ? `Press 1–${currentQuestion.options?.length ?? 4} to answer`
-                      : 'Press T / F (or 1 / 2) to answer'}
-                  </p>
-                )}
-
-                {/* Feedback + next */}
-                {feedback && (
-                  <motion.div
-                    initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
-                    animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                    className="mt-4"
-                  >
-                    {feedback === 'correct' ? (
-                      <div className="p-3" style={{ background: 'var(--color-success-light)', borderRadius: 'var(--radius-md)' }}>
-                        <p className="font-semibold" style={{ color: 'var(--color-success)' }}>Correct!</p>
-                      </div>
-                    ) : (
-                      <div className="p-3" style={{ background: 'var(--color-danger-light)', borderRadius: 'var(--radius-md)' }}>
-                        <p className="font-semibold mb-1" style={{ color: 'var(--color-danger)' }}>Incorrect</p>
-                        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                          Correct: <span className="font-medium" style={{ color: 'var(--color-text)' }}>{stripHtml(currentQuestion.correctAnswers[0])}</span>
-                        </p>
-                      </div>
-                    )}
-                    {/* Hidden while the delayed won/lost transition is pending */}
-                    {!isEnding && (
-                      <Button variant="primary" className="w-full mt-3" onClick={advance}>Next</Button>
-                    )}
-                  </motion.div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          {/* Tower visualization — capped below md so question + tower share
-              the phone viewport; %-based summit/lava/blocks scale with it */}
-          <div
-            className="w-full md:w-48 flex-shrink-0 relative overflow-hidden max-h-[36dvh] md:max-h-none"
-            style={{
-              height: 400,
-              background: 'linear-gradient(180deg, var(--color-surface-raised), var(--color-muted))',
-              borderRadius: 'var(--radius-xl)',
-              border: '1px solid var(--color-border-light)',
-              boxShadow: 'var(--shadow-xs)',
-            }}
-          >
-            {/* Summit marker — glows and pulses as you near it */}
-            <motion.div
-              className="absolute left-0 right-0"
-              style={{ bottom: `${summitPercent}%`, zIndex: 3 }}
-              animate={nearSummit && !reduce ? { opacity: [0.55, 1, 0.55] } : { opacity: 0.7 }}
-              transition={nearSummit && !reduce ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
-            >
-              <div
-                className="border-t-2 border-dashed"
-                style={{
-                  borderColor: 'var(--color-warning)',
-                  boxShadow: nearSummit ? '0 0 12px 1px var(--color-warning)' : 'none',
-                }}
-              />
-              <span className="absolute right-1 -top-4 text-xs font-semibold" style={{ color: 'var(--color-warning)' }}>
-                Summit
-              </span>
-            </motion.div>
-
-            {/* Tower blocks — spring/drop into place with a settle wobble.
-                Keyed by stable block id so penalty removals animate the actual
-                removed (top) blocks, not whichever index happens to fall off. */}
-            <div className="absolute inset-0 flex flex-col-reverse items-center" style={{ zIndex: 2 }}>
-              <AnimatePresence>
-                {blocks.map((id, i) => {
-                  const hue = (210 + i * 24) % 360;
-                  return (
-                    <motion.div
-                      key={id}
-                      initial={reduce ? { opacity: 0 } : { opacity: 0, y: -80, scale: 0.5 }}
-                      animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-                      exit={reduce ? { opacity: 0 } : { opacity: 0, y: -40, scale: 0.6, transition: { duration: 0.22 } }}
-                      transition={reduce ? { duration: 0.15 } : { type: 'spring', stiffness: 500, damping: 12, mass: 0.8 }}
-                      style={{
-                        width: '75%',
-                        height: `calc(${blockPercent}% - 2px)`,
-                        marginTop: 2,
-                        background: `linear-gradient(180deg, hsl(${hue}, 78%, 62%), hsl(${hue}, 72%, 48%))`,
-                        borderRadius: 4,
-                        boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.35), 0 2px 5px rgba(0,0,0,0.22)',
-                        willChange: 'transform',
-                      }}
-                    />
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-
-            {/* Lava — full-height layer revealed via transform (GPU-friendly) */}
-            <motion.div
-              aria-hidden
-              className="absolute left-0 right-0 bottom-0"
-              style={{
-                height: '100%',
-                background: 'linear-gradient(0deg, #7f1d1d 0%, #dc2626 35%, #f97316 70%, #fbbf24 100%)',
-                backgroundSize: '100% 240%',
-                zIndex: 4,
-                willChange: 'transform',
-                animation: reduce ? 'none' : 'bbLavaChurn 3.2s ease-in-out infinite',
-              }}
-              animate={{ y: `${100 - Math.min(100, lavaPercent)}%` }}
-              transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 90, damping: 18 }}
-            >
-              {/* Glowing bubbling surface at the lava line */}
-              <div
-                className="absolute top-0 left-0 right-0"
-                style={{
-                  height: 6,
-                  background: 'linear-gradient(90deg, transparent, rgba(255,240,200,0.85), transparent)',
-                  boxShadow: '0 -6px 22px 4px rgba(249,115,22,0.65)',
-                  animation: reduce ? 'none' : 'bbLavaWave 2s ease-in-out infinite',
-                }}
-              />
-            </motion.div>
-
-            {/* Progress overlay */}
-            <div className="absolute top-2 left-2 right-2 text-center" style={{ zIndex: 5 }}>
-              <div
-                className="inline-block px-2 py-0.5 text-xs font-bold"
-                style={{
-                  background: 'var(--color-surface)',
-                  color: nearSummit ? 'var(--color-warning)' : 'var(--color-text-secondary)',
-                  borderRadius: 'var(--radius-full)',
-                  boxShadow: 'var(--shadow-xs)',
-                }}
-              >
-                {progressPct}%
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Inline keyframes for lava churn / bubbling surface */}
-      <style>{`
-        @keyframes bbLavaWave {
-          0%, 100% { transform: translateX(-100%); }
-          50% { transform: translateX(100%); }
-        }
-        @keyframes bbLavaChurn {
-          0%, 100% { background-position: 0% 0%; }
-          50% { background-position: 0% 100%; }
-        }
-      `}</style>
+      </motion.div>
     </div>
   );
 }

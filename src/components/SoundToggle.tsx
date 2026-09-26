@@ -3,7 +3,7 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { isSoundMuted, setSoundMuted, playSound } from '@/lib/gameSounds';
 
 /** Mute/unmute toggle for the synthesized game sounds. */
-export function SoundToggle() {
+export function SoundToggle({ color = 'var(--color-text-secondary)' }: { color?: string }) {
   const [muted, setMuted] = useState(isSoundMuted);
 
   return (
@@ -15,7 +15,7 @@ export function SoundToggle() {
         if (!next) playSound('click');
       }}
       className="flex items-center justify-center w-9 h-9 rounded-lg cursor-pointer transition-colors"
-      style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)' }}
+      style={{ background: 'transparent', border: 'none', color }}
       title={muted ? 'Unmute game sounds' : 'Mute game sounds'}
       aria-label={muted ? 'Unmute game sounds' : 'Mute game sounds'}
       aria-pressed={!muted}

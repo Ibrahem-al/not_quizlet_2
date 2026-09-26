@@ -5,6 +5,13 @@ import { pullFoldersFromCloud, deleteFolderFromCloud } from '@/lib/cloudSync';
 import { queueFolderSync, cancelSync } from '@/lib/syncEngine';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { resolveAuthUser, type LoadOptions } from '@/stores/useSetStore';
+
+const CLOUD_PULL_TTL_MS = 60_000;
+let foldersHydrated = false;
+let localLoadInFlight: Promise<void> | null = null;
+let cloudPullInFlight: Promise<void> | null = null;
+let lastCloudPull: { userId: string; at: number } | null = null;
 
 /** Cloud-first: push every folder write to Supabase immediately when signed in. */
 function cloudSyncFolder(folder: Folder): void {
@@ -17,7 +24,7 @@ interface FolderStore {
   folders: Folder[];
   selectedFolderId: string | null;
 
-  loadFolders: () => Promise<void>;
+  loadFolders: (options?: LoadOptions) => Promise<void>;
   addFolder: (folder: Folder) => Promise<void>;
   updateFolder: (folder: Folder) => Promise<void>;
   removeFolder: (id: string) => Promise<void>;
@@ -30,62 +37,75 @@ export const useFolderStore = create<FolderStore>((set, get) => ({
   folders: [],
   selectedFolderId: null,
 
-  loadFolders: async () => {
-    const localFolders = await getAllFolders();
-    localFolders.sort((a, b) => b.updatedAt - a.updatedAt);
-    set({ folders: localFolders });
-
-    // Background cloud pull — non-blocking, offline-first
-    // Wait for auth to finish initializing if it hasn't yet
-    if (isSupabaseConfigured()) {
-      let user = useAuthStore.getState().user;
-      if (!user && useAuthStore.getState().loading) {
-        user = await new Promise<ReturnType<typeof useAuthStore.getState>['user']>((resolve) => {
-          const unsub = useAuthStore.subscribe((state) => {
-            if (!state.loading) {
-              unsub();
-              resolve(state.user);
-            }
-          });
-        });
-      }
-      if (user) {
+  loadFolders: async (options?: LoadOptions) => {
+    // Hydrate from IndexedDB once per session (see useSetStore.loadSets).
+    if (!foldersHydrated) {
+      localLoadInFlight ??= (async () => {
         try {
-          const merged = await pullFoldersFromCloud(user.id, get().folders);
-
-          // Recompute the merge against the freshest store state at commit
-          // time (no awaits between read and commit) so folders added, renamed
-          // or removed during the async pull are not clobbered by a stale
-          // pre-loop snapshot.
-          const currentFolders = get().folders;
-          const currentMap = new Map(currentFolders.map((f) => [f.id, f]));
-          const nextById = new Map(currentFolders.map((f) => [f.id, f]));
-          const writes: Folder[] = [];
-
-          for (const f of merged) {
-            const existing = currentMap.get(f.id);
-            if (!existing) {
-              nextById.set(f.id, f);
-              writes.push(f);
-            } else if (f.updatedAt > existing.updatedAt) {
-              nextById.set(f.id, f);
-              writes.push(f);
-            }
-          }
-
+          const localFolders = await getAllFolders();
+          const loadedIds = new Set(localFolders.map((f) => f.id));
+          const addedMeanwhile = get().folders.filter((f) => !loadedIds.has(f.id));
           set({
-            folders: [...nextById.values()].sort(
-              (a, b) => b.updatedAt - a.updatedAt,
-            ),
+            folders: [...localFolders, ...addedMeanwhile].sort((a, b) => b.updatedAt - a.updatedAt),
           });
-
-          // Persist to IndexedDB outside the state-commit critical section.
-          await Promise.all(writes.map((f) => saveFolder(f)));
-        } catch {
-          // Silent — offline-first, local folders already displayed
+          foldersHydrated = true;
+        } finally {
+          localLoadInFlight = null;
         }
-      }
+      })();
+      await localLoadInFlight;
     }
+
+    // Background cloud pull — non-blocking, offline-first, deduped/throttled
+    if (!isSupabaseConfigured()) return;
+    const user = await resolveAuthUser();
+    if (!user) return;
+
+    if (cloudPullInFlight) return cloudPullInFlight;
+    const fresh =
+      lastCloudPull?.userId === user.id && Date.now() - lastCloudPull.at < CLOUD_PULL_TTL_MS;
+    if (fresh && !options?.force) return;
+
+    cloudPullInFlight = (async () => {
+      try {
+        const merged = await pullFoldersFromCloud(user.id, get().folders);
+        lastCloudPull = { userId: user.id, at: Date.now() };
+
+        // Recompute the merge against the freshest store state at commit
+        // time (no awaits between read and commit) so folders added, renamed
+        // or removed during the async pull are not clobbered by a stale
+        // pre-loop snapshot.
+        const currentFolders = get().folders;
+        const currentMap = new Map(currentFolders.map((f) => [f.id, f]));
+        const nextById = new Map(currentFolders.map((f) => [f.id, f]));
+        const writes: Folder[] = [];
+
+        for (const f of merged) {
+          const existing = currentMap.get(f.id);
+          if (!existing) {
+            nextById.set(f.id, f);
+            writes.push(f);
+          } else if (f.updatedAt > existing.updatedAt) {
+            nextById.set(f.id, f);
+            writes.push(f);
+          }
+        }
+
+        set({
+          folders: [...nextById.values()].sort(
+            (a, b) => b.updatedAt - a.updatedAt,
+          ),
+        });
+
+        // Persist to IndexedDB outside the state-commit critical section.
+        await Promise.all(writes.map((f) => saveFolder(f)));
+      } catch {
+        // Silent — offline-first, local folders already displayed
+      } finally {
+        cloudPullInFlight = null;
+      }
+    })();
+    return cloudPullInFlight;
   },
 
   addFolder: async (folder: Folder) => {

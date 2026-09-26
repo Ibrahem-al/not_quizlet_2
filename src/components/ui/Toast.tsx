@@ -1,4 +1,3 @@
-import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, X, Info, AlertTriangle } from 'lucide-react';
 import { useToastStore } from '@/stores/useToastStore';
 import type { ToastType } from '@/types';
@@ -22,15 +21,13 @@ export function ToastContainer() {
 
   return (
     <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
-      <AnimatePresence>
-        {toasts.map((toast) => (
-          <motion.div
+      {/* CSS enter animation: the toast host is part of the app shell, and
+          animating it with framer-motion put that library on the startup path. */}
+      {toasts.map((toast) => (
+          <div
             key={toast.id}
-            initial={{ opacity: 0, x: 80 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 80 }}
-            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            className="flex items-center gap-3 min-w-[280px] max-w-sm px-4 py-3"
+            role="status"
+            className="sf-toast-enter flex items-center gap-3 min-w-[280px] max-w-sm px-4 py-3"
             style={{
               background: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
@@ -65,9 +62,8 @@ export function ToastContainer() {
             >
               <X size={14} />
             </button>
-          </motion.div>
+          </div>
         ))}
-      </AnimatePresence>
     </div>
   );
 }

@@ -1,15 +1,10 @@
-import { type ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { type ReactNode, type ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-interface ButtonProps {
+interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'style'> {
   variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost';
   size?: 'sm' | 'default' | 'lg' | 'icon';
   children: ReactNode;
-  className?: string;
-  disabled?: boolean;
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  type?: 'button' | 'submit' | 'reset';
   icon?: ReactNode;
 }
 
@@ -48,25 +43,29 @@ const sizeClasses: Record<string, string> = {
   icon: 'h-10 w-10',
 };
 
+// Hover/press scale is plain CSS: this component renders on every page, and
+// animating it with framer-motion pulled that library into every route.
 export function Button({
   variant = 'primary',
   size = 'default',
   children,
   className,
   disabled = false,
-  onClick,
   type = 'button',
   icon,
+  onFocus,
+  onBlur,
+  ...rest
 }: ButtonProps) {
   return (
-    <motion.button
+    <button
+      {...rest}
       type={type}
-      onClick={onClick}
       disabled={disabled}
-      whileTap={disabled ? undefined : { scale: 0.97 }}
-      whileHover={disabled ? undefined : { scale: 1.02 }}
       className={cn(
-        'inline-flex items-center justify-center gap-2 font-medium cursor-pointer transition-colors',
+        'inline-flex items-center justify-center gap-2 font-medium cursor-pointer',
+        'transition-[color,background-color,border-color,transform] duration-150',
+        !disabled && 'hover:scale-[1.02] active:scale-[0.97] motion-reduce:transform-none',
         sizeClasses[size],
         disabled && 'opacity-50 pointer-events-none',
         className,
@@ -78,16 +77,18 @@ export function Button({
         outline: 'none',
       }}
       onFocus={(e) => {
-        if (e.target.matches(':focus-visible')) {
-          e.target.style.boxShadow = 'var(--shadow-focus)';
+        if (e.currentTarget.matches(':focus-visible')) {
+          e.currentTarget.style.boxShadow = 'var(--shadow-focus)';
         }
+        onFocus?.(e);
       }}
       onBlur={(e) => {
-        e.target.style.boxShadow = '';
+        e.currentTarget.style.boxShadow = '';
+        onBlur?.(e);
       }}
     >
       {icon && <span className="flex-shrink-0">{icon}</span>}
       {children}
-    </motion.button>
+    </button>
   );
 }
