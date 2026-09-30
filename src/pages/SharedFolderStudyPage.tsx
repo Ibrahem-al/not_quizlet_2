@@ -8,7 +8,7 @@ import { hasTermContent, hasDefinitionContent } from '@/lib/utils';
 import PageTransition from '@/components/layout/PageTransition';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { MODE_COMPONENTS, isStudyMode, type ModeProps } from '@/components/modes/registry';
+import { MODE_COMPONENTS, MIN_CARDS, isStudyMode, type ModeProps } from '@/components/modes/registry';
 
 function SharedFolderStudyPage() {
   const { token, setId, mode } = useParams<{ token: string; setId: string; mode: string }>();
@@ -96,7 +96,7 @@ function SharedFolderStudyPage() {
 
   const validCards: Card[] = useMemo(() => {
     if (!set) return [];
-    return set.cards.filter((c) => hasTermContent(c) || hasDefinitionContent(c));
+    return set.cards.filter((c) => hasTermContent(c) && hasDefinitionContent(c));
   }, [set]);
 
   const backUrl = `/shared/folder/${token}`;
@@ -138,6 +138,27 @@ function SharedFolderStudyPage() {
         <div className="max-w-lg mx-auto px-4 py-16 text-center">
           <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>
             This set has no valid cards to study.
+          </p>
+          <Button variant="primary" onClick={() => navigate(backUrl)}>
+            Back to Folder
+          </Button>
+        </div>
+      </PageTransition>
+    );
+  }
+
+  if (isStudyMode(mode) && validCards.length < MIN_CARDS[mode]) {
+    const minRequired = MIN_CARDS[mode];
+    return (
+      <PageTransition>
+        <div className="max-w-lg mx-auto px-4 py-16 text-center">
+          <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+            Not enough cards
+          </h2>
+          <p className="mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+            This mode requires at least {minRequired} valid card{minRequired !== 1 ? 's' : ''} with
+            both a term and definition. Currently there {validCards.length === 1 ? 'is' : 'are'}{' '}
+            {validCards.length} valid card{validCards.length !== 1 ? 's' : ''}.
           </p>
           <Button variant="primary" onClick={() => navigate(backUrl)}>
             Back to Folder

@@ -20,14 +20,14 @@ export function ToastContainer() {
   const { toasts, removeToast } = useToastStore();
 
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+    <div className="fixed bottom-4 right-4 left-4 sm:left-auto z-[100] flex flex-col items-end gap-2">
       {/* CSS enter animation: the toast host is part of the app shell, and
           animating it with framer-motion put that library on the startup path. */}
       {toasts.map((toast) => (
           <div
             key={toast.id}
             role="status"
-            className="sf-toast-enter flex items-center gap-3 min-w-[280px] max-w-sm px-4 py-3"
+            className="sf-toast-enter flex items-center gap-3 min-w-[min(17.5rem,100%)] max-w-sm px-4 py-3"
             style={{
               background: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
@@ -40,12 +40,14 @@ export function ToastContainer() {
               {iconMap[toast.type]}
             </span>
             <p
-              className="flex-1 text-sm"
+              className="flex-1 min-w-0 text-sm break-words"
               style={{ color: 'var(--color-text)' }}
             >
               {toast.message}
             </p>
             <button
+              type="button"
+              aria-label="Dismiss notification"
               onClick={() => removeToast(toast.id)}
               className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full cursor-pointer transition-colors"
               style={{

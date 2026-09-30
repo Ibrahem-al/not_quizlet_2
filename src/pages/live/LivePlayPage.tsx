@@ -67,12 +67,12 @@ function Avatar({ name, color, size = 40 }: { name: string; color: string; size?
       aria-hidden
       className="inline-flex items-center justify-center rounded-full font-extrabold shrink-0"
       style={{
-        width: size,
-        height: size,
+        width: `${size / 16}rem`,
+        height: `${size / 16}rem`,
         background: color,
         color: '#fff',
         fontFamily: 'var(--font-display)',
-        fontSize: size * 0.45,
+        fontSize: `${(size * 0.45) / 16}rem`,
         boxShadow: 'inset 0 -3px 0 rgba(0,0,0,0.25)',
       }}
     >
@@ -356,7 +356,7 @@ function useDeadline(deadline: number): number {
 
 function OptionShape({ index, size = 22 }: { index: number; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ width: `${size / 16}rem`, height: `${size / 16}rem` }} aria-hidden>
       <path d={OPTION_SHAPES[index % OPTION_SHAPES.length]} fill="currentColor" />
     </svg>
   );
@@ -417,7 +417,7 @@ function QuestionView({
   }, [open, tf, question.options.length, onAnswer]);
 
   return (
-    <div className="flex flex-col flex-1 gap-3">
+    <div className="@container flex flex-col flex-1 gap-3">
       <div className="flex items-center gap-3">
         <span className="text-sm font-bold whitespace-nowrap" style={{ color: STAGE.sub }}>
           {question.q + 1} of {question.total}
@@ -457,7 +457,7 @@ function QuestionView({
       </div>
 
       {choice === null && left > 0 ? (
-        <div className={`grid gap-2.5 flex-1 ${tf ? 'grid-cols-2' : 'grid-cols-1 min-[420px]:grid-cols-2'}`}>
+        <div className={`grid gap-2.5 flex-1 ${tf ? 'grid-cols-2' : 'grid-cols-1 @min-[22.75rem]:grid-cols-2'}`}>
           {question.options.map((opt, i) => {
             const c = tileColor(question, i);
             return (
@@ -474,7 +474,7 @@ function QuestionView({
                   {tf ? (i === 0 ? <Check size={22} strokeWidth={3} /> : <X size={22} strokeWidth={3} />) : <OptionShape index={i} />}
                 </span>
                 {tf ? (
-                  <span className="text-2xl font-extrabold" style={{ fontFamily: 'var(--font-display)' }}>
+                  <span className="text-xl @min-[19rem]:text-2xl font-extrabold min-w-0 break-words" style={{ fontFamily: 'var(--font-display)' }}>
                     {opt}
                   </span>
                 ) : (
@@ -500,7 +500,7 @@ function QuestionView({
                 }}
                 aria-hidden
               >
-                {tf ? (choice === 0 ? <Check size={48} strokeWidth={3} /> : <X size={48} strokeWidth={3} />) : <OptionShape index={choice} size={48} />}
+                {tf ? (choice === 0 ? <Check size={48} strokeWidth={3} className="w-12 h-12" /> : <X size={48} strokeWidth={3} className="w-12 h-12" />) : <OptionShape index={choice} size={48} />}
               </motion.span>
               <Title>Locked in</Title>
               <Sub>
@@ -550,7 +550,7 @@ function RevealView({ snap }: { snap: PlayerSnapshot }) {
         style={{ background: answered ? color : STAGE.panel, boxShadow: `inset 0 -7px 0 ${answered ? edge : STAGE.panelEdge}`, color: '#fff' }}
         aria-hidden
       >
-        {ok ? <Check size={60} strokeWidth={3.5} /> : <X size={60} strokeWidth={3.5} />}
+        {ok ? <Check size={60} strokeWidth={3.5} className="w-[3.75rem] h-[3.75rem]" /> : <X size={60} strokeWidth={3.5} className="w-[3.75rem] h-[3.75rem]" />}
       </motion.span>
       <div role="status">
         <Title>{!r ? 'Round over' : ok ? 'Correct!' : answered ? 'Not this time' : 'No answer'}</Title>

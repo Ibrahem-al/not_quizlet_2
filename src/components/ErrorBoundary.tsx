@@ -102,12 +102,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           <div
             className="flex items-center justify-center"
             style={{
-              width: 56,
-              height: 56,
+              width: '3.5rem',
+              height: '3.5rem',
               borderRadius: 'var(--radius-full)',
               background: 'var(--color-danger-light)',
               color: 'var(--color-danger)',
-              fontSize: 28,
+              fontSize: '1.75rem',
               fontWeight: 700,
             }}
             aria-hidden="true"

@@ -58,7 +58,7 @@ function DraggableDroppableTile({
       <motion.div
         exit={{ opacity: 0, scale: 0.8 }}
         transition={{ duration: 0.3 }}
-        className="match-tile h-28 rounded-xl"
+        className="match-tile min-h-28 rounded-xl"
         style={{ background: 'var(--color-muted)', opacity: 0.3 }}
       />
     );
@@ -74,7 +74,7 @@ function DraggableDroppableTile({
       {...attributes}
       layout
       whileTap={{ scale: 0.95 }}
-      className="match-tile h-28 flex items-center justify-center p-3 rounded-xl cursor-grab active:cursor-grabbing touch-none overflow-hidden text-base transition-shadow"
+      className="match-tile min-h-28 flex items-center justify-center p-3 rounded-xl cursor-grab active:cursor-grabbing touch-none break-words [overflow-wrap:anywhere] text-base transition-shadow"
       style={{
         background: isDropTarget
           ? 'var(--color-primary-light)'
@@ -319,7 +319,7 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
           <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>
             Completed in {formatTime(timer)}
           </p>
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-wrap gap-3 justify-center">
             <Button variant="primary" onClick={startGame}>Play Again</Button>
             <Button variant="outline" onClick={() => setPhase('setup')}>Change Settings</Button>
             <Button variant="ghost" onClick={() => navigate(exitTo)}>Exit</Button>
@@ -367,7 +367,7 @@ function MatchMode({ cards, setId, exitUrl }: MatchModeProps) {
         <DragOverlay>
           {activeTile ? (
             <div
-              className="match-tile h-28 flex items-center justify-center p-3 rounded-xl overflow-hidden text-base shadow-xl"
+              className="match-tile min-h-28 flex items-center justify-center p-3 rounded-xl break-words [overflow-wrap:anywhere] text-base shadow-xl"
               style={{
                 background: 'var(--color-primary-light)',
                 border: '2px solid var(--color-primary)',

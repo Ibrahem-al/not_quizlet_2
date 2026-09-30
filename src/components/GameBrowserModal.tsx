@@ -88,72 +88,76 @@ export function GameBrowserModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Choose a Game" size="lg">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {GAMES.map((game) => {
-          const minCards = MIN_CARDS[game.id];
-          const disabled = cardCount < minCards;
-          return (
-            <button
-              key={game.id}
-              type="button"
-              onClick={() => {
-                if (!disabled) handleSelect(game.id);
-              }}
-              disabled={disabled}
-              className={cn(
-                'flex flex-col items-start gap-2 p-4 rounded-lg text-left transition-colors cursor-pointer',
-                disabled && 'opacity-40 cursor-not-allowed',
-              )}
-              style={{
-                background: 'var(--color-muted)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-lg)',
-              }}
-              onFocus={() => preloadMode(game.id)}
-              onMouseEnter={(e) => {
-                preloadMode(game.id);
-                if (!disabled) {
-                  e.currentTarget.style.borderColor = 'var(--color-primary)';
-                  e.currentTarget.style.background = 'var(--color-primary-light)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-border)';
-                e.currentTarget.style.background = 'var(--color-muted)';
-              }}
-            >
-              <div className="flex items-center justify-between w-full">
-                <span style={{ color: 'var(--color-primary)' }}>{game.icon}</span>
-                <span className="flex items-center gap-1">
-                  {game.isNew && <Badge variant="success">New</Badge>}
-                  <Badge variant="info">{game.category}</Badge>
-                </span>
-              </div>
-              <div>
-                <div
-                  className="font-semibold text-sm"
-                  style={{ color: 'var(--color-text)' }}
-                >
-                  {game.name}
+      {/* Container query (rem thresholds follow the text size): 2 columns on a
+          phone at default size, 1 column once the text is large */}
+      <div className="@container">
+        <div className="grid grid-cols-1 @min-[17rem]:grid-cols-2 @min-[34rem]:grid-cols-3 gap-3">
+          {GAMES.map((game) => {
+            const minCards = MIN_CARDS[game.id];
+            const disabled = cardCount < minCards;
+            return (
+              <button
+                key={game.id}
+                type="button"
+                onClick={() => {
+                  if (!disabled) handleSelect(game.id);
+                }}
+                disabled={disabled}
+                className={cn(
+                  'flex flex-col items-start gap-2 p-4 rounded-lg text-left transition-colors cursor-pointer min-w-0',
+                  disabled && 'opacity-40 cursor-not-allowed',
+                )}
+                style={{
+                  background: 'var(--color-muted)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-lg)',
+                }}
+                onFocus={() => preloadMode(game.id)}
+                onMouseEnter={(e) => {
+                  preloadMode(game.id);
+                  if (!disabled) {
+                    e.currentTarget.style.borderColor = 'var(--color-primary)';
+                    e.currentTarget.style.background = 'var(--color-primary-light)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--color-border)';
+                  e.currentTarget.style.background = 'var(--color-muted)';
+                }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-1 w-full">
+                  <span style={{ color: 'var(--color-primary)' }}>{game.icon}</span>
+                  <span className="flex flex-wrap gap-1">
+                    {game.isNew && <Badge variant="success">New</Badge>}
+                    <Badge variant="info">{game.category}</Badge>
+                  </span>
                 </div>
-                <div
-                  className="text-xs mt-0.5"
-                  style={{ color: 'var(--color-text-secondary)' }}
-                >
-                  {game.description}
+                <div>
+                  <div
+                    className="font-semibold text-sm"
+                    style={{ color: 'var(--color-text)' }}
+                  >
+                    {game.name}
+                  </div>
+                  <div
+                    className="text-xs mt-0.5"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    {game.description}
+                  </div>
                 </div>
-              </div>
-              {disabled && (
-                <div
-                  className="text-xs"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                >
-                  Requires at least {minCards} cards
-                </div>
-              )}
-            </button>
-          );
-        })}
+                {disabled && (
+                  <div
+                    className="text-xs"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                  >
+                    Requires at least {minCards} cards
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </Modal>
   );

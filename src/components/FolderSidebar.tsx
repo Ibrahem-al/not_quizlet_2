@@ -47,7 +47,7 @@ function FolderNode({
           'hover:opacity-90',
         )}
         style={{
-          paddingLeft: `${8 + depth * 16}px`,
+          paddingLeft: `${0.5 + depth}rem`,
           background: isSelected ? 'var(--color-primary-light)' : 'transparent',
           color: isSelected ? 'var(--color-primary)' : 'var(--color-text-secondary)',
           border: 'none',
@@ -168,8 +168,8 @@ function FolderSidebar() {
     <aside
       className="flex flex-col h-full"
       style={{
-        width: 240,
-        minWidth: 240,
+        width: 'min(15rem, 35vw)',
+        minWidth: 'min(15rem, 35vw)',
         borderRight: '1px solid var(--color-border)',
         background: 'var(--color-bg)',
         padding: '0.75rem 0.5rem',

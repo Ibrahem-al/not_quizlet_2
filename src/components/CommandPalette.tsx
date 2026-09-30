@@ -107,7 +107,7 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[min(15vh,4rem)]">
           <motion.div
             className="absolute inset-0"
             style={{ background: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)' }}
@@ -167,7 +167,7 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               </div>
 
               <Command.List
-                className="max-h-80 overflow-y-auto p-2"
+                className="max-h-[min(20rem,calc(85dvh-4.5rem))] overflow-y-auto p-2"
                 style={{ scrollbarWidth: 'thin' }}
               >
                 <Command.Empty>
@@ -267,7 +267,7 @@ function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                         style={{ color: 'var(--color-text)' }}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="truncate font-medium">{set.title}</p>
+                          <p className="line-clamp-2 break-words font-medium">{set.title}</p>
                           <p
                             className="text-xs truncate"
                             style={{ color: 'var(--color-text-tertiary)' }}

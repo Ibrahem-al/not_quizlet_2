@@ -39,13 +39,13 @@
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.2);
   --shadow-focus: 0 0 0 3px var(--color-primary-ring);
 
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-card: 14px;
-  --radius-button: 10px;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-card: 0.875rem;
+  --radius-button: 0.625rem;
   --radius-full: 9999px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -99,7 +99,10 @@
 
 * { box-sizing: border-box; }
 
+/* User text size (useTextSizeStore). Scaling the root keeps the browser's own
+   default size as the baseline, and every rem-based utility follows it. */
 html {
+  font-size: calc(100% * var(--sf-text-scale, 1));
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -123,6 +126,26 @@ body {
 :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 /* Tailwind's outline-none utility must not swallow keyboard focus. */
 .outline-none:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* Inline lucide icons (size <= 32) get rem sizes so they grow with the text
+   beside them. :where() keeps specificity at zero, so an explicit Tailwind
+   w-/h- class or inline style on an icon still wins. Larger icons are
+   illustration and stay fixed. */
+:where(svg.lucide[width="10"]) { width: 0.625rem; height: 0.625rem; }
+:where(svg.lucide[width="12"]) { width: 0.75rem; height: 0.75rem; }
+:where(svg.lucide[width="13"]) { width: 0.8125rem; height: 0.8125rem; }
+:where(svg.lucide[width="14"]) { width: 0.875rem; height: 0.875rem; }
+:where(svg.lucide[width="15"]) { width: 0.9375rem; height: 0.9375rem; }
+:where(svg.lucide[width="16"]) { width: 1rem; height: 1rem; }
+:where(svg.lucide[width="17"]) { width: 1.0625rem; height: 1.0625rem; }
+:where(svg.lucide[width="18"]) { width: 1.125rem; height: 1.125rem; }
+:where(svg.lucide[width="20"]) { width: 1.25rem; height: 1.25rem; }
+:where(svg.lucide[width="22"]) { width: 1.375rem; height: 1.375rem; }
+:where(svg.lucide[width="24"]) { width: 1.5rem; height: 1.5rem; }
+:where(svg.lucide[width="26"]) { width: 1.625rem; height: 1.625rem; }
+:where(svg.lucide[width="28"]) { width: 1.75rem; height: 1.75rem; }
+:where(svg.lucide[width="30"]) { width: 1.875rem; height: 1.875rem; }
+:where(svg.lucide[width="32"]) { width: 2rem; height: 2rem; }
 
 ::selection { background: var(--color-primary); color: #ffffff; }
 input, textarea { caret-color: var(--color-primary); }
@@ -159,14 +182,22 @@ p { text-wrap: pretty; }
   pointer-events: none;
   height: 0;
 }
+/* Card rich text (TipTap markdown shortcuts can create these). Tailwind's
+   reset strips list and heading styles, so restore them in em units. */
+:is(.ProseMirror, .card-preview, .study-content) :is(ul, ol) { padding-left: 1.25em; margin: 0.25em 0; }
+:is(.ProseMirror, .card-preview, .study-content) ul { list-style: disc; }
+:is(.ProseMirror, .card-preview, .study-content) ol { list-style: decimal; }
+:is(.ProseMirror, .card-preview, .study-content) :is(h1, h2, h3) { font-size: 1.15em; font-weight: 700; margin: 0.25em 0; }
+:is(.ProseMirror, .card-preview, .study-content) blockquote { border-left: 0.2em solid var(--color-border); padding-left: 0.75em; margin: 0.25em 0; }
+:is(.ProseMirror, .card-preview, .study-content) code { font-family: var(--font-mono); font-size: 0.9em; }
 .ProseMirror img { max-width: 100%; height: auto; border-radius: var(--radius-sm); background: #ffffff; }
 
-.study-content img { max-width: 280px; max-height: 200px; object-fit: contain; border-radius: var(--radius-sm); background: #ffffff; }
-.match-tile .study-content img { max-width: 100%; max-height: 70px; object-fit: contain; background: #ffffff; }
-.memory-card-content .study-content img { max-width: 100%; max-height: 80px; object-fit: contain; background: #ffffff; }
+.study-content img { max-width: min(17.5rem, 100%); max-height: 12.5rem; object-fit: contain; border-radius: var(--radius-sm); background: #ffffff; }
+.match-tile .study-content img { max-width: 100%; max-height: 4.375rem; object-fit: contain; background: #ffffff; }
+.memory-card-content .study-content img { max-width: 100%; max-height: 5rem; object-fit: contain; background: #ffffff; }
 .editor-content img,
 .editor-content .ProseMirror img,
-.card-preview img { max-width: 80px; max-height: 56px; object-fit: contain; border-radius: var(--radius-xs); display: inline-block; background: #ffffff; }
+.card-preview img { max-width: 5rem; max-height: 3.5rem; object-fit: contain; border-radius: var(--radius-xs); display: inline-block; background: #ffffff; }
 
 /* Page enter (replaces a framer-motion wrapper used by every page) */
 @keyframes sfPageEnter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -180,7 +211,7 @@ p { text-wrap: pretty; }
 
 @keyframes sfToastEnter { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: none; } }
 .sf-toast-enter { animation: sfToastEnter 0.25s cubic-bezier(0.4, 0, 0.2, 1) both; }
-.answer-tile .study-content img { max-width: 100%; max-height: 90px; object-fit: contain; background: #ffffff; }
+.answer-tile .study-content img { max-width: 100%; max-height: 5.625rem; object-fit: contain; background: #ffffff; }
 
 /* ---- Block Builder scene ---- */
 .bb-cloud {

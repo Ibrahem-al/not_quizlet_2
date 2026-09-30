@@ -424,7 +424,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
           </motion.svg>
 
           <div
-            className="relative w-full max-w-[380px] aspect-square"
+            className="relative w-full max-w-[23.75rem] aspect-square"
             onClick={fastForward}
             style={{ cursor: spinning ? 'pointer' : 'default' }}
             title={spinning ? 'Tap to stop the wheel' : undefined}
@@ -523,7 +523,7 @@ function SpinnerMode({ cards, setId, exitUrl }: SpinnerModeProps) {
             disabled={spinning}
             whileHover={spinning || reduce ? undefined : { y: -2 }}
             whileTap={spinning || reduce ? undefined : { y: 3 }}
-            className="mt-5 h-14 min-w-[200px] px-8 rounded-2xl text-2xl font-extrabold cursor-pointer disabled:cursor-default focus-visible:outline-3 focus-visible:outline-offset-2"
+            className="mt-5 h-14 min-w-[12.5rem] px-8 rounded-2xl text-2xl font-extrabold cursor-pointer disabled:cursor-default focus-visible:outline-3 focus-visible:outline-offset-2"
             style={{
               background: spinning ? 'rgba(255,255,255,0.15)' : STAGE.bulb,
               color: spinning ? 'rgba(255,255,255,0.7)' : '#3d2600',

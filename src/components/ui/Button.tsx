@@ -36,10 +36,12 @@ const variantStyles: Record<string, React.CSSProperties> = {
   },
 };
 
+// Minimum (not fixed) heights: at larger text sizes a label that has to wrap
+// grows the button instead of spilling out of it.
 const sizeClasses: Record<string, string> = {
-  sm: 'h-8 px-3 text-sm',
-  default: 'h-10 px-4',
-  lg: 'h-12 px-6 text-lg',
+  sm: 'min-h-8 py-1 px-3 text-sm',
+  default: 'min-h-10 py-2 px-4',
+  lg: 'min-h-12 py-2.5 px-6 text-lg',
   icon: 'h-10 w-10',
 };
 
@@ -63,7 +65,7 @@ export function Button({
       type={type}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center justify-center gap-2 font-medium cursor-pointer',
+        'inline-flex items-center justify-center gap-2 font-medium leading-tight text-center cursor-pointer',
         'transition-[color,background-color,border-color,transform] duration-150',
         !disabled && 'hover:scale-[1.02] active:scale-[0.97] motion-reduce:transform-none',
         sizeClasses[size],

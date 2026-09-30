@@ -75,8 +75,8 @@ function Stepper({ value, onChange, min, max }: { value: number; onChange: (v: n
           const n = parseInt(e.target.value, 10);
           if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
         }}
-        className="w-16 text-center text-sm font-medium rounded-lg"
-        style={{ background: 'var(--color-muted)', border: '1px solid var(--color-border)', color: 'var(--color-text)', padding: '6px 4px', fontFamily: 'var(--font-sans)' }}
+        className="w-16 h-8 px-1 text-center text-sm font-medium rounded-lg"
+        style={{ background: 'var(--color-muted)', border: '1px solid var(--color-border)', color: 'var(--color-text)', fontFamily: 'var(--font-sans)' }}
         min={min}
         max={max}
       />
@@ -259,7 +259,7 @@ export function PrintDialog({ isOpen, onClose, set }: PrintDialogProps) {
           )}
 
           {/* Activity grid */}
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             {ACTIVITIES.map((act) => {
               const disabled = count < act.minCards;
               const isLoading = generating === act.id;
@@ -277,8 +277,8 @@ export function PrintDialog({ isOpen, onClose, set }: PrintDialogProps) {
                   }}
                 >
                   <div
-                    className="flex items-center justify-center shrink-0 rounded-lg"
-                    style={{ width: 40, height: 40, background: act.gradient }}
+                    className="flex items-center justify-center shrink-0 rounded-lg w-10 h-10"
+                    style={{ background: act.gradient }}
                   >
                     {isLoading ? (
                       <Loader2 size={18} className="animate-spin" style={{ color: 'white' }} />

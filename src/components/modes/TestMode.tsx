@@ -453,7 +453,7 @@ function ResultsScreen({
 
         {/* Animated circular progress */}
         <div className="flex justify-center mb-6">
-          <svg width="160" height="160" viewBox="0 0 160 160">
+          <svg width="10rem" height="10rem" viewBox="0 0 160 160">
             <circle
               cx="80"
               cy="80"
@@ -515,13 +515,13 @@ function ResultsScreen({
               {missedCards.map((card) => (
                 <div
                   key={card.id}
-                  className="flex gap-4 p-3 rounded-xl text-left text-sm"
+                  className="flex flex-col sm:flex-row gap-1 sm:gap-4 p-3 rounded-xl text-left text-sm"
                   style={{
                     background: 'var(--color-danger-light)',
                     borderRadius: 'var(--radius-md)',
                   }}
                 >
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0 break-words">
                     <div
                       className="font-medium"
                       style={{ color: 'var(--color-text)' }}
@@ -529,7 +529,7 @@ function ResultsScreen({
                       {stripHtml(card.term)}
                     </div>
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0 break-words">
                     <div style={{ color: 'var(--color-text-secondary)' }}>
                       {stripHtml(card.definition)}
                     </div>
@@ -854,7 +854,7 @@ function TestMode({ cards, setId, exitUrl }: TestModeProps) {
                     onClick={() => checkMC(option)}
                     disabled={feedback !== null}
                     whileTap={feedback ? undefined : { scale: 0.98 }}
-                    className="w-full text-left p-4 rounded-xl cursor-pointer"
+                    className="w-full text-left p-4 rounded-xl cursor-pointer break-words"
                     style={{
                       background: bg,
                       border: `2px solid ${borderColor}`,
@@ -915,12 +915,14 @@ function TestMode({ cards, setId, exitUrl }: TestModeProps) {
                         }}
                       >
                         {isChecked && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="none">
                             <path d="M2 6L5 9L10 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         )}
                       </div>
-                      <StudyContent html={option} />
+                      <div className="min-w-0 flex-1 break-words">
+                        <StudyContent html={option} />
+                      </div>
                     </motion.button>
                   );
                 })}

@@ -16,9 +16,22 @@
     <script>
       // Prevent FOUC - apply theme before render
       (function() {
-        const saved = localStorage.getItem('studyflow-theme');
-        const dark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
+        try {
+          const saved = localStorage.getItem('studyflow-theme');
+          const dark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+      // Apply the saved text size before render (keep in sync with useTextSizeStore)
+      (function() {
+        try {
+          var scales = { sm: 0.875, md: 1, lg: 1.125, xl: 1.25, xxl: 1.375 };
+          var size = localStorage.getItem('studyflow-text-size');
+          if (size && scales[size]) {
+            document.documentElement.style.setProperty('--sf-text-scale', String(scales[size]));
+            document.documentElement.dataset.textSize = size;
+          }
+        } catch (e) {}
       })();
     </script>
   </head>

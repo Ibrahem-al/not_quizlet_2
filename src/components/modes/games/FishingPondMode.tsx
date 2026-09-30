@@ -68,6 +68,11 @@ const FISH_COLORS = ['#ff7a59', '#9b6bff', '#ff5c8a', '#4f8cff', '#2fb98e'];
 
 /** Half the fish element's width, in px (see .fp-fish). */
 const HALF = 66;
+/** The label chip (max 9.375rem, see .fp-chip) can outgrow the fish box as the text size goes up; widen the edge limit by the overflow past its 150px base. */
+function edgeHalf(): number {
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  return HALF + Math.max(0, 9.375 * rootPx - 150) / 2;
+}
 /** After this much swimming time the right fish stops turning and heads off. */
 const ESCAPE_MS = 12_000;
 const GOLDEN_CHANCE = 1 / 6;
@@ -212,9 +217,9 @@ function FishArt({ color, golden, size = 104 }: { color: string; golden?: boolea
   );
 }
 
-function Dock({ promptHtml, golden, mood, barRef }: { promptHtml: string | null; golden: boolean; mood: MascotMood; barRef?: React.Ref<HTMLDivElement> }) {
+function Dock({ promptHtml, golden, mood, barRef, dockRef }: { promptHtml: string | null; golden: boolean; mood: MascotMood; barRef?: React.Ref<HTMLDivElement>; dockRef?: React.Ref<HTMLDivElement> }) {
   return (
-    <div className="relative" style={{ height: 176, background: `linear-gradient(180deg, ${ART.skyTop}, ${ART.skyBottom})` }}>
+    <div ref={dockRef} className="relative" style={{ height: '11rem', background: `linear-gradient(180deg, ${ART.skyTop}, ${ART.skyBottom})` }}>
       {/* Far shore */}
       <svg aria-hidden className="absolute left-0 right-0 w-full" viewBox="0 0 400 40" preserveAspectRatio="none" style={{ bottom: 18, height: 40 }}>
         <path d="M0 40 L0 22 Q60 6 120 20 T240 16 T400 18 L400 40 Z" fill="#8cc79a" />
@@ -240,11 +245,11 @@ function Dock({ promptHtml, golden, mood, barRef }: { promptHtml: string | null;
       {/* Hook tag with the prompt */}
       {promptHtml !== null && (
         <div
-          className="fp-tag absolute left-1/2 -translate-x-1/2 rounded-xl px-3 py-2 text-center overflow-hidden"
+          className="fp-tag absolute left-1/2 -translate-x-1/2 rounded-xl px-3 py-2 text-center overflow-x-hidden overflow-y-auto"
           style={{
-            top: 38,
-            width: 'min(62%, 380px)',
-            maxHeight: 118,
+            top: '2.375rem',
+            width: 'min(62%, 23.75rem)',
+            maxHeight: '7.375rem',
             background: golden ? '#fff3c4' : ART.tag,
             color: ART.ink,
             boxShadow: `inset 0 -4px 0 ${golden ? ART.gold : ART.tagEdge}, 0 6px 14px rgba(0,0,0,0.18)`,
@@ -299,14 +304,21 @@ function ConfigScreen({ onStart, initial, onExit }: { onStart: (c: Config) => vo
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
-        <div className="relative overflow-hidden" style={{ height: 150, background: `linear-gradient(180deg, ${ART.skyTop} 0 55%, ${ART.waterTop} 55%, ${ART.waterBottom})` }}>
-          <div className="absolute left-4 bottom-6">
+        {/* The water band, mascot clearance and bottom padding are px to match
+            the fixed-size art, so larger text grows the sky, not the water */}
+        <div className="relative overflow-hidden" style={{ minHeight: '9.375rem', background: ART.skyTop }}>
+          <div
+            aria-hidden
+            className="absolute inset-x-0 bottom-0"
+            style={{ height: 67.5, background: `linear-gradient(180deg, ${ART.waterTop}, ${ART.waterBottom})` }}
+          />
+          <div className="absolute left-4 bottom-[24px]">
             <Mascot mood="happy" color={ART.mascot} accessory="tufts" size={80} />
           </div>
           <div className="absolute" style={{ right: 18, bottom: 16 }}>
             <FishArt color={FISH_COLORS[0]} size={70} />
           </div>
-          <div className="absolute left-28 top-5 right-4">
+          <div className="relative pl-[112px] pt-5 pr-4 pb-[24px]">
             <h2 className="text-3xl font-extrabold m-0" style={{ color: ART.ink, fontFamily: 'var(--font-display)' }}>
               Fishing Pond
             </h2>
@@ -398,6 +410,7 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const pondRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
   const fishEls = useRef(new Map<string, HTMLButtonElement>());
   const scoreRef = useRef(0);
   const splashN = useRef(0);
@@ -503,9 +516,10 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
     if (!round || !playing) return;
     const pond = pondRef.current;
     if (!pond) return;
-    const range = Math.max(0, pond.clientWidth - 2 * HALF);
+    const edge = edgeHalf();
+    const range = Math.max(0, pond.clientWidth - 2 * edge);
     const swim = new Map<string, SwimState>(
-      round.fish.map((f) => [f.id, { x: HALF + f.x0 * range, dir: f.dir, speed: f.speed, bob: f.bob }]),
+      round.fish.map((f) => [f.id, { x: edge + f.x0 * range, dir: f.dir, speed: f.speed, bob: f.bob }]),
     );
     let last = performance.now();
     let raf = 0;
@@ -528,11 +542,11 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
           const speed = fleeing ? 420 : escaping ? Math.max(s.speed * 2, 150) : s.speed;
           s.x += s.dir * speed * dt;
           if (!escaping) {
-            if (s.x < HALF) {
-              s.x = HALF;
+            if (s.x < edge) {
+              s.x = edge;
               s.dir = 1;
-            } else if (s.x > W - HALF) {
-              s.x = W - HALF;
+            } else if (s.x > W - edge) {
+              s.x = W - edge;
               s.dir = -1;
             }
           }
@@ -544,7 +558,7 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
           el.style.setProperty('--fp-dir', String(s.dir));
         }
         if (f.correct && leaving && !escapedRef.current && !frozenRef.current) {
-          const gone = reduce || s.x < -HALF || s.x > W + HALF;
+          const gone = reduce || s.x < -edge || s.x > W + edge;
           if (gone) {
             escapedRef.current = true;
             escapeRef.current();
@@ -568,7 +582,7 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
       const r = el.getBoundingClientRect();
       const x2 = r.left - s.left + r.width / 2;
       const y2 = r.top - s.top + 22;
-      setCast({ x1: s.width / 2, y1: 14, x2, y2 });
+      setCast({ x1: s.width / 2, y1: (14 * (dockRef.current?.offsetHeight ?? 176)) / 176, x2, y2 });
       setPickedId(fish.id);
       setStatus('casting');
       playSound('flip');
@@ -749,13 +763,13 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
         className="relative mt-4 rounded-3xl overflow-hidden"
         style={{ boxShadow: '0 16px 40px rgba(0,0,0,0.2)' }}
       >
-        <Dock promptHtml={round?.promptHtml ?? null} golden={!!round?.golden} mood={mood} barRef={barRef} />
+        <Dock promptHtml={round?.promptHtml ?? null} golden={!!round?.golden} mood={mood} barRef={barRef} dockRef={dockRef} />
 
         <div
           ref={pondRef}
           className="relative overflow-hidden"
           style={{
-            height: 'clamp(300px, 48dvh, 420px)',
+            height: 'clamp(18.75rem, 48dvh, 26.25rem)',
             background: `linear-gradient(180deg, ${ART.waterTop}, ${ART.waterMid} 45%, ${ART.waterBottom})`,
           }}
         >
@@ -779,6 +793,7 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
             const dim = (showAnswer && !f.correct && !(status === 'wrong' && isPicked)) || (status === 'casting' && !isPicked);
             const golden = round.golden && f.correct && (status === 'caught' || showAnswer);
             const label = f.imageOnly ? 'picture answer' : f.label;
+            const edge = edgeHalf();
             return (
               <button
                 key={f.id}
@@ -790,8 +805,8 @@ export default function FishingPondMode({ cards, setId, exitUrl }: ModeProps) {
                 title={stripHtml(f.html) || undefined}
                 className={['fp-fish', glow ? 'fp-glow' : '', gone ? 'fp-gone' : '', dim ? 'fp-dim' : ''].join(' ')}
                 style={{
-                  top: `calc(${frac} * (100% - 110px) + 18px)`,
-                  left: `calc((100% - ${2 * HALF}px) * ${f.x0})`,
+                  top: `calc(${frac} * (100% - 6.875rem) + 1.125rem)`,
+                  left: `calc(${edge - HALF}px + (100% - ${2 * edge}px) * ${f.x0})`,
                   zIndex: 5 + f.lane,
                   ['--fp-dir' as string]: String(f.dir),
                 }}

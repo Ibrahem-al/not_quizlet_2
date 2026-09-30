@@ -119,7 +119,7 @@ function Die({ value, rolling }: { value: number; rolling: boolean }) {
       animate={rolling && !reduce ? { rotate: [0, 90, 180, 270, 360] } : { rotate: 0, scale: [1.25, 1] }}
       transition={rolling ? { duration: 0.5, repeat: Infinity, ease: 'linear' } : { type: 'spring', stiffness: 400, damping: 12 }}
       className="grid grid-cols-3 grid-rows-3 p-1.5 rounded-xl shrink-0"
-      style={{ width: 44, height: 44, background: '#fff', boxShadow: 'inset 0 -4px 0 #d1d5db, 0 4px 10px rgba(0,0,0,0.2)' }}
+      style={{ width: '2.75rem', height: '2.75rem', background: '#fff', boxShadow: 'inset 0 -4px 0 #d1d5db, 0 4px 10px rgba(0,0,0,0.2)' }}
       role="img"
       aria-label={rolling ? 'Rolling' : `Rolled ${value}`}
     >
@@ -190,14 +190,14 @@ function Track({
             className="absolute top-1 bottom-1 flex items-center justify-center rounded-md"
             style={{
               left: `${x(from)}%`,
-              width: `max(18px, ${80 / pathLength}%)`,
+              width: `max(1.125rem,${80 / pathLength}%)`,
               transform: 'translateX(-50%)',
               background: 'rgba(34,211,238,0.22)',
               border: `2px solid ${TRACK.nitro}`,
             }}
             title={`Nitro: jump to ${to}`}
           >
-            <span className="flex flex-col items-center text-[10px] font-extrabold leading-none" style={{ color: TRACK.nitro }}>
+            <span className="flex flex-col items-center text-[0.625rem] font-extrabold leading-none" style={{ color: TRACK.nitro }}>
               <Zap size={12} fill="currentColor" />+{to - from}
             </span>
           </div>
@@ -242,8 +242,8 @@ function Track({
                 )}
               </motion.div>
               <span
-                className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-extrabold px-1.5 py-0.5 rounded"
-                style={{ background: r.color, color: '#fff', opacity: active ? 1 : 0.75 }}
+                className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[0.6875rem] font-extrabold px-1.5 py-0.5 rounded"
+                style={{ background: r.color, color: '#fff', opacity: active ? 1 : 0.75, zIndex: 4 }}
               >
                 {r.name}
               </span>
@@ -692,7 +692,7 @@ function RaceToFinishMode({ cards, setId, exitUrl }: RaceToFinishModeProps) {
       {/* Turn banner + die */}
       <div className="mt-4 flex items-center gap-3">
         <div
-          className="flex-1 flex items-center gap-2 h-12 px-4 rounded-2xl font-extrabold"
+          className="flex-1 flex flex-wrap items-center gap-2 min-h-12 py-2 px-4 rounded-2xl font-extrabold"
           style={{ background: current.color, color: '#fff', fontFamily: 'var(--font-display)', boxShadow: 'inset 0 -4px 0 rgba(0,0,0,0.2)' }}
         >
           <Kart color="#ffffff" bot={current.isBot} size={34} />

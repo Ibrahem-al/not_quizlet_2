@@ -361,7 +361,7 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
           )}
           {reviewedCount === 0 && <div className="mb-4" />}
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-wrap gap-3 justify-center">
             <Button
               variant="primary"
               onClick={() => {
@@ -518,7 +518,7 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
                     onClick={() => checkMC(option)}
                     disabled={feedback !== null}
                     whileTap={feedback ? undefined : { scale: 0.98 }}
-                    className="w-full text-left p-4 rounded-xl cursor-pointer transition-colors"
+                    className="w-full text-left p-4 rounded-xl cursor-pointer transition-colors break-words"
                     style={{
                       background: bg,
                       border: `2px solid ${borderColor}`,
@@ -595,16 +595,16 @@ function LearnMode({ cards, setId, exitUrl }: LearnModeProps) {
               )}
 
               {/* Confidence / next buttons */}
-              <div className="flex gap-3 mt-4">
+              <div className="flex flex-wrap gap-3 mt-4">
                 {feedback === 'correct' ? (
                   <>
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => recordAndAdvance(3)}>
+                    <Button variant="outline" size="sm" className="flex-1 min-w-[5rem]" onClick={() => recordAndAdvance(3)}>
                       Hard
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => recordAndAdvance(4)}>
+                    <Button variant="outline" size="sm" className="flex-1 min-w-[5rem]" onClick={() => recordAndAdvance(4)}>
                       Medium
                     </Button>
-                    <Button variant="primary" size="sm" className="flex-1" onClick={() => recordAndAdvance(5)}>
+                    <Button variant="primary" size="sm" className="flex-1 min-w-[5rem]" onClick={() => recordAndAdvance(5)}>
                       Easy
                     </Button>
                   </>

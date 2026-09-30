@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BookOpen, GraduationCap, Puzzle, ClipboardCheck, Gamepad2, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import type { StudySet } from '@/types';
+import type { StudySet, Card } from '@/types';
 import { fetchSharedSet } from '@/lib/cloudSync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { hasTermContent, hasDefinitionContent } from '@/lib/utils';
@@ -74,10 +75,15 @@ function SharedSetPage() {
     };
   }, [token, reloadNonce]);
 
-  const validCards = useMemo(() => {
+  // The preview shows every card with content; study modes need both sides.
+  const previewCards = useMemo(() => {
     if (!set) return [];
     return set.cards.filter((c) => hasTermContent(c) || hasDefinitionContent(c));
   }, [set]);
+  const validCards = useMemo(
+    () => previewCards.filter((c) => hasTermContent(c) && hasDefinitionContent(c)),
+    [previewCards],
+  );
 
   const studyModes = useMemo(() => [
     { id: 'flashcards', label: 'Flashcards', icon: <BookOpen size={16} />, minCards: 1 },
@@ -181,7 +187,7 @@ function SharedSetPage() {
 
         {/* Card count */}
         <p className="text-sm mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
-          {validCards.length} card{validCards.length !== 1 ? 's' : ''}
+          {previewCards.length} card{previewCards.length !== 1 ? 's' : ''}
         </p>
 
         {/* Study mode buttons */}
@@ -223,53 +229,121 @@ function SharedSetPage() {
         />
 
         {/* Card preview list */}
-        <div className="space-y-3">
+        <div>
           <h2
             className="text-lg font-semibold mb-3"
             style={{ color: 'var(--color-text)' }}
           >
             Cards
           </h2>
-          {validCards.map((card, i) => (
-            <div
-              key={card.id}
-              className="flex gap-4 p-4 rounded-xl"
-              style={{
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-              }}
-            >
-              <span
-                className="text-sm font-medium shrink-0 w-8 text-center"
-                style={{ color: 'var(--color-text-tertiary)' }}
-              >
-                {i + 1}
-              </span>
-              <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <p
-                    className="text-xs font-medium mb-1"
-                    style={{ color: 'var(--color-text-tertiary)' }}
-                  >
-                    Term
-                  </p>
-                  <StudyContent html={card.term} className="text-sm" />
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-medium mb-1"
-                    style={{ color: 'var(--color-text-tertiary)' }}
-                  >
-                    Definition
-                  </p>
-                  <StudyContent html={card.definition} className="text-sm" />
-                </div>
-              </div>
-            </div>
-          ))}
+          <CardPreviewList cards={previewCards} />
         </div>
       </div>
     </PageTransition>
+  );
+}
+
+const VIRTUALIZATION_THRESHOLD = 20;
+
+const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+
+function CardPreviewRow({ card, index }: { card: Card; index: number }) {
+  return (
+    <div
+      className="flex gap-4 p-4 rounded-xl"
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+      }}
+    >
+      <span
+        className="text-sm font-medium shrink-0 w-8 text-center"
+        style={{ color: 'var(--color-text-tertiary)' }}
+      >
+        {index + 1}
+      </span>
+      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <p
+            className="text-xs font-medium mb-1"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
+            Term
+          </p>
+          <StudyContent html={card.term} className="text-sm" />
+        </div>
+        <div>
+          <p
+            className="text-xs font-medium mb-1"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
+            Definition
+          </p>
+          <StudyContent html={card.definition} className="text-sm" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardPreviewList({ cards }: { cards: Card[] }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const useVirtual = cards.length > VIRTUALIZATION_THRESHOLD;
+
+  // The list scrolls with the window, so its offset from the page top changes
+  // whenever content above it reflows (e.g. the user's text size changes).
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!useVirtual || !el) return;
+    const update = () => setScrollMargin(el.getBoundingClientRect().top + window.scrollY);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
+    return () => ro.disconnect();
+  }, [useVirtual]);
+
+  const virtualizer = useWindowVirtualizer({
+    count: cards.length,
+    estimateSize: () => (88 * remPx()) / 16,
+    overscan: 5,
+    scrollMargin,
+    enabled: useVirtual,
+  });
+
+  if (!useVirtual) {
+    return (
+      <div className="space-y-3">
+        {cards.map((card, i) => (
+          <CardPreviewRow key={card.id} card={card} index={i} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+      {virtualizer.getVirtualItems().map((item) => {
+        const card = cards[item.index];
+        return (
+          <div
+            key={card.id}
+            data-index={item.index}
+            ref={virtualizer.measureElement}
+            className="pb-3"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
+            }}
+          >
+            <CardPreviewRow card={card} index={item.index} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

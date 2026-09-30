@@ -126,6 +126,8 @@ const EMPTY_TOTALS: Totals = { score: 0, played: 0, solved: 0, lettersRevealed: 
 
 // ---------- Lock art ----------
 
+const rem = (px: number) => `${px / 16}rem`;
+
 function Tile({ glyph, tone, size, delay, reduce }: { glyph: Glyph; tone: TileTone; size: number; delay: number; reduce: boolean }) {
   const colors =
     tone === 'hidden'
@@ -144,18 +146,18 @@ function Tile({ glyph, tone, size, delay, reduce }: { glyph: Glyph; tone: TileTo
         transition={reduce ? { duration: 0.15, delay: delay / 3 } : { type: 'spring', stiffness: 420, damping: 22, delay }}
         className="inline-flex items-center justify-center rounded-md font-extrabold"
         style={{
-          width: size,
-          height: size * 1.2,
+          width: rem(size),
+          height: rem(size * 1.2),
           background: colors.bg,
           color: colors.fg,
           boxShadow: `inset 0 -4px 0 ${colors.edge}`,
           fontFamily: 'var(--font-display)',
-          fontSize: size * 0.58,
+          fontSize: rem(size * 0.58),
           lineHeight: 1,
         }}
       >
         {tone === 'hidden' ? (
-          <span aria-hidden style={{ width: size * 0.42, height: 3, borderRadius: 2, background: colors.fg, marginTop: size * 0.2 }} />
+          <span aria-hidden style={{ width: rem(size * 0.42), height: 3, borderRadius: 2, background: colors.fg, marginTop: rem(size * 0.2) }} />
         ) : (
           glyph.ch
         )}
@@ -192,7 +194,7 @@ function LockFace({
         : `Locked term, ${letters} letters, ${hiddenCount} hidden.`;
 
   return (
-    <div className="relative mx-auto w-full" style={{ maxWidth: 560, paddingTop: '17%' }}>
+    <div className="relative mx-auto w-full" style={{ maxWidth: '35rem', paddingTop: '17%' }}>
       {/* Shackle sits behind the body; it pops up and swings open on a solve. */}
       <motion.svg
         aria-hidden
@@ -237,8 +239,8 @@ function LockFace({
           style={{
             background: ART.steel,
             boxShadow: `inset 0 4px 0 ${ART.steelEdge}`,
-            columnGap: Math.round(size * 0.55),
-            rowGap: 8,
+            columnGap: rem(Math.round(size * 0.55)),
+            rowGap: '0.5rem',
           }}
         >
           {lock.words.map((word, wi) => (
@@ -257,7 +259,7 @@ function LockFace({
                   <span
                     key={g.index}
                     className="inline-flex items-end justify-center font-extrabold"
-                    style={{ height: size * 1.2, minWidth: size * 0.4, color: ART.hint, fontSize: size * 0.58, fontFamily: 'var(--font-display)' }}
+                    style={{ height: rem(size * 1.2), minWidth: rem(size * 0.4), color: ART.hint, fontSize: rem(size * 0.58), fontFamily: 'var(--font-display)' }}
                   >
                     {g.ch}
                   </span>

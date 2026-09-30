@@ -546,7 +546,7 @@ function SetDetailPage() {
 
   return (
     <PageTransition>
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="max-w-4xl mx-auto px-0 sm:px-4 py-6">
         {/* Save status indicator */}
         <div className="flex items-center justify-end mb-2 gap-2">
           {saveStatus === 'saving' && (
@@ -594,12 +594,12 @@ function SetDetailPage() {
                 fontFamily: 'var(--font-sans)',
                 border: 'none',
                 borderBottom: '2px solid var(--color-primary)',
-                padding: '2px 0',
+                padding: '0.125rem 0',
               }}
             />
           ) : (
             <h1
-              className="text-2xl font-bold cursor-pointer"
+              className="text-2xl font-bold cursor-pointer break-words [overflow-wrap:anywhere]"
               style={{
                 color: 'var(--color-text)',
                 fontFamily: 'var(--font-sans)',
@@ -633,12 +633,12 @@ function SetDetailPage() {
                 fontFamily: 'var(--font-sans)',
                 border: 'none',
                 borderBottom: '1px solid var(--color-primary)',
-                padding: '2px 0',
+                padding: '0.125rem 0',
               }}
             />
           ) : (
             <p
-              className="text-sm cursor-pointer"
+              className="text-sm cursor-pointer break-words [overflow-wrap:anywhere]"
               style={{ color: 'var(--color-text-secondary)' }}
               onClick={() => setEditingDesc(true)}
               title="Click to edit description"
@@ -763,7 +763,7 @@ function SetDetailPage() {
             }}
           >
             <Link2 size={16} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
-            <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="truncate min-w-0" style={{ color: 'var(--color-text-secondary)' }}>
               {shareUrl}
             </span>
             <button
@@ -782,17 +782,17 @@ function SetDetailPage() {
 
         {/* Card list */}
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2
               className="text-lg font-semibold"
               style={{ color: 'var(--color-text)' }}
             >
               Cards ({localSet.cards.length})
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {filterApplied && (
                 <span
-                  className="text-xs font-medium px-2 py-1 rounded-full"
+                  className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap"
                   style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary)' }}
                 >
                   {activeCardCount} of {localSet.cards.length} cards active
@@ -829,14 +829,14 @@ function SetDetailPage() {
                 borderRadius: 'var(--radius-lg)',
               }}
             >
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                   Select which cards to study
                 </span>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setExcludedCardIds(new Set())}
-                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer"
+                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer whitespace-nowrap"
                     style={{
                       background: 'var(--color-muted)',
                       color: 'var(--color-primary)',
@@ -847,7 +847,7 @@ function SetDetailPage() {
                   </button>
                   <button
                     onClick={() => setExcludedCardIds(new Set(localSet.cards.map((c) => c.id)))}
-                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer"
+                    className="text-xs font-medium px-2 py-1 rounded cursor-pointer whitespace-nowrap"
                     style={{
                       background: 'var(--color-muted)',
                       color: 'var(--color-text-secondary)',
@@ -879,14 +879,16 @@ function SetDetailPage() {
                         className="shrink-0"
                         style={{ accentColor: 'var(--color-primary)' }}
                       />
-                      <span className="text-sm font-medium shrink-0 w-6" style={{ color: 'var(--color-text-tertiary)' }}>
+                      <span className="text-sm font-medium shrink-0 min-w-6 tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>
                         {i + 1}
                       </span>
-                      <span className="text-sm truncate flex-1" style={{ color: 'var(--color-text)' }}>
-                        {termText}
-                      </span>
-                      <span className="text-sm truncate flex-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        {defText}
+                      <span className="flex-1 min-w-0 flex flex-col sm:flex-row sm:gap-3">
+                        <span className="text-sm min-w-0 line-clamp-2 break-words sm:block sm:truncate sm:flex-1" style={{ color: 'var(--color-text)' }}>
+                          {termText}
+                        </span>
+                        <span className="text-sm min-w-0 line-clamp-2 break-words sm:block sm:truncate sm:flex-1" style={{ color: 'var(--color-text-secondary)' }}>
+                          {defText}
+                        </span>
                       </span>
                     </label>
                   );
@@ -894,7 +896,7 @@ function SetDetailPage() {
               </div>
 
               {/* Footer: count + Apply/Clear */}
-              <div className="flex items-center justify-between mt-4 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
                 <span className="text-sm" style={{ color: activeCardCount <= 2 ? 'var(--color-warning)' : 'var(--color-text-secondary)' }}>
                   {activeCardCount} of {localSet.cards.length} cards selected
                   {activeCardCount <= 2 && ' (minimum 2)'}

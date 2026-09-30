@@ -189,7 +189,7 @@ function HintButton({ onClick, disabled, children }: { onClick: () => void; disa
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="er-key inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+      className="er-key inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 min-h-9 px-3 rounded-xl text-sm font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
       style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
     >
       <Lightbulb size={15} />
@@ -201,8 +201,8 @@ function HintButton({ onClick, disabled, children }: { onClick: () => void; disa
 
 function LockHeader({ kind, help, right }: { kind: LockKind; help: string; right?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-4">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div className="flex-1 min-w-24">
         <h3 className="text-xl font-extrabold flex items-center gap-2" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
           <Lock size={18} /> {LOCK_NAMES[kind]}
         </h3>
@@ -356,7 +356,7 @@ function CodeLock({ lock, api, active }: { lock: CodeLockData; api: LockApi; act
             >
               <span className="text-3xl font-extrabold tabular-nums leading-none">{state ? d : '?'}</span>
               {state === 'bought' && (
-                <span className="text-[10px] font-bold mt-1 flex items-center gap-0.5" style={{ color: '#ff8a8a' }}>
+                <span className="text-[0.625rem] font-bold mt-1 flex items-center gap-0.5" style={{ color: '#ff8a8a' }}>
                   <Hourglass size={10} /> −{WRONG_PENALTY}s
                 </span>
               )}
@@ -390,7 +390,7 @@ function CodeLock({ lock, api, active }: { lock: CodeLockData; api: LockApi; act
       )}
 
       {keypad && (
-        <div className="max-w-[280px] mx-auto">
+        <div className="max-w-[17.5rem] mx-auto">
           <div
             key={shake}
             className={`${shake ? 'er-shake ' : ''}h-14 mb-3 rounded-xl flex items-center justify-center gap-3 text-3xl font-extrabold tabular-nums`}
@@ -559,37 +559,39 @@ function OddLock({ lock, api, active }: { lock: OddLockData; api: LockApi; activ
         help="Three pairs are right. Pick the one that is mismatched."
         right={!found && cleared.length < 2 ? <HintButton onClick={hint}>Clear one</HintButton> : undefined}
       />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {lock.pairs.map((p, i) => {
-          const ok = cleared.includes(i);
-          const isFound = found && p.wrong;
-          return (
-            <button
-              key={shakeAt?.i === i ? `${i}-${shakeAt.n}` : i}
-              type="button"
-              onClick={() => pick(i)}
-              disabled={found || ok || !active}
-              className={`${shakeAt?.i === i ? 'er-shake ' : ''}er-key text-left rounded-2xl p-3.5 cursor-pointer disabled:cursor-default`}
-              style={{
-                background: isFound ? '#d93843' : ok ? 'var(--color-success-light)' : 'var(--color-surface)',
-                color: isFound ? '#fff' : 'var(--color-text)',
-                border: `2px solid ${isFound ? '#a8202a' : ok ? 'var(--color-success)' : 'var(--color-border)'}`,
-                boxShadow: ok || isFound ? 'none' : 'inset 0 -4px 0 var(--color-border)',
-                opacity: found && !p.wrong ? 0.55 : 1,
-              }}
-              aria-label={`Pair ${i + 1}${ok ? ', checked: correct' : ''}${isFound ? ', mismatched' : ''}`}
-            >
-              <StudyContent html={p.card.term} className="font-bold" />
-              <div className="my-1.5 h-px" style={{ background: 'currentColor', opacity: 0.2 }} />
-              <StudyContent html={p.definition} className="text-sm" />
-              {ok && (
-                <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-bold" style={{ color: 'var(--color-success)' }}>
-                  <Check size={13} strokeWidth={3} /> This pair is right
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div className="@container">
+        <div className="grid grid-cols-1 @md:grid-cols-2 gap-2.5">
+          {lock.pairs.map((p, i) => {
+            const ok = cleared.includes(i);
+            const isFound = found && p.wrong;
+            return (
+              <button
+                key={shakeAt?.i === i ? `${i}-${shakeAt.n}` : i}
+                type="button"
+                onClick={() => pick(i)}
+                disabled={found || ok || !active}
+                className={`${shakeAt?.i === i ? 'er-shake ' : ''}er-key text-left rounded-2xl p-3.5 cursor-pointer disabled:cursor-default`}
+                style={{
+                  background: isFound ? '#d93843' : ok ? 'var(--color-success-light)' : 'var(--color-surface)',
+                  color: isFound ? '#fff' : 'var(--color-text)',
+                  border: `2px solid ${isFound ? '#a8202a' : ok ? 'var(--color-success)' : 'var(--color-border)'}`,
+                  boxShadow: ok || isFound ? 'none' : 'inset 0 -4px 0 var(--color-border)',
+                  opacity: found && !p.wrong ? 0.55 : 1,
+                }}
+                aria-label={`Pair ${i + 1}${ok ? ', checked: correct' : ''}${isFound ? ', mismatched' : ''}`}
+              >
+                <StudyContent html={p.card.term} className="font-bold" />
+                <div className="my-1.5 h-px" style={{ background: 'currentColor', opacity: 0.2 }} />
+                <StudyContent html={p.definition} className="text-sm" />
+                {ok && (
+                  <span className="mt-1.5 inline-flex items-center gap-1 text-xs font-bold" style={{ color: 'var(--color-success)' }}>
+                    <Check size={13} strokeWidth={3} /> This pair is right
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
       {found && (
         <p className="mt-3 text-sm font-semibold" role="status" style={{ color: 'var(--color-success)' }}>
@@ -903,7 +905,7 @@ function RoomScene({
               ))}
             </motion.svg>
           )}
-          <div className="relative flex flex-col gap-1" style={{ zIndex: 1 }}>
+          <div className="relative flex flex-col gap-[4px]" style={{ zIndex: 1 }}>
             {Array.from({ length: locksTotal }, (_, i) => {
               const isOpen = i < locksOpen;
               return (
@@ -911,7 +913,7 @@ function RoomScene({
                   key={i}
                   initial={false}
                   animate={isOpen && !reduce ? { y: [0, -4, 0] } : {}}
-                  className="flex items-center justify-center w-7 h-7 rounded-md"
+                  className="flex items-center justify-center w-[28px] h-[28px] rounded-md"
                   style={{ background: isOpen ? '#23875a' : '#1f2430', color: isOpen ? '#fff' : '#ffd23e' }}
                   aria-label={isOpen ? 'Lock open' : 'Lock closed'}
                 >
@@ -1001,14 +1003,14 @@ function ConfigScreen({ onStart, setId }: { onStart: (c: RunConfig) => void; set
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
-        <div className="relative" style={{ aspectRatio: '400 / 150' }}>
+        <div className="relative flex items-end px-4 pb-3" style={{ aspectRatio: '400 / 150' }}>
           <svg aria-hidden viewBox="0 30 400 150" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid slice">
             <LibraryArt />
             <rect x="284" y="52" width="92" height="122" rx="4" fill={ROOM_ART.library.doorEdge} />
             <rect x="290" y="58" width="80" height="114" rx="3" fill={ROOM_ART.library.door} />
             <circle cx="356" cy="118" r="5" fill="#e0a526" />
           </svg>
-          <div className="absolute inset-0 flex items-end gap-2 px-4 pb-3">
+          <div className="relative flex items-end gap-2 min-w-0">
             <Mascot mood="happy" color={MASCOT_COLOR} accessory="headband" size={72} />
             <div className="pb-1 rounded-2xl px-3 py-2" style={{ background: 'rgba(31,20,12,0.72)' }}>
               <h2 className="text-2xl sm:text-3xl font-extrabold" style={{ color: '#fff6e5', fontFamily: 'var(--font-display)' }}>

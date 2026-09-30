@@ -205,74 +205,74 @@ export default function AccountSettingsPage() {
                 </div>
               )}
 
-              <div className="relative">
-                <Input
-                  label="Current Password"
-                  type={showCurrent ? 'text' : 'password'}
-                  placeholder="Enter your current password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCurrent(!showCurrent)}
-                  className="absolute right-3 top-[38px] cursor-pointer"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                  tabIndex={-1}
-                  aria-label={showCurrent ? 'Hide password' : 'Show password'}
-                >
-                  {showCurrent ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+              <Input
+                label="Current Password"
+                type={showCurrent ? 'text' : 'password'}
+                placeholder="Enter your current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                endAdornment={
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrent(!showCurrent)}
+                    className="flex items-center cursor-pointer"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    tabIndex={-1}
+                    aria-label={showCurrent ? 'Hide password' : 'Show password'}
+                  >
+                    {showCurrent ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                }
+              />
 
-              <div className="relative">
-                <Input
-                  label="New Password"
-                  type={showNew ? 'text' : 'password'}
-                  placeholder="Enter your new password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-[38px] cursor-pointer"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                  tabIndex={-1}
-                  aria-label={showNew ? 'Hide password' : 'Show password'}
-                >
-                  {showNew ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+              <Input
+                label="New Password"
+                type={showNew ? 'text' : 'password'}
+                placeholder="Enter your new password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                endAdornment={
+                  <button
+                    type="button"
+                    onClick={() => setShowNew(!showNew)}
+                    className="flex items-center cursor-pointer"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    tabIndex={-1}
+                    aria-label={showNew ? 'Hide password' : 'Show password'}
+                  >
+                    {showNew ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                }
+              />
 
               <PasswordStrengthMeter password={newPassword} />
 
-              <div className="relative">
-                <Input
-                  label="Confirm New Password"
-                  type={showConfirm ? 'text' : 'password'}
-                  placeholder="Re-enter your new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  error={getConfirmError()}
-                  required
-                  autoComplete="new-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-3 top-[38px] cursor-pointer"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                  tabIndex={-1}
-                  aria-label={showConfirm ? 'Hide password' : 'Show password'}
-                >
-                  {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
+              <Input
+                label="Confirm New Password"
+                type={showConfirm ? 'text' : 'password'}
+                placeholder="Re-enter your new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                error={getConfirmError()}
+                required
+                autoComplete="new-password"
+                endAdornment={
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    className="flex items-center cursor-pointer"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    tabIndex={-1}
+                    aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                }
+              />
 
               <Button type="submit" disabled={loading} className="w-full mt-2">
                 {loading ? 'Updating...' : 'Update Password'}

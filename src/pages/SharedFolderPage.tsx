@@ -167,7 +167,7 @@ function SharedFolderPage() {
   );
 
   const getValidCardCount = (set: StudySet) =>
-    set.cards.filter((c) => hasTermContent(c) || hasDefinitionContent(c)).length;
+    set.cards.filter((c) => hasTermContent(c) && hasDefinitionContent(c)).length;
 
   return (
     <PageTransition>
@@ -196,7 +196,7 @@ function SharedFolderPage() {
             <FolderOpen size={18} color="#fff" />
           </div>
           <h1
-            className="text-2xl font-bold"
+            className="text-2xl font-bold min-w-0 break-words"
             style={{ color: 'var(--color-text)', fontFamily: 'var(--font-sans)' }}
           >
             {folder.name}
@@ -262,7 +262,7 @@ function SharedFolderPage() {
                           }}
                         >
                           <h3
-                            className="text-base font-semibold mb-1 truncate"
+                            className="text-base font-semibold mb-1 line-clamp-2 break-words"
                             style={{ color: 'var(--color-text)' }}
                           >
                             {set.title || 'Untitled Set'}

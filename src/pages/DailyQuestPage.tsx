@@ -194,7 +194,7 @@ function DailyQuest({ sets }: { sets: StudySet[] }) {
     return (
       <div className="max-w-xl mx-auto px-4 py-10">
         <SceneCard compact>
-          <div className="flex items-end justify-center gap-3 h-full pb-4">
+          <div className="flex items-end justify-center gap-3 flex-1 pb-4">
             <Mascot mood="idle" color={SCENE.accent} size={80} />
           </div>
         </SceneCard>
@@ -287,7 +287,7 @@ function DailyQuest({ sets }: { sets: StudySet[] }) {
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-4">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
         <SceneCard compact>
-          <div className="flex items-end justify-center gap-3 h-full pb-3 px-4">
+          <div className="flex items-end justify-center gap-3 flex-1 pb-3 px-4">
             <Mascot mood={doneToday ? 'celebrate' : 'happy'} color={SCENE.accent} accessory="headband" size={84} />
             <div className="pb-3 text-left min-w-0">
               <h1 className="text-3xl font-extrabold" style={{ color: '#fff', fontFamily: 'var(--font-display)' }}>
@@ -308,7 +308,7 @@ function DailyQuest({ sets }: { sets: StudySet[] }) {
               <button
                 type="button"
                 onClick={() => start(true)}
-                className="h-12 rounded-2xl font-extrabold cursor-pointer focus-visible:outline-3 focus-visible:outline-offset-2"
+                className="min-h-12 py-2 px-4 leading-tight rounded-2xl font-extrabold cursor-pointer focus-visible:outline-3 focus-visible:outline-offset-2"
                 style={{ background: 'var(--color-muted)', color: 'var(--color-text)', border: 'none', fontFamily: 'var(--font-display)' }}
               >
                 Bonus round (doesn't count for your streak)
@@ -346,9 +346,9 @@ function planSummary(due: number, fresh: number, extra: number, setCount: number
 function SceneCard({ children, compact, height }: { children?: ReactNode; compact?: boolean; height?: number }) {
   return (
     <div
-      className="relative overflow-hidden"
+      className="relative overflow-hidden flex flex-col"
       style={{
-        height: height ?? (compact ? 150 : 320),
+        minHeight: height ? `${height / 16}rem` : compact ? '9.375rem' : '20rem',
         background: `linear-gradient(180deg, ${SCENE.skyTop} 0%, #7a3e6a 55%, ${SCENE.skyBottom} 100%)`,
       }}
     >
@@ -360,7 +360,7 @@ function SceneCard({ children, compact, height }: { children?: ReactNode; compac
           <circle key={x} cx={x} cy={12 + ((i * 17) % 40)} r={i % 3 === 0 ? 1.6 : 1} fill="#fff" opacity="0.7" />
         ))}
       </svg>
-      <div className="relative h-full">{children}</div>
+      <div className="relative flex-1 flex flex-col">{children}</div>
     </div>
   );
 }
@@ -375,7 +375,7 @@ function StreakSummary({ streak, best, doneToday }: { streak: number; best: numb
         style={{ background: streak > 0 ? SCENE.accent : 'var(--color-muted)', boxShadow: streak > 0 ? `inset 0 -5px 0 ${SCENE.accentEdge}` : 'none' }}
         aria-hidden
       >
-        <Flame size={34} color={streak > 0 ? '#fff' : 'var(--color-text-tertiary)'} fill={streak > 0 ? '#ffd27a' : 'none'} />
+        <Flame size={34} style={{ width: '2.125rem', height: '2.125rem' }} color={streak > 0 ? '#fff' : 'var(--color-text-tertiary)'} fill={streak > 0 ? '#ffd27a' : 'none'} />
       </div>
       <div className="min-w-0">
         <div className="text-3xl font-extrabold tabular-nums leading-none" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
@@ -410,7 +410,7 @@ function WeekRow({ days, today }: { days: string[]; today: string }) {
             </span>
             <span
               aria-hidden
-              className="flex items-center justify-center w-10 h-10 rounded-full"
+              className="flex items-center justify-center w-full max-w-10 aspect-square rounded-full"
               style={{
                 background: isDone ? SCENE.accent : 'var(--color-muted)',
                 boxShadow: isDone ? `inset 0 -3px 0 ${SCENE.accentEdge}` : 'none',
@@ -468,7 +468,7 @@ function MonthCalendar({ days, today }: { days: string[]; today: string }) {
               key={c}
               role="gridcell"
               aria-label={`${keyToDate(c).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}${done.has(c) ? ', quest done' : ''}`}
-              className="mx-auto flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold tabular-nums"
+              className="mx-auto flex items-center justify-center w-full max-w-8 aspect-square rounded-full text-xs font-bold tabular-nums"
               style={{
                 background: done.has(c) ? SCENE.accent : 'transparent',
                 color: done.has(c) ? '#fff' : c > today ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
@@ -485,14 +485,15 @@ function MonthCalendar({ days, today }: { days: string[]; today: string }) {
   );
 }
 
-function RewardBadge({ reward, size = 64 }: { reward: DailyReward; size?: number }) {
+function RewardBadge({ reward, size = 64, rem }: { reward: DailyReward; size?: number; rem?: boolean }) {
   const Icon = REWARD_ICONS[reward.id] ?? Sparkles;
+  const dim = rem ? `${size / 16}rem` : size;
   return (
     <span
       className="flex items-center justify-center rounded-full shrink-0"
       style={{
-        width: size,
-        height: size,
+        width: dim,
+        height: dim,
         background: reward.color,
         boxShadow: `inset 0 -${Math.round(size / 12)}px 0 ${reward.edge}, 0 0 0 ${Math.round(size / 16)}px ${SCENE.gold}`,
       }}
@@ -506,7 +507,7 @@ function RewardBadge({ reward, size = 64 }: { reward: DailyReward; size?: number
 function RewardRow({ reward }: { reward: DailyReward }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl p-3" style={{ background: 'var(--color-muted)' }}>
-      <RewardBadge reward={reward} size={44} />
+      <RewardBadge reward={reward} size={44} rem />
       <div className="min-w-0">
         <div className="font-extrabold" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
           Today's reward: {reward.name}
@@ -538,7 +539,7 @@ function ChestScene({ reward, streak, onContinue }: { reward: DailyReward; strea
   return (
     <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.22)' }}>
       <SceneCard height={380}>
-        <div className="flex flex-col items-center h-full pt-5 px-4 text-center">
+        <div className="flex flex-col items-center flex-1 pt-5 px-4 text-center">
           <h1 className="text-2xl sm:text-3xl font-extrabold" style={{ color: '#fff', fontFamily: 'var(--font-display)' }}>
             {open ? reward.name : 'Quest complete!'}
           </h1>

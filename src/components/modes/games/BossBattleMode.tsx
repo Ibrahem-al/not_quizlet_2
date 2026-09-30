@@ -205,11 +205,11 @@ function HpBar({ label, hp, max, color, align = 'left', icon }: { label: string;
   return (
     <div className="min-w-0 flex-1" style={{ textAlign: align }}>
       <div
-        className="flex items-center gap-1.5 text-xs sm:text-sm font-extrabold mb-1"
+        className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm font-extrabold mb-1"
         style={{ color: ARENA.ink, fontFamily: 'var(--font-display)', justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}
       >
         {icon}
-        <span className="truncate">{label}</span>
+        <span className="truncate min-w-0">{label}</span>
         <span className="tabular-nums opacity-80">{Math.ceil(hp)}/{max}</span>
       </div>
       <div
@@ -382,7 +382,7 @@ function MovesStrip({ moves, turn, accent }: { moves: Move[]; turn: number; acce
               return (
                 <span
                   key={m.id}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-xs font-bold max-w-[180px]"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-xs font-bold max-w-[11.25rem]"
                   style={{ background: accent, color: '#fff' }}
                   title={m.label}
                 >
@@ -416,7 +416,7 @@ function ConfigScreen({ onStart, setId }: { onStart: (c: BattleConfig) => void; 
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
         <div
-          className="relative flex items-end justify-center gap-2 h-[160px] px-4 pb-3"
+          className="relative flex items-end justify-center gap-2 min-h-[10rem] px-4 pt-4 pb-3"
           style={{ background: `linear-gradient(180deg, ${ARENA.skyTop}, ${ARENA.skyBottom})` }}
         >
           <Mascot mood="happy" color={ARENA.hero} accessory="helmet" size={80} />
@@ -451,9 +451,9 @@ function ConfigScreen({ onStart, setId }: { onStart: (c: BattleConfig) => void; 
                   >
                     <BossArt id={id} size={64} />
                     <span className="text-sm font-extrabold mt-1" style={{ fontFamily: 'var(--font-display)' }}>{b.name}</span>
-                    <span className="text-[11px] leading-tight opacity-80 text-center">{b.blurb}</span>
+                    <span className="text-[0.6875rem] leading-tight opacity-80 text-center">{b.blurb}</span>
                     {bests[id] !== null && (
-                      <span className="text-[11px] font-bold mt-1 tabular-nums opacity-90">Best {bests[id]?.toLocaleString()}</span>
+                      <span className="text-[0.6875rem] font-bold mt-1 tabular-nums opacity-90">Best {bests[id]?.toLocaleString()}</span>
                     )}
                   </button>
                 );

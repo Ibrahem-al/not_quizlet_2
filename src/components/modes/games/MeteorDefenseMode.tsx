@@ -359,7 +359,9 @@ function SetupScreen({
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
-        <SceneSky height={160}>
+        {/* 160px at default text size; grows faster than the text so the
+            wrapped description stays above the city's shield dome */}
+        <SceneSky height="calc(14rem - 64px)">
           <City lives={3} hitKey={0} />
           <div className="absolute inset-0 flex items-start gap-3 p-5">
             <div className="text-left">
@@ -774,7 +776,7 @@ export default function MeteorDefenseMode({ cards, setId, exitUrl }: ModeProps) 
         className="relative mt-3 rounded-3xl overflow-hidden"
         style={{ boxShadow: '0 16px 40px rgba(0,0,0,0.22)' }}
       >
-        <SceneSky height="clamp(300px, 60dvh, 540px)">
+        <SceneSky height="clamp(18.75rem, 60dvh, 33.75rem)">
           <div className="absolute inset-0">
             <City lives={lives} hitKey={hitKey} />
 
@@ -831,7 +833,7 @@ export default function MeteorDefenseMode({ cards, setId, exitUrl }: ModeProps) 
               )}
             </AnimatePresence>
 
-            <div className="absolute inset-x-3 flex justify-center pointer-events-none" style={{ top: 44, zIndex: 8 }} role="status" aria-live="polite">
+            <div className="absolute inset-x-3 flex justify-center pointer-events-none" style={{ top: '2.75rem', zIndex: 8 }} role="status" aria-live="polite">
               <AnimatePresence>
                 {missed && (
                   <motion.div

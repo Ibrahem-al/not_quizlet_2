@@ -110,7 +110,7 @@ const EditableCard = memo(
       >
         {/* Drag handle */}
         <div
-          className="flex items-center justify-center w-10 shrink-0 cursor-grab active:cursor-grabbing rounded-l-lg"
+          className="flex items-center justify-center w-8 sm:w-10 shrink-0 cursor-grab active:cursor-grabbing rounded-l-lg"
           style={{ color: 'var(--color-text-tertiary)' }}
           {...attributes}
           {...listeners}
@@ -120,7 +120,7 @@ const EditableCard = memo(
 
         {/* Card number */}
         <div
-          className="flex items-center justify-center w-8 shrink-0 text-sm font-medium"
+          className="flex items-center justify-center w-6 sm:w-8 shrink-0 text-sm font-medium"
           style={{ color: 'var(--color-text-tertiary)' }}
         >
           {index + 1}
@@ -128,14 +128,14 @@ const EditableCard = memo(
 
         {/* Content area */}
         <div
-          className="flex-1 grid grid-cols-2 gap-0 min-h-[80px]"
+          className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-0 min-h-[5rem]"
           onClick={() => {
             if (!isActive) onActivate(card.id);
           }}
         >
           {/* Term */}
           <div
-            className="border-r px-3 py-2"
+            className="border-b sm:border-b-0 sm:border-r px-3 py-2 min-w-0"
             style={{ borderColor: 'var(--color-border)' }}
           >
             <div
@@ -157,7 +157,7 @@ const EditableCard = memo(
               />
             ) : (
               <div
-                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer card-preview"
+                className="prose prose-sm max-w-none min-h-[2.5rem] break-words [overflow-wrap:anywhere] cursor-pointer card-preview"
                 style={{
                   color: termEmpty
                     ? 'var(--color-text-tertiary)'
@@ -181,7 +181,7 @@ const EditableCard = memo(
           </div>
 
           {/* Definition */}
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 min-w-0">
             <div
               className="text-xs font-medium mb-1 uppercase tracking-wide"
               style={{ color: 'var(--color-text-tertiary)' }}
@@ -201,7 +201,7 @@ const EditableCard = memo(
               />
             ) : (
               <div
-                className="prose prose-sm max-w-none min-h-[40px] cursor-pointer card-preview"
+                className="prose prose-sm max-w-none min-h-[2.5rem] break-words [overflow-wrap:anywhere] cursor-pointer card-preview"
                 style={{
                   color: defEmpty
                     ? 'var(--color-text-tertiary)'
@@ -228,7 +228,7 @@ const EditableCard = memo(
         </div>
 
         {/* Delete button */}
-        <div className="flex items-center justify-center w-10 shrink-0">
+        <div className="flex items-center justify-center w-8 sm:w-10 shrink-0">
           <button
             type="button"
             onClick={handleDelete}

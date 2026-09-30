@@ -71,12 +71,13 @@ function SetCard({ set, onDelete }: SetCardProps) {
             <h3
               className="text-base font-semibold truncate"
               style={{ color: 'var(--color-text)' }}
+              title={set.title}
             >
               {set.title}
             </h3>
             <button
               onClick={handleDelete}
-              className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded cursor-pointer"
+              className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity p-1 rounded cursor-pointer"
               style={{
                 color: 'var(--color-text-tertiary)',
                 background: 'transparent',
@@ -125,7 +126,9 @@ function SetCard({ set, onDelete }: SetCardProps) {
           {set.tags.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {set.tags.slice(0, 4).map((tag) => (
-                <Badge key={tag}>{tag}</Badge>
+                <Badge key={tag} className="max-w-full">
+                  <span className="truncate" title={tag}>{tag}</span>
+                </Badge>
               ))}
               {set.tags.length > 4 && (
                 <Badge>+{set.tags.length - 4}</Badge>

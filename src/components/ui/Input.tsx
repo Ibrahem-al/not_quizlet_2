@@ -6,11 +6,12 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   helperText?: string;
   error?: string;
   icon?: ReactNode;
+  endAdornment?: ReactNode;
   className?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, helperText, error, icon, className, id, onFocus, onBlur, ...props }, ref) => {
+  ({ label, helperText, error, icon, endAdornment, className, id, onFocus, onBlur, ...props }, ref) => {
     // useId keeps label/input pairing collision-free when two inputs share a
     // label text (the old slug-from-label scheme collided).
     const generatedId = useId();
@@ -42,6 +43,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={cn(
               'w-full h-10 px-3 text-base transition-colors',
               icon ? 'pl-10' : '',
+              endAdornment ? 'pr-10' : '',
               className,
             )}
             style={{
@@ -70,6 +72,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             }}
             {...props}
           />
+          {endAdornment && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+              {endAdornment}
+            </span>
+          )}
         </div>
         {error && (
           <p className="text-sm" style={{ color: 'var(--color-danger)' }}>

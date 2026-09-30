@@ -182,7 +182,7 @@ function StatsPage() {
         </h1>
 
         {/* Top stat cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Card>
             <p
               className="text-sm font-medium mb-1"
@@ -241,13 +241,16 @@ function StatsPage() {
               style={{
                 gridTemplateColumns: 'repeat(12, 1fr)',
                 gridTemplateRows: 'repeat(7, 1fr)',
+                gridAutoFlow: 'column',
+                gridAutoColumns: '1fr',
               }}
             >
-              {heatmapData.map((cell) => (
+              {heatmapData.map((cell, i) => (
                 <div
                   key={cell.date}
                   className="aspect-square rounded-sm cursor-default"
                   style={{
+                    gridRowStart: i === 0 ? cell.dayOfWeek + 1 : undefined,
                     background: heatmapColor(cell.count),
                     minWidth: 0,
                     borderRadius: '3px',
@@ -273,7 +276,7 @@ function StatsPage() {
                   top: tooltip.y,
                   transform: 'translate(-50%, -100%)',
                   background: 'var(--color-text)',
-                  color: 'var(--color-background)',
+                  color: 'var(--color-bg)',
                   borderRadius: 'var(--radius-sm)',
                   whiteSpace: 'nowrap',
                 }}
@@ -346,7 +349,7 @@ function StatsPage() {
           >
             Last 28 Days
           </h2>
-          <div className="flex items-end gap-1" style={{ height: '120px' }}>
+          <div className="flex items-end gap-1 mt-6" style={{ height: '7.5rem' }}>
             {last28Days.bars.map((bar) => (
               <div
                 key={bar.date}
@@ -366,7 +369,7 @@ function StatsPage() {
                     className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap"
                     style={{
                       background: 'var(--color-text)',
-                      color: 'var(--color-background)',
+                      color: 'var(--color-bg)',
                       borderRadius: 'var(--radius-sm)',
                     }}
                   >

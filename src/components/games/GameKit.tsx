@@ -231,46 +231,48 @@ export function AnswerTiles({
   const reduce = useReducedMotion();
   const options = question.options ?? [];
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-      {options.map((option, i) => {
-        const c = TILE_COLORS[i % TILE_COLORS.length];
-        const right = feedback !== null && isCorrectOption(question, option);
-        const pickedWrong = feedback !== null && selected === option && !right;
-        const faded = feedback !== null && !right && !pickedWrong;
-        return (
-          <motion.button
-            key={`${i}-${option}`}
-            onClick={() => onPick(option)}
-            disabled={disabled || feedback !== null}
-            whileHover={feedback || disabled || reduce ? undefined : { y: -3 }}
-            whileTap={feedback || disabled || reduce ? undefined : { y: 2, scale: 0.98 }}
-            animate={
-              pickedWrong && !reduce
-                ? { x: [0, -8, 8, -5, 5, 0], opacity: 1 }
-                : { opacity: faded ? 0.35 : 1, scale: right && !reduce ? [1, 1.04, 1] : 1 }
-            }
-            transition={{ duration: 0.35 }}
-            className="answer-tile relative flex items-center gap-3 text-left min-h-[64px] pl-3 pr-4 py-3 rounded-2xl cursor-pointer focus-visible:outline-3 focus-visible:outline-offset-2"
-            style={{
-              background: c.bg,
-              color: c.text,
-              border: 'none',
-              boxShadow: `inset 0 -5px 0 ${c.edge}`,
-              outlineColor: 'var(--color-primary)',
-              fontWeight: 600,
-            }}
-          >
-            <span
-              className="flex items-center justify-center w-7 h-7 rounded-lg text-sm font-extrabold shrink-0"
-              style={{ background: 'rgba(0,0,0,0.18)', fontFamily: 'var(--font-display)' }}
-              aria-hidden
+    <div className="@container">
+      <div className="grid grid-cols-1 @md:grid-cols-2 gap-2.5">
+        {options.map((option, i) => {
+          const c = TILE_COLORS[i % TILE_COLORS.length];
+          const right = feedback !== null && isCorrectOption(question, option);
+          const pickedWrong = feedback !== null && selected === option && !right;
+          const faded = feedback !== null && !right && !pickedWrong;
+          return (
+            <motion.button
+              key={`${i}-${option}`}
+              onClick={() => onPick(option)}
+              disabled={disabled || feedback !== null}
+              whileHover={feedback || disabled || reduce ? undefined : { y: -3 }}
+              whileTap={feedback || disabled || reduce ? undefined : { y: 2, scale: 0.98 }}
+              animate={
+                pickedWrong && !reduce
+                  ? { x: [0, -8, 8, -5, 5, 0], opacity: 1 }
+                  : { opacity: faded ? 0.35 : 1, scale: right && !reduce ? [1, 1.04, 1] : 1 }
+              }
+              transition={{ duration: 0.35 }}
+              className="answer-tile relative flex items-center gap-3 text-left min-h-16 pl-3 pr-4 py-3 rounded-2xl cursor-pointer focus-visible:outline-3 focus-visible:outline-offset-2"
+              style={{
+                background: c.bg,
+                color: c.text,
+                border: 'none',
+                boxShadow: `inset 0 -5px 0 ${c.edge}`,
+                outlineColor: 'var(--color-primary)',
+                fontWeight: 600,
+              }}
             >
-              {right ? <Check size={16} strokeWidth={3} /> : pickedWrong ? <X size={16} strokeWidth={3} /> : i + 1}
-            </span>
-            <StudyContent html={option} className="text-base leading-snug min-w-0 break-words" />
-          </motion.button>
-        );
-      })}
+              <span
+                className="flex items-center justify-center w-7 h-7 rounded-lg text-sm font-extrabold shrink-0"
+                style={{ background: 'rgba(0,0,0,0.18)', fontFamily: 'var(--font-display)' }}
+                aria-hidden
+              >
+                {right ? <Check size={16} strokeWidth={3} /> : pickedWrong ? <X size={16} strokeWidth={3} /> : i + 1}
+              </span>
+              <StudyContent html={option} className="text-base leading-snug min-w-0 break-words" />
+            </motion.button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -524,7 +526,7 @@ export function ChoicePills<T extends string | number>({
             type="button"
             aria-pressed={on}
             onClick={() => onToggle(o.value)}
-            className="h-10 px-4 rounded-xl text-sm font-semibold cursor-pointer transition-[background-color,color,transform] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="min-h-10 py-2 leading-tight px-4 rounded-xl text-sm font-semibold cursor-pointer transition-[background-color,color,transform] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2"
             style={{
               background: on ? accent : 'var(--color-muted)',
               color: on ? '#fff' : 'var(--color-text)',

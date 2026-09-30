@@ -417,8 +417,9 @@ function ConfigScreen({
     <div className="mp-wall min-h-[calc(100dvh-8rem)] px-4 py-8">
       <div className="max-w-xl mx-auto">
         <GameTopBar onExit={onExit} tone="dark" />
-        <div className="mt-5 rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.35)' }}>
-          <div className="flex items-center gap-4 p-5" style={{ background: '#223743' }}>
+        <div className="@container mt-5 rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.35)' }}>
+          {/* Stacks only when large text leaves no room beside the frame */}
+          <div className="flex flex-col items-start @min-[18rem]:flex-row @min-[18rem]:items-center gap-4 p-5" style={{ background: '#223743' }}>
             <div className="mp-frame shrink-0" style={{ padding: 7 }}>
               <div className="mp-canvas grid grid-cols-3 gap-px" style={{ width: 66, height: 66, background: '#8e6a3a' }}>
                 {Array.from({ length: 9 }, (_, i) => (
@@ -566,11 +567,11 @@ function Easel({
       <div className="relative mt-3 flex items-end gap-2 w-full justify-center" style={{ maxWidth: 360 }}>
         <div
           key={revealed ? 'named' : 'unknown'}
-          className={revealed ? 'mp-plate-in' : undefined}
+          className={`sm:max-w-[calc(100%-8rem)] ${revealed ? 'mp-plate-in' : ''}`}
           style={{
-            minWidth: 150,
-            padding: '6px 14px',
-            borderRadius: 6,
+            minWidth: '9.375rem',
+            padding: '0.375rem 0.875rem',
+            borderRadius: '0.375rem',
             textAlign: 'center',
             background: `linear-gradient(180deg, #f0cf7c, ${ART.brass})`,
             boxShadow: `inset 0 -3px 0 ${ART.brassEdge}, 0 4px 10px rgba(0,0,0,0.35)`,
@@ -608,30 +609,32 @@ function GuessPanel({
       <h3 className="text-2xl font-bold leading-snug mb-5" style={{ color: 'var(--color-text)' }}>
         What's under the tiles?
       </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {options.map((option, i) => {
-          const c = TILE_COLORS[i % TILE_COLORS.length];
-          return (
-            <motion.button
-              key={option}
-              type="button"
-              onClick={() => onPick(option)}
-              whileHover={reduce ? undefined : { y: -3 }}
-              whileTap={reduce ? undefined : { y: 2, scale: 0.98 }}
-              className="flex items-center gap-3 text-left min-h-[60px] pl-3 pr-4 py-3 rounded-2xl cursor-pointer font-semibold focus-visible:outline-3 focus-visible:outline-offset-2"
-              style={{ background: c.bg, color: c.text, border: 'none', boxShadow: `inset 0 -5px 0 ${c.edge}`, outlineColor: 'var(--color-primary)' }}
-            >
-              <span
-                className="flex items-center justify-center w-7 h-7 rounded-lg text-sm font-extrabold shrink-0"
-                style={{ background: 'rgba(0,0,0,0.18)', fontFamily: 'var(--font-display)' }}
-                aria-hidden
+      <div className="@container">
+        <div className="grid grid-cols-1 @md:grid-cols-2 gap-2.5">
+          {options.map((option, i) => {
+            const c = TILE_COLORS[i % TILE_COLORS.length];
+            return (
+              <motion.button
+                key={option}
+                type="button"
+                onClick={() => onPick(option)}
+                whileHover={reduce ? undefined : { y: -3 }}
+                whileTap={reduce ? undefined : { y: 2, scale: 0.98 }}
+                className="flex items-center gap-3 text-left min-h-15 pl-3 pr-4 py-3 rounded-2xl cursor-pointer font-semibold focus-visible:outline-3 focus-visible:outline-offset-2"
+                style={{ background: c.bg, color: c.text, border: 'none', boxShadow: `inset 0 -5px 0 ${c.edge}`, outlineColor: 'var(--color-primary)' }}
               >
-                {i + 1}
-              </span>
-              <span className="text-base leading-snug min-w-0 break-words">{option}</span>
-            </motion.button>
-          );
-        })}
+                <span
+                  className="flex items-center justify-center w-7 h-7 rounded-lg text-sm font-extrabold shrink-0"
+                  style={{ background: 'rgba(0,0,0,0.18)', fontFamily: 'var(--font-display)' }}
+                  aria-hidden
+                >
+                  {i + 1}
+                </span>
+                <span className="text-base leading-snug min-w-0 break-words">{option}</span>
+              </motion.button>
+            );
+          })}
+        </div>
       </div>
       <div className="mt-4 flex items-center justify-between gap-2">
         <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -952,8 +955,8 @@ export default function MysteryPictureMode({ cards, setId, exitUrl }: ModeProps)
           <ScoreCounter value={score} tone="dark" />
         </GameTopBar>
 
-        <div className="mt-4 flex flex-col md:flex-row gap-5 md:gap-8 items-center md:items-start">
-          <div className="w-full max-w-[300px] md:max-w-none md:w-[360px] shrink-0">
+        <div className="mt-4 flex flex-col lg:flex-row gap-5 lg:gap-8 items-center lg:items-start">
+          <div className="w-full max-w-[300px] lg:max-w-none lg:w-[360px] shrink-0">
             <Easel
               picture={picture}
               tiles={tiles}
@@ -993,8 +996,8 @@ export default function MysteryPictureMode({ cards, setId, exitUrl }: ModeProps)
               </motion.div>
             ) : (
               <>
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <span className="text-sm font-semibold tabular-nums" style={{ color: ART.wallInkSoft }}>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                  <span className="flex-1 min-w-24 text-sm font-semibold tabular-nums" style={{ color: ART.wallInkSoft }}>
                     Question {asked}, {covered.size} of {tiles} tiles left
                   </span>
                   <button
@@ -1002,7 +1005,7 @@ export default function MysteryPictureMode({ cards, setId, exitUrl }: ModeProps)
                     type="button"
                     onClick={openGuess}
                     disabled={!playing || guessing}
-                    className={`flex items-center gap-1.5 h-11 px-4 rounded-xl font-extrabold cursor-pointer disabled:cursor-not-allowed focus-visible:outline-3 focus-visible:outline-offset-2 ${lockPulse > 0 && guessLock > 0 ? 'mp-locked' : ''}`}
+                    className={`flex shrink-0 whitespace-nowrap items-center gap-1.5 min-h-11 px-4 rounded-xl font-extrabold cursor-pointer disabled:cursor-not-allowed focus-visible:outline-3 focus-visible:outline-offset-2 ${lockPulse > 0 && guessLock > 0 ? 'mp-locked' : ''}`}
                     style={{
                       background: guessLock > 0 ? '#5d6f78' : ART.brass,
                       color: guessLock > 0 ? '#e3eaee' : ART.brassInk,

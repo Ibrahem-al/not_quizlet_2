@@ -4,6 +4,7 @@ import { Zap, Sun, Moon, Menu, X, LogOut } from 'lucide-react';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { SyncStatusIndicator } from '@/components/SyncStatusIndicator';
+import { TextSizeControl, TextSizePicker } from '@/components/TextSizeControl';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -35,15 +36,15 @@ function Layout({ children }: LayoutProps) {
         }}
       >
         {/* Left: Logo + Nav */}
-        <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2 no-underline">
+        <div className="flex items-center gap-6 min-w-0">
+          <Link to="/" className="flex items-center gap-2 min-w-0 no-underline">
             <Zap
               size={22}
               style={{ color: 'var(--color-primary)' }}
               strokeWidth={2.5}
             />
             <span
-              className="text-lg font-bold"
+              className="text-lg font-bold truncate"
               style={{
                 fontFamily: 'var(--font-display)',
                 color: 'var(--color-text)',
@@ -61,8 +62,12 @@ function Layout({ children }: LayoutProps) {
         </div>
 
         {/* Right: Sync status + Theme toggle + Auth + Mobile menu */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <SyncStatusIndicator />
+          {/* On phones the picker lives in the menu so the header never overflows */}
+          <div className="hidden md:block">
+            <TextSizeControl />
+          </div>
           <button
             onClick={toggleTheme}
             className="flex items-center justify-center w-9 h-9 rounded-lg cursor-pointer transition-colors"
@@ -155,7 +160,7 @@ function Layout({ children }: LayoutProps) {
             style={{ background: 'rgba(0,0,0,0.4)' }}
           />
           <nav
-            className="absolute top-16 right-0 w-64 h-[calc(100dvh-4rem)] flex flex-col gap-2 p-4"
+            className="absolute top-16 right-0 w-[min(16rem,100%)] h-[calc(100dvh-4rem)] overflow-y-auto flex flex-col gap-2 p-4"
             style={{
               background: 'var(--color-surface)',
               borderLeft: '1px solid var(--color-border)',
@@ -166,12 +171,12 @@ function Layout({ children }: LayoutProps) {
               to="/"
               end
               className={navLinkClass}
-              style={{ color: 'var(--color-text)', padding: '8px 0' }}
+              style={{ color: 'var(--color-text)', padding: '0.5rem 0' }}
               onClick={() => setMobileMenuOpen(false)}
             >
               Your Sets
             </NavLink>
-            <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '8px 0' }} />
+            <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '0.5rem 0' }} />
             {user ? (
               <button
                 onClick={() => {
@@ -183,7 +188,7 @@ function Layout({ children }: LayoutProps) {
                   background: 'transparent',
                   border: 'none',
                   color: 'var(--color-text-secondary)',
-                  padding: '8px 0',
+                  padding: '0.5rem 0',
                 }}
               >
                 Sign Out
@@ -192,12 +197,16 @@ function Layout({ children }: LayoutProps) {
               <Link
                 to="/signin"
                 className="text-sm font-medium no-underline"
-                style={{ color: 'var(--color-primary)', padding: '8px 0' }}
+                style={{ color: 'var(--color-primary)', padding: '0.5rem 0' }}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Sign In
               </Link>
             )}
+            <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '0.5rem 0' }} />
+            <div className="py-2">
+              <TextSizePicker />
+            </div>
           </nav>
         </div>
       )}

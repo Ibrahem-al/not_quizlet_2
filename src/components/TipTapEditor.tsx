@@ -199,7 +199,7 @@ export function TipTapEditor({
 
       <EditorContent
         editor={editor}
-        className="prose prose-sm max-w-none min-h-[60px] p-3 focus-within:outline-none editor-content"
+        className="prose prose-sm max-w-none min-h-[3.75rem] break-words [overflow-wrap:anywhere] p-3 focus-within:outline-none editor-content"
         style={{
           color: 'var(--color-text)',
           fontFamily: 'var(--font-sans)',

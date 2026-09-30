@@ -100,8 +100,8 @@ function ConfigScreen({
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
         <div
-          className="relative overflow-hidden flex items-end gap-3 px-5 pb-4"
-          style={{ height: 160, background: `linear-gradient(180deg, ${ART.stageTop}, ${ART.stageBottom})` }}
+          className="relative overflow-hidden flex items-end gap-3 px-5 pt-4 pb-4"
+          style={{ minHeight: '10rem', background: `linear-gradient(180deg, ${ART.stageTop}, ${ART.stageBottom})` }}
         >
           <StageFloor />
           <div className="relative flex items-end gap-3">
@@ -620,7 +620,7 @@ export default function SwipeBlitzMode({ cards, setId, exitUrl }: ModeProps) {
       <div
         className="relative mt-4 rounded-3xl overflow-hidden"
         style={{
-          height: 'clamp(380px, 58dvh, 520px)',
+          height: 'clamp(23.75rem, 58dvh, 32.5rem)',
           background: `linear-gradient(180deg, ${ART.stageTop}, ${ART.stageBottom})`,
           boxShadow: '0 16px 40px rgba(0,0,0,0.25)',
         }}
@@ -659,8 +659,8 @@ export default function SwipeBlitzMode({ cards, setId, exitUrl }: ModeProps) {
 
         {/* Card slot */}
         <div
-          className="absolute left-1/2 -translate-x-1/2 top-10 bottom-16"
-          style={{ width: 'min(420px, calc(100% - 120px))', zIndex: 2 }}
+          className="absolute left-1/2 -translate-x-1/2 top-10 bottom-[64px]"
+          style={{ width: 'min(26.25rem, calc(100% - 5.5rem - 32px))', zIndex: 2 }}
         >
           <AnimatePresence custom={exitDir} initial={false}>
             {reveal ? (

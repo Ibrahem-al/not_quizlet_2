@@ -99,18 +99,18 @@ function BuzzerIcon({ size = 64 }: { size?: number }) {
   );
 }
 
-function Avatar({ name, color, size = 40 }: { name: string; color: string; size?: number }) {
+function Avatar({ name, color, size = 40, className = 'inline-flex' }: { name: string; color: string; size?: number; className?: string }) {
   return (
     <span
       aria-hidden
-      className="inline-flex items-center justify-center rounded-full font-extrabold shrink-0"
+      className={`${className} items-center justify-center rounded-full font-extrabold shrink-0`}
       style={{
-        width: size,
-        height: size,
+        width: `${size / 16}rem`,
+        height: `${size / 16}rem`,
         background: color,
         color: '#fff',
         fontFamily: 'var(--font-display)',
-        fontSize: size * 0.45,
+        fontSize: `${(size * 0.45) / 16}rem`,
         boxShadow: 'inset 0 -3px 0 rgba(0,0,0,0.25)',
       }}
     >
@@ -121,7 +121,7 @@ function Avatar({ name, color, size = 40 }: { name: string; color: string; size?
 
 function OptionShape({ index, size = 18 }: { index: number; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ width: `${size / 16}rem`, height: `${size / 16}rem` }} aria-hidden>
       <path d={OPTION_SHAPES[index % OPTION_SHAPES.length]} fill="currentColor" />
     </svg>
   );
@@ -377,7 +377,7 @@ function CodeMarquee({ code }: { code: string }) {
       </div>
       <div
         className="bz-code text-center"
-        style={{ fontSize: 'clamp(2.6rem, 11vw, 6.5rem)', color: STAGE.gold }}
+        style={{ fontSize: 'clamp(1.75rem, 11vw, 6.5rem)', color: STAGE.gold }}
         aria-label={`Game code ${code.split('').join(' ')}`}
       >
         {code}
@@ -425,18 +425,18 @@ function Lobby({
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-      <section className="bz-stage rounded-3xl p-5 sm:p-8 min-h-[420px]" aria-label="Lobby">
+    <div className="grid gap-4 lg:grid-cols-[1fr_21.25rem]">
+      <section className="bz-stage rounded-3xl p-5 sm:p-8 min-h-[26.25rem]" aria-label="Lobby">
         <StageBeams />
         <div className="relative flex flex-col items-center text-center">
           <div className="flex items-center gap-3 mb-4">
             <BuzzerIcon size={56} />
-            <div className="text-left">
+            <div className="text-left min-w-0">
               <h1 className="text-2xl sm:text-3xl font-extrabold" style={{ fontFamily: 'var(--font-display)', color: STAGE.text }}>
                 Buzzer Battle
               </h1>
               <p className="text-sm sm:text-base font-semibold" style={{ color: STAGE.sub }}>
-                Join at <span style={{ color: STAGE.text }}>{origin.replace(/^https?:\/\//, '')}/live</span>
+                Join at <span className="[overflow-wrap:anywhere]" style={{ color: STAGE.text }}>{origin.replace(/^https?:\/\//, '')}/live</span>
               </p>
             </div>
           </div>
@@ -680,7 +680,7 @@ function HostTiles({
               )}
             </span>
             {tf ? (
-              <span className="text-2xl font-extrabold" style={{ fontFamily: 'var(--font-display)' }}>
+              <span className="text-2xl font-extrabold min-w-0 break-words" style={{ fontFamily: 'var(--font-display)' }}>
                 {opt}
               </span>
             ) : (
@@ -869,13 +869,13 @@ function LeaderboardStage({ snap, engine }: { snap: HostSnapshot; engine: Buzzer
                   key={p.id}
                   layout={!reduce}
                   transition={{ type: 'spring', stiffness: 260, damping: 28 }}
-                  className="flex items-center gap-3 h-16 px-3 sm:px-4 rounded-2xl"
+                  className="flex items-center gap-2 sm:gap-3 min-h-16 px-3 sm:px-4 rounded-2xl"
                   style={{ background: STAGE.panel, boxShadow: `inset 0 -4px 0 ${STAGE.panelEdge}` }}
                 >
-                  <span className="w-8 text-2xl font-extrabold tabular-nums text-center" style={{ fontFamily: 'var(--font-display)', color: STAGE.gold }}>
+                  <span className="w-6 sm:w-8 shrink-0 text-2xl font-extrabold tabular-nums text-center" style={{ fontFamily: 'var(--font-display)', color: STAGE.gold }}>
                     {rank ?? '–'}
                   </span>
-                  <Avatar name={p.name} color={p.color} size={38} />
+                  <Avatar name={p.name} color={p.color} size={38} className="hidden min-[400px]:inline-flex" />
                   <span className="font-bold text-lg truncate min-w-0 flex-1" style={{ color: STAGE.text }}>
                     {p.name}
                     {!p.online && <WifiOff size={14} className="inline ml-2 opacity-60" aria-label="offline" />}
@@ -899,7 +899,7 @@ function LeaderboardStage({ snap, engine }: { snap: HostSnapshot; engine: Buzzer
                       +{p.lastPoints}
                     </span>
                   )}
-                  <span className="text-xl font-extrabold tabular-nums w-20 text-right" style={{ fontFamily: 'var(--font-display)', color: STAGE.text }}>
+                  <span className="text-xl font-extrabold tabular-nums sm:w-20 shrink-0 text-right" style={{ fontFamily: 'var(--font-display)', color: STAGE.text }}>
                     {p.score.toLocaleString()}
                   </span>
                   <button
@@ -941,9 +941,9 @@ function FinalStage({ snap, engine, onClose }: { snap: HostSnapshot; engine: Buz
   }, [reduce]);
 
   const steps = [
-    { place: 2, p: podium[1], h: 120, color: STAGE.silver, edge: STAGE.silverEdge, delay: 0.5 },
-    { place: 1, p: podium[0], h: 170, color: STAGE.gold, edge: STAGE.goldEdge, delay: 1.0 },
-    { place: 3, p: podium[2], h: 85, color: STAGE.bronze, edge: STAGE.bronzeEdge, delay: 0.1 },
+    { place: 2, p: podium[1], h: '7.5rem', color: STAGE.silver, edge: STAGE.silverEdge, delay: 0.5 },
+    { place: 1, p: podium[0], h: '10.625rem', color: STAGE.gold, edge: STAGE.goldEdge, delay: 1.0 },
+    { place: 3, p: podium[2], h: '5.3125rem', color: STAGE.bronze, edge: STAGE.bronzeEdge, delay: 0.1 },
   ];
 
   return (
@@ -954,9 +954,9 @@ function FinalStage({ snap, engine, onClose }: { snap: HostSnapshot; engine: Buz
           <h2 className="text-center text-3xl sm:text-4xl font-extrabold mb-6" style={{ fontFamily: 'var(--font-display)', color: STAGE.text }}>
             {podium[0] ? `${podium[0].name} wins!` : 'Game over'}
           </h2>
-          <ol className="list-none p-0 m-0 flex items-end justify-center gap-2 sm:gap-4" style={{ minHeight: 290 }}>
+          <ol className="list-none p-0 m-0 flex items-end justify-center gap-2 sm:gap-4" style={{ minHeight: '18.125rem' }}>
             {steps.map(({ place, p, h, color, edge, delay }) => (
-              <li key={place} className="flex flex-col items-center w-24 sm:w-40" aria-label={p ? `${ordinal(place)} place: ${p.name}, ${p.score} points` : `${ordinal(place)} place: empty`}>
+              <li key={place} className="flex flex-col items-center w-24 sm:w-40 min-w-0" aria-label={p ? `${ordinal(place)} place: ${p.name}, ${p.score} points` : `${ordinal(place)} place: empty`}>
                 {p && (
                   <motion.div
                     initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16 }}
@@ -976,7 +976,7 @@ function FinalStage({ snap, engine, onClose }: { snap: HostSnapshot; engine: Buz
                 <motion.div
                   className="w-full rounded-t-2xl flex items-start justify-center pt-2"
                   style={{ background: color, boxShadow: `inset 0 -6px 0 ${edge}`, originY: 1 }}
-                  initial={reduce ? false : { height: 0 }}
+                  initial={reduce ? false : { height: '0rem' }}
                   animate={{ height: h }}
                   transition={{ type: 'spring', stiffness: 120, damping: 16, delay: reduce ? 0 : delay }}
                   aria-hidden
@@ -1011,7 +1011,7 @@ function FinalStage({ snap, engine, onClose }: { snap: HostSnapshot; engine: Buz
         </div>
         <ol className="list-none p-0 m-0 divide-y" style={{ borderColor: 'var(--color-border)' }}>
           {ranked.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 py-2.5" style={{ borderColor: 'var(--color-border)' }}>
+            <li key={p.id} className="flex items-center gap-2 sm:gap-3 py-2.5" style={{ borderColor: 'var(--color-border)' }}>
               <span className="w-8 text-center font-extrabold tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-display)' }}>
                 {p.rank ?? '–'}
               </span>
@@ -1022,7 +1022,7 @@ function FinalStage({ snap, engine, onClose }: { snap: HostSnapshot; engine: Buz
               <span className="text-sm tabular-nums hidden sm:inline" style={{ color: 'var(--color-text-secondary)' }}>
                 {p.correctCount} of {snap.total} right
               </span>
-              <span className="w-20 text-right font-extrabold tabular-nums" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
+              <span className="sm:w-20 shrink-0 text-right font-extrabold tabular-nums" style={{ color: 'var(--color-text)', fontFamily: 'var(--font-display)' }}>
                 {p.score.toLocaleString()}
               </span>
             </li>

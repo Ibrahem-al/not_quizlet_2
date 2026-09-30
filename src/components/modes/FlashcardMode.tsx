@@ -167,7 +167,7 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
             You reviewed all {cards.length} cards
           </p>
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-wrap gap-3 justify-center">
             <Button
               variant="primary"
               onClick={() => {
@@ -242,21 +242,22 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
         className="relative cursor-pointer select-none"
         style={{
           perspective: 1000,
-          minHeight: 320,
+          minHeight: '20rem',
         }}
         onClick={handleFlip}
         whileTap={{ scale: 0.98 }}
       >
-        <div style={{ transformStyle: 'preserve-3d', position: 'relative', minHeight: 320 }}>
+        <div style={{ transformStyle: 'preserve-3d', position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', minHeight: '20rem' }}>
           {/* Front face */}
           <motion.div
-            className="absolute inset-0 flex items-center justify-center p-8 rounded-2xl"
+            className="flex items-center justify-center p-8 rounded-2xl"
             style={{
+              gridArea: '1 / 1',
               background: 'var(--color-surface)',
               boxShadow: 'var(--shadow-card)',
               borderRadius: 'var(--radius-xl)',
               backfaceVisibility: 'hidden',
-              minHeight: 320,
+              minHeight: '20rem',
             }}
             animate={{ rotateY: isFlipped ? 180 : 0 }}
             transition={{ type: 'spring', stiffness: 280, damping: 26 }}
@@ -274,13 +275,14 @@ function FlashcardMode({ cards, setId, exitUrl }: FlashcardModeProps) {
 
           {/* Back face */}
           <motion.div
-            className="absolute inset-0 flex items-center justify-center p-8 rounded-2xl"
+            className="flex items-center justify-center p-8 rounded-2xl"
             style={{
+              gridArea: '1 / 1',
               background: 'var(--color-surface)',
               boxShadow: 'var(--shadow-card)',
               borderRadius: 'var(--radius-xl)',
               backfaceVisibility: 'hidden',
-              minHeight: 320,
+              minHeight: '20rem',
             }}
             animate={{ rotateY: isFlipped ? 0 : -180 }}
             transition={{ type: 'spring', stiffness: 280, damping: 26 }}

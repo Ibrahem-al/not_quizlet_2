@@ -284,7 +284,7 @@ function FolderDetailPage() {
     <PageTransition>
       <div className="max-w-5xl mx-auto px-4 py-6">
         {/* Breadcrumb */}
-        <nav className="flex items-center gap-1 text-sm mb-4">
+        <nav className="flex flex-wrap items-center gap-1 text-sm mb-4">
           <Link
             to="/"
             className="transition-colors"
@@ -299,16 +299,16 @@ function FolderDetailPage() {
             Home
           </Link>
           {breadcrumbs.map((crumb, i) => (
-            <span key={crumb.id} className="flex items-center gap-1">
-              <ChevronRight size={14} style={{ color: 'var(--color-text-tertiary)' }} />
+            <span key={crumb.id} className="flex items-center gap-1 min-w-0">
+              <ChevronRight size={14} className="flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
               {i === breadcrumbs.length - 1 ? (
-                <span style={{ color: 'var(--color-text)', fontWeight: 500 }}>
+                <span className="truncate max-w-[10rem]" style={{ color: 'var(--color-text)', fontWeight: 500 }}>
                   {crumb.name}
                 </span>
               ) : (
                 <Link
                   to={`/folders/${crumb.id}`}
-                  className="transition-colors"
+                  className="transition-colors truncate max-w-[10rem]"
                   style={{ color: 'var(--color-text-tertiary)', textDecoration: 'none' }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.color = 'var(--color-text)';
@@ -325,7 +325,7 @@ function FolderDetailPage() {
         </nav>
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-6">
           <div className="flex items-center gap-3 min-w-0">
             <div
               className="w-3 h-3 rounded-full flex-shrink-0"
@@ -395,7 +395,7 @@ function FolderDetailPage() {
           </div>
 
           {!isEditing && (
-            <div className="flex items-center gap-1 flex-shrink-0">
+            <div className="flex flex-wrap items-center gap-1 sm:flex-shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
@@ -470,7 +470,7 @@ function FolderDetailPage() {
         )}
 
         {/* Search + New Set + New Subfolder */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
           <div className="relative flex-1">
             <Search
               size={16}
@@ -500,12 +500,14 @@ function FolderDetailPage() {
               }}
             />
           </div>
-          <Button onClick={() => setShowNewSubfolder(true)} variant="outline" icon={<FolderPlus size={16} />}>
-            Subfolder
-          </Button>
-          <Button onClick={handleNewSet} icon={<Plus size={16} />}>
-            New Set
-          </Button>
+          <div className="flex gap-3">
+            <Button onClick={() => setShowNewSubfolder(true)} variant="outline" icon={<FolderPlus size={16} />}>
+              Subfolder
+            </Button>
+            <Button onClick={handleNewSet} icon={<Plus size={16} />}>
+              New Set
+            </Button>
+          </div>
         </div>
 
         {/* New Subfolder inline form */}
@@ -521,7 +523,7 @@ function FolderDetailPage() {
               overflow: 'hidden',
             }}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <input
                 autoFocus
                 value={newSubfolderName}
@@ -531,7 +533,7 @@ function FolderDetailPage() {
                   if (e.key === 'Escape') { setShowNewSubfolder(false); setNewSubfolderName(''); }
                 }}
                 placeholder="Subfolder name"
-                className="flex-1 h-9 px-3 text-sm"
+                className="basis-full sm:basis-auto sm:flex-1 min-w-0 h-9 px-3 text-sm"
                 style={{
                   background: 'var(--color-muted)',
                   color: 'var(--color-text)',
@@ -541,12 +543,12 @@ function FolderDetailPage() {
                   outline: 'none',
                 }}
               />
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {COLOR_KEYS.map((color) => (
                   <button
                     key={color}
                     onClick={() => setNewSubfolderColor(color)}
-                    className="w-5 h-5 rounded-full cursor-pointer"
+                    className="w-5 h-5 rounded-full cursor-pointer flex-shrink-0"
                     style={{
                       background: FOLDER_COLORS[color],
                       border: 'none',
@@ -572,7 +574,7 @@ function FolderDetailPage() {
             </p>
             <div
               className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(12.5rem, 100%), 1fr))' }}
             >
               {filteredFolders.map((child) => {
                 const childSetCount = sets.filter((s) => s.folderId === child.id).length;
@@ -619,7 +621,7 @@ function FolderDetailPage() {
             <motion.div
               className="grid gap-4"
               style={{
-                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(min(17.5rem, 100%), 1fr))',
               }}
             >
               {filteredSets.map((set) => (

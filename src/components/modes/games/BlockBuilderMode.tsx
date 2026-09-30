@@ -106,7 +106,7 @@ function ConfigScreen({ onStart, cardCount }: { onStart: (config: GameConfig) =>
     <div className="max-w-xl mx-auto px-4 py-8">
       <div className="rounded-3xl overflow-hidden" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.18)' }}>
         <SceneBackdrop compact>
-          <div className="flex items-end justify-center gap-3 h-full pb-4">
+          <div className="flex items-end justify-center gap-3 h-full pt-4 pb-4">
             <Mascot mood="happy" color="#f2b33d" accessory="hardhat" size={84} />
             <div className="pb-3 text-left">
               <h2 className="text-3xl font-extrabold" style={{ color: '#17324a', fontFamily: 'var(--font-display)' }}>
@@ -188,9 +188,9 @@ function ConfigScreen({ onStart, cardCount }: { onStart: (config: GameConfig) =>
 function SceneBackdrop({ children, compact, danger }: { children?: React.ReactNode; compact?: boolean; danger?: boolean }) {
   return (
     <div
-      className="relative overflow-hidden"
+      className={compact ? 'relative overflow-hidden flex flex-col justify-end' : 'relative overflow-hidden'}
       style={{
-        height: compact ? 150 : '100%',
+        ...(compact ? { minHeight: '9.375rem' } : { height: '100%' }),
         background: `linear-gradient(180deg, ${SCENE.skyTop}, ${SCENE.skyBottom})`,
       }}
     >
@@ -205,7 +205,7 @@ function SceneBackdrop({ children, compact, danger }: { children?: React.ReactNo
         className="absolute inset-0 pointer-events-none transition-opacity duration-500"
         style={{ boxShadow: 'inset 0 0 80px 10px rgba(229,56,40,0.55)', opacity: danger ? 1 : 0 }}
       />
-      <div className="absolute inset-0">{children}</div>
+      <div className={compact ? 'relative' : 'absolute inset-0'}>{children}</div>
     </div>
   );
 }

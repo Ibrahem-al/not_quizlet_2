@@ -91,6 +91,15 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
   const lockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const equivalenceGroups = useMemo(() => buildEquivalenceGroups(cards), [cards]);
+  const [boardEl, setBoardEl] = useState<HTMLDivElement | null>(null);
+  const [boardWidth, setBoardWidth] = useState(0);
+
+  useEffect(() => {
+    if (!boardEl) return;
+    const ro = new ResizeObserver(([entry]) => setBoardWidth(entry.contentRect.width));
+    ro.observe(boardEl);
+    return () => ro.disconnect();
+  }, [boardEl]);
 
   const escArmed = useEscToQuit(phase !== 'setup', phase === 'playing', exit);
 
@@ -320,7 +329,7 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
   }
 
   // ===== Board =====
-  const columns = columnsFor(memoryCards.length);
+  const columns = fitColumns(columnsFor(memoryCards.length), boardWidth);
   const rows = Math.ceil(memoryCards.length / columns);
   const gridVariants: Variants = { hidden: {}, show: { transition: { staggerChildren: reduce ? 0 : 0.035 } } };
   const itemVariants: Variants = reduce
@@ -331,7 +340,7 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
       };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col" style={{ height: 'calc(100dvh - 8.5rem)', minHeight: 420 }}>
+    <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col" style={{ height: 'calc(100dvh - 8.5rem)', minHeight: '26.25rem' }}>
       <EscBanner show={escArmed} />
       <GameTopBar onExit={exit}>
         <span className="flex gap-3 text-sm font-semibold tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
@@ -354,13 +363,15 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
           <Mascot mood={mood} color={TABLE.mascot} accessory="tufts" size={60} />
         </div>
         <motion.div
-          className="grid gap-2 sm:gap-2.5 h-full"
+          ref={setBoardEl}
+          // -m-2/p-2 leaves room for the hover lift, shake and focus ring inside the scroll clip
+          className="grid gap-2 sm:gap-2.5 -m-2 p-2 h-[calc(100%+1rem)] overflow-y-auto"
           style={{
             // capped tracks keep small boards from blowing cards up to poster size
-            gridTemplateColumns: `repeat(${columns}, minmax(0, 200px))`,
-            gridTemplateRows: `repeat(${rows}, minmax(0, 250px))`,
+            gridTemplateColumns: `repeat(${columns}, minmax(0, 12.5rem))`,
+            gridTemplateRows: `repeat(${rows}, minmax(6rem, 15.625rem))`,
             justifyContent: 'center',
-            alignContent: 'center',
+            alignContent: 'safe center',
           }}
           variants={gridVariants}
           initial="hidden"
@@ -431,7 +442,7 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
                     }}
                   >
                     <span
-                      className="self-start text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                      className="self-start text-[0.625rem] font-bold px-1.5 py-0.5 rounded shrink-0"
                       style={{ background: isTerm ? '#dbe9ff' : '#fdebc8', color: isTerm ? '#1d4ed8' : '#92400e' }}
                     >
                       {isTerm ? 'Term' : 'Definition'}
@@ -450,6 +461,18 @@ function MemoryCardFlipMode({ cards, setId, exitUrl }: MemoryCardFlipModeProps) 
       </div>
     </div>
   );
+}
+
+/**
+ * With a larger text size, drop columns once cards would be narrower than 6.5rem,
+ * but never below columns / scale, so the default size keeps its layout.
+ */
+function fitColumns(columns: number, boardWidth: number): number {
+  if (boardWidth <= 0) return columns;
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const byWidth = Math.floor(boardWidth / (6.5 * rootPx));
+  const byScale = Math.floor(columns / Math.max(1, rootPx / 16));
+  return Math.max(1, Math.min(columns, Math.max(byWidth, byScale)));
 }
 
 function columnsFor(total: number): number {

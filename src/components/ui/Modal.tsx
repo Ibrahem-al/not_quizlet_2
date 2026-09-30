@@ -99,7 +99,7 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={title ? titleId : undefined}
             tabIndex={-1}
-            className={cn('relative w-full mx-4', sizeClasses[size])}
+            className={cn('relative w-full mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto', sizeClasses[size])}
             style={{
               background: 'var(--color-surface)',
               borderRadius: 'var(--radius-xl)',
@@ -112,10 +112,10 @@ export function Modal({
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
           >
             {title && (
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between gap-3 mb-4">
                 <h2
                   id={titleId}
-                  className="text-lg font-semibold"
+                  className="text-lg font-semibold min-w-0 break-words"
                   style={{
                     color: danger ? 'var(--color-danger)' : 'var(--color-text)',
                     fontFamily: 'var(--font-sans)',
@@ -127,7 +127,7 @@ export function Modal({
                   data-modal-close
                   aria-label="Close dialog"
                   onClick={onClose}
-                  className="flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition-colors"
+                  className="flex items-center justify-center shrink-0 w-8 h-8 rounded-full cursor-pointer transition-colors"
                   style={{
                     color: 'var(--color-text-tertiary)',
                     background: 'transparent',

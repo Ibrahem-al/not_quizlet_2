@@ -111,9 +111,10 @@ function SetupScreen({
     <div className="cw-desk min-h-[calc(100dvh-8rem)] px-3 sm:px-4 py-8">
       <div className="max-w-xl mx-auto">
         <GameTopBar onExit={onExit} tone="dark" />
-        <div className="relative mt-5 rounded-2xl cw-paper p-5 sm:p-7" style={{ boxShadow: '0 18px 40px rgba(40,20,5,0.4)', rotate: '-0.6deg' }}>
+        <div className="@container relative mt-5 rounded-2xl cw-paper p-5 sm:p-7" style={{ boxShadow: '0 18px 40px rgba(40,20,5,0.4)', rotate: '-0.6deg' }}>
           <div className="cw-spiral" aria-hidden />
-          <div className="flex items-center gap-4">
+          {/* Stacks only when large text leaves no room beside the art */}
+          <div className="flex flex-col items-start @min-[16rem]:flex-row @min-[16rem]:items-center gap-4">
             <MiniGridArt />
             <div className="min-w-0">
               <h2 className="text-3xl font-extrabold" style={{ color: ART.ink, fontFamily: 'var(--font-display)' }}>
@@ -684,7 +685,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
 
           <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 items-start">
             {/* Grid + current clue */}
-            <div className="w-full lg:w-[min(560px,58%)] shrink-0">
+            <div className="w-full lg:w-[min(35rem,58%)] shrink-0">
               <CurrentClue
                 word={activeWord}
                 onPrev={() => {
@@ -698,7 +699,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
               />
               <div
                 className="relative mx-auto mt-3"
-                style={{ width: `min(100%, ${puzzle.width * 42}px)`, containerType: 'inline-size' }}
+                style={{ width: `min(100%, ${puzzle.width * 2.625}rem)`, containerType: 'inline-size' }}
               >
                 <div
                   className="relative rounded-md"
@@ -781,7 +782,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
                   {phase === 'stamp' && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 3 }}>
                       <div
-                        className="cw-stamp px-5 py-2 rounded-lg text-4xl sm:text-5xl font-extrabold"
+                        className="cw-stamp px-[min(1.25rem,5cqw)] py-2 rounded-lg text-[min(2.25rem,16cqw)] leading-[1.1] sm:text-[min(3rem,16cqw)] sm:leading-none font-extrabold"
                         style={{
                           color: ART.red,
                           border: `5px solid ${ART.red}`,
@@ -803,9 +804,11 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
             </div>
 
             {/* Clue lists */}
-            <div className="w-full min-w-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
-              <ClueList title="Across" words={across} active={activeWord} correct={correctWords} onPick={selectWord} />
-              <ClueList title="Down" words={down} active={activeWord} correct={correctWords} onPick={selectWord} />
+            <div className="@container w-full min-w-0">
+              <div className="grid grid-cols-1 sm:max-lg:@min-[26rem]:grid-cols-2 xl:@min-[24rem]:grid-cols-2 gap-4">
+                <ClueList title="Across" words={across} active={activeWord} correct={correctWords} onPick={selectWord} />
+                <ClueList title="Down" words={down} active={activeWord} correct={correctWords} onPick={selectWord} />
+              </div>
             </div>
           </div>
         </div>
@@ -870,7 +873,7 @@ function CurrentClue({ word, onPrev, onNext }: { word: PlacedWord | null; onPrev
       >
         <ChevronLeft size={20} />
       </button>
-      <div className="flex-1 min-w-0 py-2 px-1 min-h-[52px] flex items-center gap-2">
+      <div className="flex-1 min-w-0 py-2 px-1 min-h-[3.25rem] flex items-center gap-2">
         {word ? (
           <>
             <span className="shrink-0 font-extrabold tabular-nums" style={{ fontFamily: 'var(--font-display)' }}>
@@ -879,7 +882,7 @@ function CurrentClue({ word, onPrev, onNext }: { word: PlacedWord | null; onPrev
             </span>
             <span className="min-w-0 text-sm sm:text-base font-semibold leading-snug">
               {word.clueText ? (
-                <span className="line-clamp-3">{word.clueText}</span>
+                <span className="line-clamp-6">{word.clueText}</span>
               ) : (
                 <StudyContent html={word.clueHtml} className="cw-clue-img" />
               )}{' '}

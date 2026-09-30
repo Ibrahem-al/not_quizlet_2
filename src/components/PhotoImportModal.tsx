@@ -197,7 +197,7 @@ export function PhotoImportModal({ isOpen, onClose, onImportCards }: PhotoImport
       {/* Step 2: Processing */}
       {step === 'processing' && (
         <div className="flex flex-col items-center gap-4 py-8">
-          <Loader2 size={40} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+          <Loader2 size={40} className="animate-spin w-10 h-10" style={{ color: 'var(--color-primary)' }} />
           <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             {statusText}
           </p>
@@ -280,7 +280,7 @@ export function PhotoImportModal({ isOpen, onClose, onImportCards }: PhotoImport
                     value={pair.term}
                     onChange={(e) => updatePair(i, 'term', e.target.value)}
                     placeholder="Term"
-                    className="flex-1 px-2 py-1 rounded text-sm"
+                    className="flex-1 min-w-0 px-2 py-1 rounded text-sm"
                     style={{
                       background: 'var(--color-surface)',
                       color: 'var(--color-text)',
@@ -291,7 +291,7 @@ export function PhotoImportModal({ isOpen, onClose, onImportCards }: PhotoImport
                     value={pair.definition}
                     onChange={(e) => updatePair(i, 'definition', e.target.value)}
                     placeholder="Definition"
-                    className="flex-1 px-2 py-1 rounded text-sm"
+                    className="flex-1 min-w-0 px-2 py-1 rounded text-sm"
                     style={{
                       background: 'var(--color-surface)',
                       color: 'var(--color-text)',

@@ -132,11 +132,12 @@ function HomePage() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="primary"
                 onClick={() => navigate('/sets/new')}
                 icon={<Plus size={18} />}
+                className="flex-1 sm:flex-none whitespace-nowrap"
               >
                 New Set
               </Button>
@@ -144,6 +145,7 @@ function HomePage() {
                 variant="outline"
                 onClick={() => navigate('/daily')}
                 icon={<Flame size={18} />}
+                className="flex-1 sm:flex-none whitespace-nowrap"
               >
                 Daily Quest
               </Button>
@@ -202,17 +204,17 @@ function HomePage() {
 
           {/* Active folder indicator */}
           {selectedFolder && (
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               <span className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
                 Showing sets in:
               </span>
               <button
                 onClick={() => navigate(`/folders/${selectedFolder.id}`)}
-                className="flex items-center gap-1.5 text-sm font-medium cursor-pointer"
+                className="flex items-center gap-1.5 text-sm font-medium cursor-pointer min-w-0 max-w-full"
                 style={{ color: 'var(--color-primary)', background: 'none', border: 'none', fontFamily: 'var(--font-sans)' }}
               >
-                <FolderOpen size={14} />
-                {selectedFolder.name}
+                <FolderOpen size={14} className="flex-shrink-0" />
+                <span className="truncate">{selectedFolder.name}</span>
               </button>
               <button
                 onClick={() => selectFolder(null)}
