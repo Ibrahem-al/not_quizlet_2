@@ -23,3 +23,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local tool artifacts / crash dumps
+.playwright-mcp/
+*.stackdump
