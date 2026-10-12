@@ -6,7 +6,10 @@ import type { ModeProps } from '@/components/modes/registry';
 import type { Card } from '@/types';
 import { cn, isImageOnly, shuffleArray, stripHtml } from '@/lib/utils';
 import {
+  foldAnswer,
   generateCrossword,
+  isRtl,
+  sameLetter,
   toAnswer,
   wordLengths,
   MAX_WORD,
@@ -62,6 +65,11 @@ const PAR_SECONDS_PER_LETTER = 7;
 
 type Phase = 'setup' | 'empty' | 'countdown' | 'game' | 'stamp' | 'done';
 
+interface Caret {
+  cursor: number;
+  dir: Direction;
+}
+
 interface Result {
   final: number;
   timeBonus: number;
@@ -71,16 +79,23 @@ interface Result {
 }
 
 function buildEntries(cards: Card[]): CrosswordEntry[] {
-  return cards.flatMap((card) => {
-    const termText = stripHtml(card.term);
+  const all = cards.flatMap((card) => {
+    // Bracketed asides ("كتاب (kitāb)", "bank (river)") aren't part of the answer.
+    const termText = stripHtml(card.term).replace(/\([^)]*\)|\[[^\]]*\]/g, ' ');
     const answer = toAnswer(termText);
     if (answer.length < MIN_WORD || answer.length > MAX_WORD) return [];
+    // Mixed scripts can't be typed on one keyboard or read in one direction.
+    const rtlLetters = Array.from(answer).filter(isRtl).length;
+    if (rtlLetters > 0 && rtlLetters < answer.length) return [];
     const clueText = stripHtml(card.definition);
     if (!clueText && !isImageOnly(card.definition)) return [];
     // A clue that spells out its own answer gives the game away.
-    if (clueText && toAnswer(clueText).includes(answer) && answer.length > 3) return [];
+    if (clueText && foldAnswer(toAnswer(clueText)).includes(foldAnswer(answer)) && answer.length > 3) return [];
     return [{ id: card.id, answer, lengths: wordLengths(termText), clueText, clueHtml: card.definition }];
   });
+  // Words in different scripts never cross, so build from the bigger group (right-to-left wins a tie).
+  const rtl = all.filter((e) => isRtl(e.answer));
+  return rtl.length * 2 >= all.length ? rtl : all.filter((e) => !isRtl(e.answer));
 }
 
 function lengthLabel(w: CrosswordEntry): string {
@@ -88,7 +103,15 @@ function lengthLabel(w: CrosswordEntry): string {
 }
 
 function wordCorrect(word: PlacedWord, entries: string[], puzzle: Crossword): boolean {
-  return word.cells.every((idx) => entries[idx] === puzzle.cells[idx]?.letter);
+  return word.cells.every((idx) => sameLetter(entries[idx], puzzle.cells[idx]?.letter));
+}
+
+/** The word through square `idx`, in direction `dir` when there is one. */
+function wordAt(puzzle: Crossword | null, byId: Map<string, PlacedWord>, idx: number, dir: Direction): PlacedWord | null {
+  const cell = puzzle?.cells[idx];
+  if (!cell) return null;
+  const id = cell[dir] ?? cell[dir === 'across' ? 'down' : 'across'];
+  return id ? byId.get(id) ?? null : null;
 }
 
 function formatClock(s: number): string {
@@ -209,6 +232,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
   const [result, setResult] = useState<Result | null>(null);
   const { popups, push, remove } = usePopups();
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastNudge = useRef(0);
 
   const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const later = useCallback((fn: () => void, ms: number) => {
@@ -271,12 +295,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
 
   const words = useMemo(() => puzzle?.words ?? [], [puzzle]);
   const wordById = useMemo(() => new Map(words.map((w) => [w.id, w])), [words]);
-  const activeWord = useMemo(() => {
-    const cell = puzzle?.cells[cursor];
-    if (!cell) return null;
-    const id = cell[dir] ?? cell[dir === 'across' ? 'down' : 'across'];
-    return id ? wordById.get(id) ?? null : null;
-  }, [puzzle, cursor, dir, wordById]);
+  const activeWord = useMemo(() => wordAt(puzzle, wordById, cursor, dir), [puzzle, cursor, dir, wordById]);
   const activeCells = useMemo(() => new Set(activeWord?.cells ?? []), [activeWord]);
   const correctWords = useMemo(
     () => (puzzle ? new Set(words.filter((w) => wordCorrect(w, entries, puzzle)).map((w) => w.id)) : new Set<string>()),
@@ -310,18 +329,24 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
   };
 
   /** Next (or previous) clue, preferring words that aren't finished yet. */
-  const stepWord = (from: PlacedWord | null, delta: 1 | -1, currentEntries = entries) => {
-    if (!puzzle || words.length === 0) return;
+  const findStep = (from: PlacedWord | null, delta: 1 | -1, currentEntries: string[]): Caret | null => {
+    if (!puzzle || words.length === 0) return null;
     const at = from ? words.indexOf(from) : -1;
     for (let k = 1; k <= words.length; k++) {
       const w = words[(at + delta * k + words.length * 2) % words.length];
       if (!wordCorrect(w, currentEntries, puzzle) || k === words.length) {
         const empty = w.cells.find((i) => !currentEntries[i]);
-        setCursor(empty ?? w.cells[0]);
-        setDir(w.dir);
-        return;
+        return { cursor: empty ?? w.cells[0], dir: w.dir };
       }
     }
+    return null;
+  };
+
+  const stepWord = (from: PlacedWord | null, delta: 1 | -1) => {
+    const step = findStep(from, delta, entries);
+    if (!step) return;
+    setCursor(step.cursor);
+    setDir(step.dir);
   };
 
   const moveArrow = (dr: number, dc: number) => {
@@ -371,9 +396,9 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
     }
   };
 
-  /** Apply new entries: award newly finished words and check for the end. */
-  const commit = (next: string[], hintDelta = 0): { complete: boolean; solvedWord: boolean } => {
-    if (!puzzle) return { complete: false, solvedWord: false };
+  /** Apply new entries: award newly finished words and check for the end. True once the puzzle is solved. */
+  const commit = (next: string[], hintDelta = 0): boolean => {
+    if (!puzzle) return false;
     const newly = words.filter((w) => !awarded.has(w.id) && wordCorrect(w, next, puzzle));
     let gained = 0;
     for (const w of newly) gained += w.answer.length * POINTS_PER_LETTER;
@@ -392,44 +417,61 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
       later(() => setMood('idle'), 1200);
       push({ text: `+${gained}`, color: ART.solvedInk, x: 45, y: 30 });
     }
-    const complete = puzzle.cells.every((cell, i) => !cell || next[i] === cell.letter);
-    if (complete) {
-      finish(next, false, newScore);
-      return { complete: true, solvedWord: true };
-    }
-    return { complete: false, solvedWord: newly.length > 0 };
+    const complete = puzzle.cells.every((cell, i) => !cell || sameLetter(next[i], cell.letter));
+    if (complete) finish(next, false, newScore);
+    return complete;
   };
 
-  const advanceAfterEntry = (next: string[], wordDone: boolean) => {
-    if (!activeWord || !puzzle) return;
-    const filled = activeWord.cells.every((i) => next[i]);
-    if (filled && (wordDone || wordCorrect(activeWord, next, puzzle))) {
-      stepWord(activeWord, 1, next);
-      return;
-    }
-    const pos = activeWord.cells.indexOf(cursor);
-    const after = activeWord.cells.slice(pos + 1).find((i) => !next[i]);
-    if (after !== undefined) setCursor(after);
-    else if (pos < activeWord.cells.length - 1) setCursor(activeWord.cells[pos + 1]);
-    else {
-      const firstEmpty = activeWord.cells.find((i) => !next[i]);
-      if (firstEmpty !== undefined) setCursor(firstEmpty);
-    }
+  /** Where the caret goes once a letter lands at `at` in `word`. */
+  const caretAfter = (word: PlacedWord, at: number, next: string[]): Caret => {
+    if (puzzle && wordCorrect(word, next, puzzle)) return findStep(word, 1, next) ?? { cursor: at, dir: word.dir };
+    const pos = word.cells.indexOf(at);
+    const after = word.cells.slice(pos + 1).find((i) => !next[i]);
+    if (after !== undefined) return { cursor: after, dir: word.dir };
+    if (pos < word.cells.length - 1) return { cursor: word.cells[pos + 1], dir: word.dir };
+    return { cursor: word.cells.find((i) => !next[i]) ?? at, dir: word.dir };
   };
 
-  const typeLetter = (letter: string) => {
+  const nudgeKeyboard = () => {
+    if (Date.now() - lastNudge.current < 2500) return;
+    lastNudge.current = Date.now();
+    push({ text: 'Switch keyboard language', color: ART.red, x: 15, y: 20 });
+  };
+
+  /** Fill letters from the caret on. Usually one; the Arabic lam-alef key types two (لا). */
+  const typeLetters = (typed: string) => {
     if (!puzzle || !playing) return;
-    const cell = puzzle.cells[cursor];
-    if (!cell) return;
     const next = entries.slice();
-    if (!revealed.has(cursor)) next[cursor] = letter;
-    if (wrong.has(cursor)) {
-      const w = new Set(wrong);
-      w.delete(cursor);
-      setWrong(w);
+    const nextWrong = new Set(wrong);
+    let at = cursor;
+    let caretDir = dir;
+    let changed = false;
+    let letters = Array.from(typed);
+    // The caret skips squares a crossing word already filled, so لا right after a filled lam only needs the alef.
+    const prev = activeWord?.cells[activeWord.cells.indexOf(cursor) - 1];
+    if (letters.length > 1 && prev !== undefined && sameLetter(entries[prev], letters[0])) letters = letters.slice(1);
+    for (const letter of letters) {
+      if (!puzzle.cells[at]) break;
+      // Another script can never be right, e.g. an English keyboard on an Arabic puzzle.
+      if (isRtl(letter) !== puzzle.rtl) {
+        nudgeKeyboard();
+        break;
+      }
+      if (!revealed.has(at)) next[at] = letter;
+      nextWrong.delete(at);
+      changed = true;
+      const word = wordAt(puzzle, wordById, at, caretDir);
+      if (!word) break;
+      const caret = caretAfter(word, at, next);
+      at = caret.cursor;
+      caretDir = caret.dir;
     }
-    const { complete, solvedWord } = commit(next);
-    if (!complete) advanceAfterEntry(next, solvedWord);
+    if (!changed) return;
+    if (nextWrong.size !== wrong.size) setWrong(nextWrong);
+    if (!commit(next)) {
+      setCursor(at);
+      setDir(caretDir);
+    }
   };
 
   const backspace = () => {
@@ -457,7 +499,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
     if (!puzzle || !playing) return;
     const bad = new Set<number>();
     puzzle.cells.forEach((cell, i) => {
-      if (cell && entries[i] && entries[i] !== cell.letter) bad.add(i);
+      if (cell && entries[i] && !sameLetter(entries[i], cell.letter)) bad.add(i);
     });
     setWrong(bad);
     setChecks((c) => c + 1);
@@ -488,9 +530,9 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
   const revealLetter = () => {
     if (!puzzle || !playing) return;
     const cell = puzzle.cells[cursor];
-    if (!cell || entries[cursor] === cell.letter) {
+    if (!cell || sameLetter(entries[cursor], cell.letter)) {
       // Current square is already right: reveal the next wrong/empty one in the word instead.
-      const target = activeWord?.cells.find((i) => entries[i] !== puzzle.cells[i]?.letter);
+      const target = activeWord?.cells.find((i) => !sameLetter(entries[i], puzzle.cells[i]?.letter));
       if (target === undefined) return;
       setCursor(target);
       return revealAt(target);
@@ -509,18 +551,22 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (!playing || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
-    if (/^[a-zA-Z]$/.test(k)) {
+    // One letter per key, except the Arabic lam-alef key (لا).
+    const letters = k.length === 1 || k === 'لا' ? toAnswer(k) : '';
+    // A right-to-left grid is mirrored, so the arrows step the other way through columns.
+    const right = puzzle?.rtl ? -1 : 1;
+    if (letters) {
       e.preventDefault();
-      typeLetter(k.toUpperCase());
+      typeLetters(letters);
     } else if (k === 'Backspace' || k === 'Delete') {
       e.preventDefault();
       backspace();
     } else if (k === 'ArrowLeft') {
       e.preventDefault();
-      moveArrow(0, -1);
+      moveArrow(0, -right);
     } else if (k === 'ArrowRight') {
       e.preventDefault();
-      moveArrow(0, 1);
+      moveArrow(0, right);
     } else if (k === 'ArrowUp') {
       e.preventDefault();
       moveArrow(-1, 0);
@@ -543,8 +589,11 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
     if (value.length === 0) {
       backspace();
     } else {
-      const letters = toAnswer(value);
-      if (letters) typeLetter(letters[letters.length - 1]);
+      // A plain insert can carry two letters (Chrome sends the لا key this way); composing
+      // text repeats the letters before it, so only its last one is new.
+      const native = e.nativeEvent as InputEvent;
+      const letters = native.inputType === 'insertText' && native.data ? toAnswer(native.data) : toAnswer(value).slice(-1);
+      if (letters) typeLetters(letters);
     }
     // Keep one placeholder character so the next Backspace still fires an input event.
     el.value = ' ';
@@ -621,7 +670,7 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
   const cellFont = `calc(100cqw / ${puzzle.width} * 0.56)`;
   const numFont = `calc(100cqw / ${puzzle.width} * 0.25)`;
   const cursorRow = Math.floor(cursor / puzzle.width);
-  const cursorCol = cursor % puzzle.width;
+  const cursorX = `${((cursor % puzzle.width) / puzzle.width) * 100}%`;
 
   return (
     <div className="cw-desk min-h-[calc(100dvh-8rem)] px-2 sm:px-4 py-4">
@@ -714,7 +763,8 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
                     ref={inputRef}
                     className="cw-hidden-input"
                     style={{
-                      left: `${(cursorCol / puzzle.width) * 100}%`,
+                      left: puzzle.rtl ? undefined : cursorX,
+                      right: puzzle.rtl ? cursorX : undefined,
                       top: `${(cursorRow / puzzle.height) * 100}%`,
                       width: `${100 / puzzle.width}%`,
                       height: `${100 / puzzle.height}%`,
@@ -737,7 +787,8 @@ export default function CrosswordMode({ cards, setId, exitUrl }: ModeProps) {
                     disabled={!playing}
                   />
                   <div
-                    className="absolute inset-0 grid"
+                    className="cw-grid absolute inset-0 grid"
+                    dir={puzzle.rtl ? 'rtl' : 'ltr'}
                     style={{
                       gridTemplateColumns: `repeat(${puzzle.width}, 1fr)`,
                       gridTemplateRows: `repeat(${puzzle.height}, 1fr)`,
@@ -882,7 +933,7 @@ function CurrentClue({ word, onPrev, onNext }: { word: PlacedWord | null; onPrev
             </span>
             <span className="min-w-0 text-sm sm:text-base font-semibold leading-snug">
               {word.clueText ? (
-                <span className="line-clamp-6">{word.clueText}</span>
+                <span className="line-clamp-6" dir="auto">{word.clueText}</span>
               ) : (
                 <StudyContent html={word.clueHtml} className="cw-clue-img" />
               )}{' '}
@@ -949,7 +1000,7 @@ function ClueList({
                   {w.num}
                 </span>
                 <span className={cn('min-w-0 text-sm leading-snug break-words', done && 'line-through')}>
-                  {w.clueText ? w.clueText : <StudyContent html={w.clueHtml} className="cw-clue-img" />}{' '}
+                  {w.clueText ? <span dir="auto">{w.clueText}</span> : <StudyContent html={w.clueHtml} className="cw-clue-img" />}{' '}
                   <span className="tabular-nums whitespace-nowrap" style={{ color: ART.inkSoft }}>
                     {lengthLabel(w)}
                   </span>

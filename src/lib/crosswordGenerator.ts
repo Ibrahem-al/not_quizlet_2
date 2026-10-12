@@ -9,7 +9,7 @@ export type Direction = 'across' | 'down';
 
 export interface CrosswordEntry {
   id: string;
-  /** Letters only, uppercase (A–Z). */
+  /** Letters only, as `toAnswer` returns them. */
   answer: string;
   /** Letter count of each word in the original term, e.g. [5, 4]. */
   lengths: number[];
@@ -36,6 +36,11 @@ export interface CrosswordCell {
 export interface Crossword {
   width: number;
   height: number;
+  /**
+   * Right-to-left script (Arabic, Hebrew): across answers read right to left,
+   * so the grid is drawn mirrored. Cell indexes stay in answer order.
+   */
+  rtl: boolean;
   /** Flat array, null where there is no square. */
   cells: (CrosswordCell | null)[];
   words: PlacedWord[];
@@ -45,13 +50,43 @@ export const MIN_WORD = 2;
 export const MAX_WORD = 15;
 const MAX_SIDE = 15;
 
-/** Uppercase letters only, accents folded (é → E). */
+/** Arabic short vowels, Quranic marks and tatweel never go in a square. */
+const ARABIC_MARKS = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g;
+
+/**
+ * Letters only, uppercase, in any script. Latin accents are folded (é → E)
+ * and Arabic vowel marks dropped (كِتَابٌ → كتاب); hamza seats are kept.
+ */
 export function toAnswer(text: string): string {
   return text
-    .normalize('NFD')
+    .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
+    .normalize('NFC')
+    .replace(ARABIC_MARKS, '')
     .toUpperCase()
-    .replace(/[^A-Z]/g, '');
+    // One UTF-16 unit per letter, so answer[i] is always a whole letter.
+    .replace(/[^\p{L}]|[\u{10000}-\u{10ffff}]/gu, '');
+}
+
+/** Arabic spellings a solver may type for the same square: hamza on alef, alef maqsura, taa marbuta. */
+const LETTER_FOLD: Record<string, string> = { 'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا', 'ى': 'ي', 'ة': 'ه' };
+
+/** Answer in the form used to match letters (same length as the answer). */
+export function foldAnswer(answer: string): string {
+  return Array.from(answer, (ch) => LETTER_FOLD[ch] ?? ch).join('');
+}
+
+/** Whether a typed letter counts as the solution letter. Empty never matches. */
+export function sameLetter(typed: string | undefined, solution: string | undefined): boolean {
+  if (!typed || !solution) return false;
+  return typed === solution || (LETTER_FOLD[typed] ?? typed) === (LETTER_FOLD[solution] ?? solution);
+}
+
+const RTL_LETTER = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
+
+/** Whether the text contains right-to-left letters. */
+export function isRtl(text: string): boolean {
+  return RTL_LETTER.test(text);
 }
 
 /** Letter counts per word of a term: "Hello world" → [5, 5]. */
@@ -228,15 +263,19 @@ function finalize(board: Board): Crossword {
     })
     .sort((a, b) => (a.dir === b.dir ? a.num - b.num : a.dir === 'across' ? -1 : 1));
 
-  return { width, height, cells, words };
+  return { width, height, rtl: isRtl(board.placements[0].entry.answer), cells, words };
 }
 
 /** Build the best of `attempts` random layouts. Call from an event handler. */
 export function generateCrossword(entries: CrosswordEntry[], maxWords = 14, attempts = 40): Crossword | null {
   const usable = entries.filter((e) => e.answer.length >= MIN_WORD && e.answer.length <= MAX_WORD);
-  // One entry per answer so the same word never appears twice.
+  // One entry per answer so the same word never appears twice. Crossings
+  // still need the exact letter, so a shared square never shows أ for ا.
   const seen = new Set<string>();
-  const unique = usable.filter((e) => (seen.has(e.answer) ? false : (seen.add(e.answer), true)));
+  const unique = usable.filter((e) => {
+    const key = foldAnswer(e.answer);
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
   if (unique.length === 0) return null;
 
   let best: { board: Board; score: number } | null = null;
