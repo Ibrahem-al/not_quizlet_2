@@ -22,7 +22,10 @@ export type SyncState = 'idle' | 'syncing' | 'error' | 'offline';
 
 interface SyncStatusStore {
   state: SyncState;
+  /** Items queued or uploading (queued ones may wait up to 30s to coalesce). */
   pending: number;
+  /** Items whose push is awaiting the network right now. */
+  uploading: number;
   lastSyncedAt: number | null;
   lastError: string | null;
 }
@@ -30,6 +33,7 @@ interface SyncStatusStore {
 export const useSyncStatusStore = create<SyncStatusStore>(() => ({
   state: 'idle',
   pending: 0,
+  uploading: 0,
   lastSyncedAt: null,
   lastError: null,
 }));
@@ -66,6 +70,7 @@ function recomputeStatus(): void {
   const active = queue.size > 0 || inFlight.size > 0;
   reportStatus({
     pending: queue.size + inFlight.size,
+    uploading: inFlight.size,
     state: exhausted.size > 0 ? 'error' : active ? 'syncing' : lastError ? 'error' : 'idle',
   });
 }

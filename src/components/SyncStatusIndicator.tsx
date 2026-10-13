@@ -1,4 +1,4 @@
-import { Cloud, CloudOff, CloudAlert, RefreshCw } from 'lucide-react';
+import { Cloud, CloudOff, CloudAlert, CloudUpload, RefreshCw } from 'lucide-react';
 import { useSyncStatusStore, flushSyncQueue } from '@/lib/syncEngine';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
  *  for signed-in users; clicking it retries a failed/offline sync. */
 export function SyncStatusIndicator() {
   const user = useAuthStore((s) => s.user);
-  const { state, pending, lastError } = useSyncStatusStore();
+  const { state, pending, uploading, lastError } = useSyncStatusStore();
 
   if (!user) return null;
 
@@ -25,17 +25,25 @@ export function SyncStatusIndicator() {
               : 'Sync problem — click to retry',
             color: 'var(--color-danger, #dc2626)',
           }
-        : state === 'syncing' || pending > 0
+        : uploading > 0
           ? {
               icon: <RefreshCw size={18} className="animate-spin" />,
               label: 'Saving to cloud…',
               color: 'var(--color-primary)',
             }
-          : {
-              icon: <Cloud size={18} />,
-              label: 'All changes saved to cloud',
-              color: 'var(--color-text-secondary)',
-            };
+          : pending > 0
+            ? {
+                // Queued but not yet sent — writes coalesce for 2–30s, so
+                // stay still instead of spinning through the whole wait.
+                icon: <CloudUpload size={18} />,
+                label: 'Changes saved on this device, uploading shortly — click to upload now',
+                color: 'var(--color-primary)',
+              }
+            : {
+                icon: <Cloud size={18} />,
+                label: 'All changes saved to cloud',
+                color: 'var(--color-text-secondary)',
+              };
 
   return (
     <button
